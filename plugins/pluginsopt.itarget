@@ -18,4 +18,12 @@ syntax/r_syntax_plugin.cmxa
 syntax/string_syntax_plugin.cmxa
 syntax/z_syntax_plugin.cmxa
 quote/quote_plugin.cmxa
+<<<<<<< HEAD
 derive/derive_plugin.cmxa
+=======
+<<<<<<< HEAD
+Derive/derive_plugin.cmxa
+=======
+mtac2/mtac2_plugin.cmxa
+>>>>>>> f3b527b... Added delay execution through type classes
+>>>>>>> Adding mtac2 to last trunk version. it is a mess

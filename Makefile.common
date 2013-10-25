@@ -12,7 +12,7 @@
 # Executables
 ###########################################################################
 
-COQMKTOP:=bin/coqmktop$(EXE) 
+COQMKTOP:=bin/coqmktop$(EXE)
 
 COQC:=bin/coqc$(EXE)
 
@@ -35,7 +35,7 @@ else
 endif
 
 INSTALLBIN:=install
-INSTALLLIB:=install -m 644 
+INSTALLLIB:=install -m 644
 INSTALLSH:=./install.sh
 MKDIR:=install -d
 
@@ -61,19 +61,20 @@ COQBINARIES:= $(COQMKTOP) \
 CSDPCERT:=plugins/micromega/csdpcert$(EXE)
 
 CORESRCDIRS:=\
-  config 	lib		kernel		kernel/byterun	library \
-  proofs 	tactics 	pretyping	interp		stm \
-  toplevel	parsing	printing	grammar	        intf
+  config        lib             kernel          kernel/byterun  library \
+  proofs        tactics         pretyping       interp          stm \
+  toplevel      parsing printing        grammar         intf
 
 PLUGINS:=\
-  omega		romega 		micromega 	quote \
-  setoid_ring 	extraction 	fourier \
-  cc 		funind 		firstorder 	derive \
-  rtauto 	nsatz           syntax          decl_mode	btauto
+  mtac2 \
+  omega         romega          micromega       quote \
+  setoid_ring   extraction      fourier \
+  cc            funind          firstorder      derive \
+  rtauto        nsatz           syntax          decl_mode       btauto
 
 SRCDIRS:=\
   $(CORESRCDIRS)  \
-  tools 	tools/coqdoc	\
+  tools         tools/coqdoc    \
   $(addprefix plugins/, $(PLUGINS))
 
 IDESRCDIRS:= $(CORESRCDIRS) ide ide/utils
@@ -97,7 +98,7 @@ FAKEIDE:=bin/fake_ide$(EXE)
 COQWORKMGR:=bin/coqworkmgr$(EXE)
 
 TOOLS:=$(COQDEP) $(COQMAKEFILE) $(GALLINA) $(COQTEX) $(COQWC) $(COQDOC) $(COQC)\
-	$(COQWORKMGR)
+        $(COQWORKMGR)
 
 PRIVATEBINARIES:=$(FAKEIDE) $(COQDEPBOOT)
 
@@ -116,7 +117,7 @@ HTMLSTYLE:=simple
 export TEXINPUTS:=$(HEVEALIB):
 COQTEXOPTS:=-boot -n 72 -sl -small
 
-DOCCOMMON:=doc/common/version.tex doc/common/title.tex doc/common/macros.tex 
+DOCCOMMON:=doc/common/version.tex doc/common/title.tex doc/common/macros.tex
 
 REFMANCOQTEXFILES:=$(addprefix doc/refman/, \
   RefMan-gal.v.tex RefMan-ext.v.tex \
@@ -145,7 +146,7 @@ REFMANPNGFILES:=$(REFMANEPSFILES:.eps=.png)
 
 
 ###########################################################################
-# Object and Source files 
+# Object and Source files
 ###########################################################################
 
 COQRUN := coqrun
@@ -163,12 +164,13 @@ BYTERUN:=$(addprefix kernel/byterun/, \
 CORECMA:=lib/clib.cma lib/lib.cma kernel/kernel.cma library/library.cma \
         pretyping/pretyping.cma interp/interp.cma proofs/proofs.cma \
         parsing/parsing.cma printing/printing.cma tactics/tactics.cma \
-	stm/stm.cma toplevel/toplevel.cma parsing/highparsing.cma tactics/hightactics.cma
+        stm/stm.cma toplevel/toplevel.cma parsing/highparsing.cma tactics/hightactics.cma
 
 TOPLOOPCMA:=stm/proofworkertop.cma stm/tacworkertop.cma stm/queryworkertop.cma
 
 GRAMMARCMA:=tools/compat5.cmo grammar/grammar.cma
 
+MTAC2CMA:=plugins/mtac2/mtac2_plugin.cma
 OMEGACMA:=plugins/omega/omega_plugin.cma
 ROMEGACMA:=plugins/romega/romega_plugin.cma
 MICROMEGACMA:=plugins/micromega/micromega_plugin.cma
@@ -187,7 +189,7 @@ OTHERSYNTAXCMA:=$(addprefix plugins/syntax/, \
         z_syntax_plugin.cma \
         numbers_syntax_plugin.cma \
         r_syntax_plugin.cma \
-	ascii_syntax_plugin.cma \
+        ascii_syntax_plugin.cma \
         string_syntax_plugin.cma )
 DECLMODECMA:=plugins/decl_mode/decl_mode_plugin.cma
 DERIVECMA:=plugins/derive/derive_plugin.cma
@@ -197,12 +199,12 @@ PLUGINSCMA:=$(OMEGACMA) $(ROMEGACMA) $(MICROMEGACMA) $(DECLMODECMA) \
         $(FOURIERCMA) $(EXTRACTIONCMA) \
         $(CCCMA)  $(FOCMA) $(RTAUTOCMA) $(BTAUTOCMA) \
         $(FUNINDCMA) $(NSATZCMA) $(NATSYNTAXCMA) $(OTHERSYNTAXCMA) \
-	$(DERIVECMA)
+        $(DERIVECMA)
 
 ifneq ($(HASNATDYNLINK),false)
  STATICPLUGINS:=
  INITPLUGINS:=$(EXTRACTIONCMA) $(FOCMA) $(CCCMA) \
-	$(FUNINDCMA) $(NATSYNTAXCMA)
+        $(FUNINDCMA) $(NATSYNTAXCMA)
  INITPLUGINSOPT:=$(INITPLUGINS:.cma=.cmxs)
  PLUGINS:=$(PLUGINSCMA)
  PLUGINSOPT:=$(PLUGINSCMA:.cma=.cmxs)
@@ -241,8 +243,8 @@ COQCCMO:=$(COQENVCMO) toplevel/usage.cmo tools/coqc.cmo
 ## Misc
 
 CSDPCERTCMO:=$(addprefix plugins/micromega/, \
-  mutils.cmo 	micromega.cmo \
-  sos_types.cmo sos_lib.cmo sos.cmo 	csdpcert.cmo )
+  mutils.cmo    micromega.cmo \
+  sos_types.cmo sos_lib.cmo sos.cmo     csdpcert.cmo )
 
 DEBUGPRINTERS:=dev/top_printers.cmo dev/vm_printers.cmo dev/printers.cma
 
@@ -302,6 +304,7 @@ THEORIESLIGHTVO:= $(INITVO) $(LOGICVO) $(UNICODEVO) $(ARITHVO)
 
 ## Plugins
 
+MTAC2VO:=$(call cat_vo_itarget, plugins/mtac2)
 OMEGAVO:=$(call cat_vo_itarget, plugins/omega)
 ROMEGAVO:=$(call cat_vo_itarget, plugins/romega)
 MICROMEGAVO:=$(call cat_vo_itarget, plugins/micromega)
@@ -317,8 +320,8 @@ CCVO:=
 DERIVEVO:=$(call cat_vo_itarget, plugins/derive)
 
 PLUGINSVO:= $(OMEGAVO) $(ROMEGAVO) $(MICROMEGAVO) \
-	    $(FOURIERVO) $(CCVO) $(FUNINDVO) \
-	    $(RTAUTOVO) $(BTAUTOVO) $(RINGVO) $(QUOTEVO) \
+            $(FOURIERVO) $(CCVO) $(FUNINDVO) \
+            $(RTAUTOVO) $(BTAUTOVO) $(RINGVO) $(QUOTEVO) \
             $(NSATZVO) $(EXTRACTIONVO) $(DERIVEVO)
 
 ALLVO:= $(THEORIESVO) $(PLUGINSVO)
@@ -338,10 +341,10 @@ vo_to_obj = $(foreach vo,$(1),$(dir $(vo)).coq-native/$(subst /,_,$(patsubst the
 ALLMODS:=$(call vo_to_mod,$(ALLVO))
 
 LIBFILES:=$(THEORIESVO) $(PLUGINSVO) $(call vo_to_cm,$(THEORIESVO)) \
-	    $(call vo_to_cm,$(PLUGINSVO)) $(call vo_to_obj,$(THEORIESVO)) \
-	    $(call vo_to_obj,$(PLUGINSVO)) \
-	    $(PLUGINSVO:.vo=.v) $(THEORIESVO:.vo=.v) \
-	    $(PLUGINSVO:.vo=.glob) $(THEORIESVO:.vo=.glob)
+            $(call vo_to_cm,$(PLUGINSVO)) $(call vo_to_obj,$(THEORIESVO)) \
+            $(call vo_to_obj,$(PLUGINSVO)) \
+            $(PLUGINSVO:.vo=.v) $(THEORIESVO:.vo=.v) \
+            $(PLUGINSVO:.vo=.glob) $(THEORIESVO:.vo=.glob)
 
 LIBFILESLIGHT:=$(THEORIESLIGHTVO)
 
@@ -350,9 +353,9 @@ LIBFILESLIGHT:=$(THEORIESLIGHTVO)
 ###########################################################################
 
 MANPAGES:=man/coq-tex.1 man/coqdep.1 man/gallina.1 \
-	man/coqc.1 man/coqtop.1 man/coqtop.byte.1 man/coqtop.opt.1 \
-	man/coqwc.1 man/coqdoc.1 man/coqide.1 \
-	man/coq_makefile.1 man/coqmktop.1 man/coqchk.1
+        man/coqc.1 man/coqtop.1 man/coqtop.byte.1 man/coqtop.opt.1 \
+        man/coqwc.1 man/coqdoc.1 man/coqide.1 \
+        man/coq_makefile.1 man/coqmktop.1 man/coqchk.1
 
 ###########################################################################
 # Source documentation
@@ -361,9 +364,9 @@ MANPAGES:=man/coq-tex.1 man/coqdep.1 man/gallina.1 \
 OCAMLDOCDIR=dev/ocamldoc
 
 DOCMLIS=$(wildcard ./lib/*.mli ./intf/*.mli ./kernel/*.mli ./library/*.mli \
-	./pretyping/*.mli ./interp/*.mli printing/*.mli \
-	./parsing/*.mli ./proofs/*.mli \
-	./tactics/*.mli ./stm/*.mli ./toplevel/*.mli)
+        ./pretyping/*.mli ./interp/*.mli printing/*.mli \
+        ./parsing/*.mli ./proofs/*.mli \
+        ./tactics/*.mli ./stm/*.mli ./toplevel/*.mli)
 
 # Defining options to generate dependencies graphs
 DOT=dot
@@ -378,7 +381,7 @@ GTKBIN=$(shell pkg-config --variable=prefix gtk+-2.0)/bin
 GTKLIBS=$(shell pkg-config --variable=libdir gtk+-2.0)
 
 
-# For emacs: 
-# Local Variables: 
-# mode: makefile 
+# For emacs:
+# Local Variables:
+# mode: makefile
 # End:

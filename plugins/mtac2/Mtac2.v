@@ -116,36 +116,4 @@ Notation "'mtry' a 'as' e 'in' | p1 | .. | pn 'end'" :=
 ).
 
 
-Require Import List.
-
-Program
-Definition example {A} (x : A) :=
-  mfix1 f (s : list A) : M (In x s) :=
-    mmatch s with
-    | [l r] l ++ r =>
-      mtry 
-        p <- f l;
-        ret _
-      with
-      | exception => 
-        p <- f r;
-        ret _
-      end
-    | [s'] x :: s' => ret (in_eq _ _)
-    | [y s'] y :: s' => 
-      r <- f s';
-      ret (in_cons _ _ _ r)
-    | _ => raise exception
-    end. 
-Next Obligation.
-intros. fold (In x (l++r)). apply in_or_app.
-left; assumption.
-Qed.
-Next Obligation.
-intros. fold (In x (l++r)). apply in_or_app.
-right; assumption.
-Qed.
-
-Print example.
-
 End Mtac2Notations.

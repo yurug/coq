@@ -1,4 +1,6 @@
 
+Declare ML Module "mtac2_plugin".
+
 
 Inductive Exception : Type := exception : Exception.
 
@@ -145,3 +147,5 @@ right; assumption.
 Qed.
 
 Print example.
+
+End Mtac2Notations.

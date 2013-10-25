@@ -35,6 +35,27 @@ Qed.
 
 Goal forall s (x y z : nat), In x (s++[z;y;x]).
 intros.
-run (example x (s ++ [z;y;x])) as H.
+run (search x (s ++ [z;y;x])) as H.
 exact H.
+Qed.
+
+
+(** Defines [eval f] to execute after elaboration the Mtactic [f]. 
+    It allows e.g. [rewrite (eval f)]. *)
+Class runner A  (f : M A) := { eval : A }.
+Arguments runner {A} _.
+Arguments Build_runner {A} _ _.
+Arguments eval {A} _ {_}.
+
+Ltac run_matching f :=
+  refine (Build_runner f _);
+  let H := fresh "H" in
+  run f as H;
+  exact H.
+
+Hint Extern 20 (runner ?f) => (run_matching f)  : typeclass_instances.
+
+Goal forall s (x y z : nat), In x (s++[z;y;x]).
+intros.
+apply (eval (search _ _)).
 Qed.

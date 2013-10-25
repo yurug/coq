@@ -9,4 +9,8 @@ romega/vo.otarget
 rtauto/vo.otarget
 setoid_ring/vo.otarget
 extraction/vo.otarget
+<<<<<<< HEAD
 Derive/vo.otarget
+=======
+mtac2/vo.otarget
+>>>>>>> f3b527b... Added delay execution through type classes

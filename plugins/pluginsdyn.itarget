@@ -22,4 +22,8 @@ syntax/r_syntax_plugin.cmxs
 syntax/string_syntax_plugin.cmxs
 syntax/z_syntax_plugin.cmxs
 quote/quote_plugin.cmxs
+<<<<<<< HEAD
 Derive/derive_plugin.cmxs
+=======
+mtac2/mtac2_plugin.cmxs
+>>>>>>> f3b527b... Added delay execution through type classes

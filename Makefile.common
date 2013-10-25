@@ -65,6 +65,7 @@ CORESRCDIRS:=\
   toplevel	parsing	printing	grammar	        intf
 
 PLUGINS:=\
+  mtac2 \
   omega		romega 		micromega 	quote \
   setoid_ring 	xml 		extraction 	fourier \
   cc 		funind 		firstorder 	Derive \
@@ -161,6 +162,7 @@ CORECMA:=lib/clib.cma lib/lib.cma kernel/kernel.cma library/library.cma \
 
 GRAMMARCMA:=tools/compat5.cmo grammar/grammar.cma
 
+MTAC2CMA:=plugins/mtac2/mtac2_plugin.cma
 OMEGACMA:=plugins/omega/omega_plugin.cma
 ROMEGACMA:=plugins/romega/romega_plugin.cma
 MICROMEGACMA:=plugins/micromega/micromega_plugin.cma
@@ -186,7 +188,7 @@ DECLMODECMA:=plugins/decl_mode/decl_mode_plugin.cma
 DERIVECMA:=plugins/Derive/derive_plugin.cma
 
 PLUGINSCMA:=$(OMEGACMA) $(ROMEGACMA) $(MICROMEGACMA) $(DECLMODECMA) \
-        $(QUOTECMA) $(RINGCMA) \
+        $(QUOTECMA) $(RINGCMA) $(MTAC2CMA) \
         $(FOURIERCMA) $(EXTRACTIONCMA) $(XMLCMA) \
         $(CCCMA)  $(FOCMA) $(RTAUTOCMA) $(BTAUTOCMA) \
         $(FUNINDCMA) $(NSATZCMA) $(NATSYNTAXCMA) $(OTHERSYNTAXCMA) \
@@ -294,6 +296,7 @@ THEORIESLIGHTVO:= $(INITVO) $(LOGICVO) $(UNICODEVO) $(ARITHVO)
 
 ## Plugins
 
+MTAC2VO:=$(call cat_vo_itarget, plugins/mtac2)
 OMEGAVO:=$(call cat_vo_itarget, plugins/omega)
 ROMEGAVO:=$(call cat_vo_itarget, plugins/romega)
 MICROMEGAVO:=$(call cat_vo_itarget, plugins/micromega)

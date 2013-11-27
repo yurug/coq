@@ -76,7 +76,7 @@ COMPLEXITY := $(if $(bogomips),complexity)
 BUGS := bugs/opened bugs/closed
 
 VSUBSYSTEMS := prerequisite success failure $(BUGS) output \
-  interactive micromega $(COMPLEXITY) modules stm
+  interactive micromega mtac2 $(COMPLEXITY) modules stm
 
 # All subsystems
 SUBSYSTEMS := $(VSUBSYSTEMS) misc bugs ide
@@ -132,6 +132,7 @@ summary:
 	  $(call summary_dir, "Output tests", output); \
 	  $(call summary_dir, "Interactive tests", interactive); \
 	  $(call summary_dir, "Micromega tests", micromega); \
+	  $(call summary_dir, "Mtac2 tests", mtac2); \
 	  $(call summary_dir, "Miscellaneous tests", misc); \
 	  $(call summary_dir, "Complexity tests", complexity); \
 	  $(call summary_dir, "Module tests", modules); \
@@ -207,7 +208,7 @@ $(addsuffix .log,$(wildcard prerequisite/*.v)): %.v.log: %.v
 	  fi; \
 	} > "$@"
 
-$(addsuffix .log,$(wildcard success/*.v micromega/*.v modules/*.v)): %.v.log: %.v
+$(addsuffix .log,$(wildcard success/*.v micromega/*.v mtac2/*.v modules/*.v)): %.v.log: %.v
 	@echo "TEST      $< $(call get_coq_prog_args_in_parens,"$<")"
 	$(HIDE){ \
 	  opts="$(if $(findstring modules/,$<),-R modules Mods -impredicative-set)"; \

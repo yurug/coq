@@ -10,4 +10,4 @@ val run : (env * evar_map) -> constr -> data
 (* debug *)
 val run' : (env * evar_map) -> constr -> data
 val runmatch' : Environ.env * Evd.evar_map -> 
-  Term.constr -> Term.types -> Term.constr -> int -> Evd.evar_map * Term.constr
+  Term.constr -> Term.types -> Term.constr -> Evd.evar_map * Term.constr

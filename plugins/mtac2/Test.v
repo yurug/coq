@@ -59,3 +59,18 @@ Goal forall s (x y z : nat), In x (s++[z;y;x]).
 intros.
 apply (eval (search _ _)).
 Qed.
+
+
+Goal forall s (x y z : nat), In x (s++[z;y;x]).
+intros.
+let f := constr: (eq_refl _) in
+set (H' := f).
+apply (eval $(   
+  let f :=  constr: (search _ _) in
+  refine (Build_runner f _);
+  let H := fresh "H" in
+  run f as H;
+  exact H
+ )$ ).
+Qed.
+

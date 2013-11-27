@@ -36,6 +36,22 @@ Definition Mfix2 {A1 A2} B := @Mfix2' A1 A2 B Mtac2 (fun _ x => x).
 Definition Mfix3 {A1 A2 A3} B := @Mfix3' A1 A2 A3 B Mtac2 (fun _ x => x).
 
 
+(** Defines [eval f] to execute after elaboration the Mtactic [f]. 
+    It allows e.g. [rewrite (eval f)]. *)
+Class runner A  (f : Mtac2 A) := { eval : A }.
+Arguments runner {A} _.
+Arguments Build_runner {A} _ _.
+Arguments eval {A} _ {_}.
+
+Ltac run_matching f :=
+  refine (Build_runner f _);
+  let H := fresh "H" in
+  run f as H;
+  exact H.
+
+Hint Extern 20 (runner ?f) => (run_matching f)  : typeclass_instances.
+
+
 Module Mtac2Notations.
 
 Notation "'M'" := Mtac2.

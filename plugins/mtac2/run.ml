@@ -45,6 +45,11 @@ module CoqEq = struct
   let mkAppEqRefl a x = mkApp(Lazy.force mkEqRefl, [|a;x|])
 end
 
+module CoqUnit = struct
+  let mkTT = Constr.mkConstr "Coq.Init.Datatypes.tt"
+end
+
+
 (** Module with names of Mtac2 *)
 module MtacNames = struct
   let mtacore_name = "Coq.mtac2.Mtac2"
@@ -230,6 +235,10 @@ let rec run' (env, sigma as ctxt) t =
     | 8 -> (* match *)
 	let (sigma', body) = runmatch (env, sigma) (nth 2) (nth 0) (nth 3) in
 	run' (env, sigma') body
+
+    | 9 -> (* print *)
+      Pp.msg_info (Printer.pr_constr_env env (nth 1));
+      return sigma (Lazy.force CoqUnit.mkTT)
 
     | _ ->
       Exceptions.block "I have no idea what is this Mtac2 construct that you have here"

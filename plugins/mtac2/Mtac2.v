@@ -25,6 +25,7 @@ Inductive Mtac2 : Type -> Prop :=
     (forall (x1 : A1) (x2 : A2 x1) (x3 : A3 x1 x2), S (B x1 x2 x3))) -> 
   forall (x1 : A1) (x2 : A2 x1) (x3 : A3 x1 x2), Mtac2 (B x1 x2 x3)
 | Mmatch : forall {A} B (t : A), list (Mpatt A B t) -> Mtac2 (B t)
+| Mprint : forall {A}, A -> Mtac2 unit
 
 with Mpatt : forall A (B : A -> Type) (t : A), Type := 
 | Mbase : forall {A B t} (x:A) (b : t = x -> Mtac2 (B x)), Mpatt A B t
@@ -58,6 +59,8 @@ Notation "'M'" := Mtac2.
 
 Notation "'ret'" := Mret.
 Notation "'raise'" := Mraise.
+
+Notation "'print'" := Mprint.
 
 Notation "r '<-' t1 ';' t2" := (@Mbind _ _ t1 (fun r=> t2)) 
   (at level 80, right associativity). 

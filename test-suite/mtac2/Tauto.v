@@ -44,14 +44,14 @@ Module WithList.
            nu (x:A),
              r <- f c (q x);
              abs x r
-(*      | [A (q:A -> Prop)] (exists x:A, q x) =>
+      | [A (q:A -> Prop)] (exists x:A, q x) =>
            X <- evar A;
            r <- f c (q X);
            b <- is_evar X;
            if b then 
              raise ProofNotFound
            else
-             ret (ex_intro q X r) *)
+             ret (ex_intro q X r) 
       | [p':Prop] p' => lookup p' c return M (fun p' : Prop=>p')
       end.
   
@@ -76,6 +76,12 @@ Qed.
 
 Example ex_first_order_2'  : 
   forall (p q : nat -> Prop) x , p x -> q x -> p x /\ q x.
+Proof. 
+  refine (eval (WithList.tauto _)).
+Qed.
+
+Example ex_existential  : 
+  forall (p q : nat -> Prop) x , p x -> q x -> exists y z, p y /\ q z.
 Proof. 
   refine (eval (WithList.tauto _)).
 Qed.

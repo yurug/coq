@@ -29,6 +29,8 @@ Inductive Mtac2 : Type -> Prop :=
 | Mnu : forall {A B}, (A -> Mtac2 B) -> Mtac2 B
 | Mis_var : forall {A}, A -> Mtac2 bool
 | Mabs : forall {A P} (x : A), P x -> Mtac2 (forall x, P x)
+| Mevar : forall A, Mtac2 A
+| Mis_evar : forall {A}, A -> Mtac2 bool
 
 with Mpatt : forall A (B : A -> Type) (t : A), Type := 
 | Mbase : forall {A B t} (x:A) (b : t = x -> Mtac2 (B x)), Mpatt A B t
@@ -144,5 +146,7 @@ Notation "'nu' x .. y , a" := (Mnu (fun x=>.. (Mnu (fun y=> a))..))
 
 Notation "'is_var'" := Mis_var.
 Notation "'abs'" := Mabs.
+Notation "'evar'" := Mevar.
+Notation "'is_evar'" := Mis_evar.
 
 End Mtac2Notations.

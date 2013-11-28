@@ -329,6 +329,18 @@ let rec run' (env, sigma as ctxt) t =
       let a, p, x, y = nth 0, nth 1, nth 2, nth 3 in
       abs ctxt a p x y
 
+    | 13 -> (* evar *)
+      let t = nth 0 in
+      let (sigma', ev) = Evarutil.new_evar sigma env t in
+      return sigma' ev
+	
+    | 14 -> (* is_evar *)
+      let e = whd_betadeltaiota env sigma (nth 1) in
+      if isEvar e then
+	return sigma (Lazy.force CoqBool.mkTrue)
+      else
+	return sigma (Lazy.force CoqBool.mkFalse)
+
     | _ ->
       Exceptions.block "I have no idea what is this Mtac2 construct that you have here"
 

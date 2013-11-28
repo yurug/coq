@@ -49,6 +49,15 @@ module CoqUnit = struct
   let mkTT = Constr.mkConstr "Coq.Init.Datatypes.tt"
 end
 
+module CoqBool = struct
+
+  let mkTrue = Constr.mkConstr "Coq.Init.Datatypes.true"
+  let mkFalse = Constr.mkConstr "Coq.Init.Datatypes.false"
+
+  let isTrue = Constr.isConstr mkTrue
+
+end 
+
 
 (** Module with names of Mtac2 *)
 module MtacNames = struct
@@ -77,6 +86,10 @@ module Exceptions = struct
   type reason = string
   let error_stuck : reason = "Cannot reduce term, perhaps an opaque definition?"
   let error_no_match : reason = "No pattern matches"
+  let error_param = "Parameter appears in returned value"
+  let error_abs = "Cannot abstract non variable"
+  let error_abs_env = "Cannot abstract variable in a context depending on it"
+  let error_abs_type = "Variable is appearing in the returning type"
 
   let block reason = Errors.error reason
 end
@@ -182,6 +195,67 @@ let runfix h a b s i f x =
   let fixf = mkApp(h, Array.append a [|b;s;i;f|]) in
   mkApp (f, Array.append [|fixf|] x)
   
+(** Executes [f x] in the context [env] extended with [x : a]. Before
+    returning it must check that [x] does not occur free in the
+    returned value (or exception). *)
+let runnu run' (env, sigma) a f =
+  let fx = mkApp(Vars.lift 1 f, [|mkRel 1|]) in
+  match run' (push_rel (Anonymous, None, a) env, sigma) fx with
+    | Val (sigma', e) ->
+      if Int.Set.mem 1 (free_rels e) then
+        Exceptions.block Exceptions.error_param
+      else
+	return sigma' (pop e)
+    | Err e -> 
+      if Int.Set.mem 1 (free_rels e) then
+        Exceptions.block Exceptions.error_param
+      else
+	fail (pop e)
+
+
+(* checks that no variable in env to the right of i (that is, smaller
+   to i) depends on i. *)
+let noccurn_env env i =
+  let rec noc n =
+    if n = 1 then true
+    else
+      let (_, t, a) = Environ.lookup_rel (i-n+1) env in
+      Vars.noccurn (n-1) a 
+      && (match t with None -> true | Some t' -> Vars.noccurn (n-1) t')
+      && noc (n-1)
+  in noc i
+
+(* Performs substitution c{t/n}, increasing by one the free indices in [c].  *)
+let mysubstn t n c =
+  let rec substrec depth c = match kind_of_term c with
+    | Rel k    ->
+        if k<=depth then c
+        else if k = depth+n then
+          Vars.lift depth t
+        else mkRel (k+1)
+    | _ -> map_constr_with_binders succ substrec depth c in
+  substrec 0 c
+
+(** Abstract *)
+let abs (env, sigma) a p x y =
+  let x = whd_betadeltaiota env sigma x in
+    (* check if the type p does not depend of x, and that no variable
+       created after x depends on it.  otherwise, we will have to
+       substitute the context, which is impossible *)
+  if isRel x then
+    let rel = destRel x in
+    if Vars.noccurn rel p then
+      if noccurn_env env rel then
+        let y' = mysubstn (mkRel 1) rel y in
+        let t = mkLambda (Anonymous, a, y') in
+        return sigma t
+      else
+        Exceptions.block Exceptions.error_abs_env
+    else
+      Exceptions.block Exceptions.error_abs_type
+  else
+    Exceptions.block Exceptions.error_abs
+
 
 let rec run' (env, sigma as ctxt) t =
   let t = whd_betadeltaiota env sigma t in
@@ -189,13 +263,13 @@ let rec run' (env, sigma as ctxt) t =
   let nth = List.nth args in
   let constr c = 
     if isConstruct h then
-	let (m, ix) = destConstruct h in
-	if eq_ind m (destInd (Lazy.force MtacNames.mkT_lazy)) then
-	  ix
-	else
-	  Exceptions.block Exceptions.error_stuck
-    else
+      let (m, ix) = destConstruct h in
+      if eq_ind m (destInd (Lazy.force MtacNames.mkT_lazy)) then
+	ix
+      else
 	Exceptions.block Exceptions.error_stuck
+    else
+      Exceptions.block Exceptions.error_stuck
   in
   match constr h with
     | 1 -> (* ret *)        
@@ -239,6 +313,21 @@ let rec run' (env, sigma as ctxt) t =
     | 9 -> (* print *)
       Pp.msg_info (Printer.pr_constr_env env (nth 1));
       return sigma (Lazy.force CoqUnit.mkTT)
+
+    | 10 -> (* nu *)
+      let a, f = nth 0, nth 2 in
+      runnu run' ctxt a f
+
+    | 11 -> (* is_param *)
+      let e = whd_betadeltaiota env sigma (nth 1) in
+      if isRel e then
+	return sigma (Lazy.force CoqBool.mkTrue)
+      else
+	return sigma (Lazy.force CoqBool.mkFalse)
+
+    | 12 -> (* abs *)
+      let a, p, x, y = nth 0, nth 1, nth 2, nth 3 in
+      abs ctxt a p x y
 
     | _ ->
       Exceptions.block "I have no idea what is this Mtac2 construct that you have here"

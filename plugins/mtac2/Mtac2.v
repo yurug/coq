@@ -26,6 +26,9 @@ Inductive Mtac2 : Type -> Prop :=
   forall (x1 : A1) (x2 : A2 x1) (x3 : A3 x1 x2), Mtac2 (B x1 x2 x3)
 | Mmatch : forall {A} B (t : A), list (Mpatt A B t) -> Mtac2 (B t)
 | Mprint : forall {A}, A -> Mtac2 unit
+| Mnu : forall {A B}, (A -> Mtac2 B) -> Mtac2 B
+| Mis_var : forall {A}, A -> Mtac2 bool
+| Mabs : forall {A P} (x : A), P x -> Mtac2 (forall x, P x)
 
 with Mpatt : forall A (B : A -> Type) (t : A), Type := 
 | Mbase : forall {A B t} (x:A) (b : t = x -> Mtac2 (B x)), Mpatt A B t
@@ -73,6 +76,8 @@ Notation "[ x .. y ] ps" := (Mtele (fun x=> .. (Mtele (fun y=>ps)).. ))
   (at level 202, x binder, y binder, ps at next level) : mtac_patt_scope.
 Notation "p => b" := (Mbase p%core (fun _=>b%core)) 
   (no associativity, at level 201) : mtac_patt_scope. 
+Notation "p => b 'return' 'M' a" := (Mbase (B:=a) p%core (fun _=>b%core)) 
+  (no associativity, at level 201) : mtac_patt_scope.
 Notation "p => [ H ] b" := (Mbase p%core (fun H=>b%core)) 
   (no associativity, at level 201, H at next level) : mtac_patt_scope. 
 Notation "'_' => b " := (Mtele (fun x=> Mbase x (fun _=>b%core))) 
@@ -107,12 +112,12 @@ Notation "'mfix1' f ( x : A ) : 'M' B := b" := (@Mfix1 A (fun x=>B) (fun f (x : 
   "'[v  ' 'mfix1'  f  '(' x  ':'  A ')'  ':'  'M'  B  ':=' '/  ' b ']'").
 
 Notation "'mfix2' f ( x : A1 ) ( y : A2 ) : 'M' B := b" := 
-  (@Mfix2 A1 (forall x, A2) (fun x y=>B) (fun f (x : A1) (y : A2)=>b))
+  (@Mfix2 A1 (fun x=> A2)%type (fun x y=>B) (fun f (x : A1) (y : A2)=>b))
   (at level 85, f at level 0, x at next level, y at next level, format
   "'[v  ' 'mfix2'  f  '(' x  ':'  A1 ')'  '(' y  ':'  A2 ')'  ':'  'M'  B  ':=' '/  ' b ']'").
 
 Notation "'mfix3' f ( x : A1 ) ( y : A2 ) ( z : A3 ) : 'M' B := b" := 
-  (@Mfix3 A1 (forall x, A2) (forall x y, A3) (fun x y z=>B) 
+  (@Mfix3 A1 (fun x=> A2)%type (fun x y=> A3)%type (fun x y z=>B) 
     (fun f (x : A1) (y : A2) (z : A3)=>b))
   (at level 85, f at level 0, x at next level, y at next level, z at next level, format
   "'[v  ' 'mfix3'  f  '(' x  ':'  A1 ')'  '(' y  ':'  A2 ')'  '(' z  ':'  A3 ')'  ':'  'M'  B  ':=' '/  ' b ']'").
@@ -134,5 +139,10 @@ Notation "'mtry' a 'as' e 'in' | p1 | .. | pn 'end'" :=
    "'[v' 'mtry' '/  '  a  '/' 'as'  e  'in' '/' '|'  p1  '/' '|'  ..  '/' '|'  pn '/' 'end' ']'"
 ).
 
+Notation "'nu' x .. y , a" := (Mnu (fun x=>.. (Mnu (fun y=> a))..)) 
+(at level 81, x binder, y binder, right associativity). 
+
+Notation "'is_var'" := Mis_var.
+Notation "'abs'" := Mabs.
 
 End Mtac2Notations.

@@ -19,11 +19,16 @@ syntax/string_syntax_plugin.cma
 syntax/z_syntax_plugin.cma
 quote/quote_plugin.cma
 <<<<<<< HEAD
+<<<<<<< HEAD
 derive/derive_plugin.cma
 =======
 <<<<<<< HEAD
-Derive/derive_plugin.cma
 =======
+>>>>>>> fixing messed up commits to add mtac2 to trunk
+Derive/derive_plugin.cma
 mtac2/mtac2_plugin.cma
+<<<<<<< HEAD
 >>>>>>> f3b527b... Added delay execution through type classes
 >>>>>>> Adding mtac2 to last trunk version. it is a mess
+=======
+>>>>>>> fixing messed up commits to add mtac2 to trunk

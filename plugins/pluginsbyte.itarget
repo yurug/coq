@@ -19,8 +19,5 @@ syntax/r_syntax_plugin.cma
 syntax/string_syntax_plugin.cma
 syntax/z_syntax_plugin.cma
 quote/quote_plugin.cma
-<<<<<<< HEAD
 Derive/derive_plugin.cma
-=======
 mtac2/mtac2_plugin.cma
->>>>>>> f3b527b... Added delay execution through type classes

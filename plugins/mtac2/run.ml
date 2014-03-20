@@ -199,8 +199,15 @@ let runfix h a b s i f x =
     returning it must check that [x] does not occur free in the
     returned value (or exception). *)
 let runnu run' (env, sigma) a f =
-  let fx = mkApp(Vars.lift 1 f, [|mkRel 1|]) in
-  match run' (push_rel (Anonymous, None, a) env, sigma) fx with
+  (* if [f] is a function, we use its variable to get the name, otherwise we
+     apply [f] to a fresh new variable. *)
+  let v, fx = if isLambda f then
+      let (arg, _, body) = destLambda f in
+      arg, body
+    else 
+      Anonymous, mkApp(Vars.lift 1 f, [|mkRel 1|]) 
+  in
+  match run' (push_rel (v, None, a) env, sigma) fx with
     | Val (sigma', e) ->
       if Int.Set.mem 1 (free_rels e) then
         Exceptions.block Exceptions.error_param

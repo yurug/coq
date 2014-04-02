@@ -319,8 +319,8 @@ EXTRACTIONVO:=$(call cat_vo_itarget, plugins/extraction)
 CCVO:=
 DERIVEVO:=$(call cat_vo_itarget, plugins/derive)
 
-PLUGINSVO:= $(OMEGAVO) $(ROMEGAVO) $(MICROMEGAVO) \
-            $(FOURIERVO) $(CCVO) $(FUNINDVO) \
+PLUGINSVO:= $(MTAC2VO) $(OMEGAVO) $(ROMEGAVO) $(MICROMEGAVO) \
+            $(XMLVO) $(FOURIERVO) $(CCVO) $(FUNINDVO) \
             $(RTAUTOVO) $(BTAUTOVO) $(RINGVO) $(QUOTEVO) \
             $(NSATZVO) $(EXTRACTIONVO) $(DERIVEVO)
 

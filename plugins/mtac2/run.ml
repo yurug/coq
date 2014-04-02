@@ -26,7 +26,7 @@ module CoqList = struct
   let isCons = Constr.isConstr mkCons
 end
 
-(** Module to create equality type *) 
+(** Module to create equality type *)
 module CoqEq = struct
   let mkEq = Constr.mkConstr "Coq.Init.Logic.eq"
   let mkEqRefl = Constr.mkConstr "Coq.Init.Logic.eq_refl"
@@ -46,7 +46,7 @@ module CoqBool = struct
 
   let isTrue = Constr.isConstr mkTrue
 
-end 
+end
 
 
 (** Module with names of Mtac2 *)
@@ -72,7 +72,7 @@ module Exceptions = struct
   (* HACK: we put Prop as the type of the raise. We can put an evar, but
      what's the point anyway? *)
   let mkRaise e =
-    Term.mkApp (MtacNames.mkConstr "raise", [|Term.mkProp; Lazy.force e|]) 
+    Term.mkApp (MtacNames.mkConstr "raise", [|Term.mkProp; Lazy.force e|])
 
   type reason = string
   let error_stuck : reason = "Cannot reduce term, perhaps an opaque definition?"
@@ -90,15 +90,16 @@ end
 *)
 module UnificationStrategy = struct
 
-  (* Since there may be delayed evars, and we don't want that, this function 
+  (* Since there may be delayed evars, and we don't want that, this function
      searches for them. It is slow, but hopefully there shouldn't be many
-     delayed evars. 
+     delayed evars.
   *)
   let find_pbs sigma evars =
     let (_, pbs) = Evd.extract_all_conv_pbs sigma in
-    List.filter (fun (_,_,c1,c2) -> 
-      List.exists (fun e -> 
-	Termops.occur_term e c1 || Termops.occur_term e c2) evars) pbs
+    List.filter (fun (_,_,c1,c2) ->
+      List.exists (fun e -> Termops.occur_term e c1 || Termops.occur_term e c2)
+        evars
+    ) pbs
 
   let no_delayed_evars sigma evars = List.length (find_pbs sigma evars) = 0
 
@@ -120,8 +121,8 @@ type data = Val of (Evd.evar_map * Term.constr) | Err of Term.constr
 (** Monad for execution values *)
 let (>>=) v g =
   match v with
-    | Val v' -> g v'
-    | _ -> v
+  | Val v' -> g v'
+  | _ -> v
 
 let return s t = Val (s, t)
 
@@ -138,16 +139,16 @@ let open_pattern (env, sigma) p =
     let (patt, args) = ROps.whd_betadeltaiota_stack env sigma p in
     let nth = List.nth args in
     if MtacNames.isBase patt then
-	let p = nth 3 in
-	let b = nth 4 in
-	Some (sigma, evars, p, b)
+      let p = nth 3 in
+      let b = nth 4 in
+      Some (sigma, evars, p, b)
     else if MtacNames.isTele patt then
-	let c = nth 2 in
-	let f = nth 4 in
-	let (sigma', evar) = Evarutil.new_evar sigma env c in
-	op_patt sigma' (Term.mkApp (f, [|evar|])) (evar :: evars)
+      let c = nth 2 in
+      let f = nth 4 in
+      let (sigma', evar) = Evarutil.new_evar sigma env c in
+      op_patt sigma' (Term.mkApp (f, [|evar|])) (evar :: evars)
     else
-	None
+      None
   in op_patt sigma p []
 
 
@@ -159,33 +160,31 @@ let rec runmatch' (env, sigma as ctxt) t ty patts =
   let (patts, args) =  ROps.whd_betadeltaiota_stack env sigma patts in
   if CoqList.isNil patts then
     Exceptions.block Exceptions.error_no_match
-  else if CoqList.isCons patts then
+  else if not (CoqList.isCons patts) then
+    Exceptions.block Exceptions.error_stuck
+  else
     let patt = List.nth args 1 in
     let tail = List.nth args 2 in
     match open_pattern ctxt patt with
-        Some (sigma', evars, p, body) ->
-          let rsigma' = ref sigma' in
-          begin
-            if UnificationStrategy.unify rsigma' env evars p t  then
-		let body = Evarutil.nf_evar !rsigma' body in
-		let body' = Term.mkApp(body, [|CoqEq.mkAppEqRefl ty t|]) in
-		(!rsigma', body')
-            else
-		runmatch' ctxt t ty tail
-          end
-	| None -> Exceptions.block Exceptions.error_stuck
-  else
-    Exceptions.block Exceptions.error_stuck
-	
+    | None -> Exceptions.block Exceptions.error_stuck
+    | Some (sigma', evars, p, body) ->
+      let rsigma' = ref sigma' in
+      if not (UnificationStrategy.unify rsigma' env evars p t) then
+        runmatch' ctxt t ty tail
+      else
+        let body = Evarutil.nf_evar !rsigma' body in
+        let body = Term.mkApp (body, [| CoqEq.mkAppEqRefl ty t |]) in
+        (!rsigma', body)
 
-let runmatch (env, sigma as ctxt) t ty patts = 
+
+let runmatch (env, sigma as ctxt) t ty patts =
   runmatch' ctxt t ty patts
-    
+
 (** To execute a fixpoint we just applied the function to the fixpoint of itself *)
 let runfix h a b s i f x =
   let fixf = Term.mkApp(h, Array.append a [|b;s;i;f|]) in
   Term.mkApp (f, Array.append [|fixf|] x)
-  
+
 (** Executes [f x] in the context [env] extended with [x : a]. Before
     returning it must check that [x] does not occur free in the
     returned value (or exception). *)
@@ -195,20 +194,20 @@ let runnu run' (env, sigma) a f =
   let v, fx = if Term.isLambda f then
       let (arg, _, body) = Term.destLambda f in
       arg, body
-    else 
-      Names.Anonymous, Term.mkApp(Vars.lift 1 f, [|Term.mkRel 1|]) 
+    else
+      Names.Anonymous, Term.mkApp(Vars.lift 1 f, [|Term.mkRel 1|])
   in
   match run' (Environ.push_rel (v, None, a) env, sigma) fx with
-    | Val (sigma', e) ->
-      if Int.Set.mem 1 (TOps.free_rels e) then
-        Exceptions.block Exceptions.error_param
-      else
-	return sigma' (TOps.pop e)
-    | Err e -> 
-      if Int.Set.mem 1 (TOps.free_rels e) then
-        Exceptions.block Exceptions.error_param
-      else
-	fail (TOps.pop e)
+  | Val (sigma', e) ->
+    if Int.Set.mem 1 (TOps.free_rels e) then
+      Exceptions.block Exceptions.error_param
+    else
+      return sigma' (TOps.pop e)
+  | Err e ->
+    if Int.Set.mem 1 (TOps.free_rels e) then
+      Exceptions.block Exceptions.error_param
+    else
+      fail (TOps.pop e)
 
 
 (* checks that no variable in env to the right of i (that is, smaller
@@ -218,7 +217,7 @@ let noccurn_env env i =
     if n = 1 then true
     else
       let (_, t, a) = Environ.lookup_rel (i-n+1) env in
-      Vars.noccurn (n-1) a 
+      Vars.noccurn (n-1) a
       && (match t with None -> true | Some t' -> Vars.noccurn (n-1) t')
       && noc (n-1)
   in noc i
@@ -227,19 +226,19 @@ let noccurn_env env i =
 let mysubstn t n c =
   let rec substrec depth c = match Term.kind_of_term c with
     | Term.Rel k    ->
-        if k<=depth then c
-        else if k = depth+n then
-          Vars.lift depth t
-        else Term.mkRel (k+1)
+      if k<=depth then c
+      else if k = depth+n then
+        Vars.lift depth t
+      else Term.mkRel (k+1)
     | _ -> Term.map_constr_with_binders succ substrec depth c in
   substrec 0 c
 
 (** Abstract *)
 let abs (env, sigma) a p x y =
   let x = ROps.whd_betadeltaiota env sigma x in
-    (* check if the type p does not depend of x, and that no variable
-       created after x depends on it.  otherwise, we will have to
-       substitute the context, which is impossible *)
+  (* check if the type p does not depend of x, and that no variable
+     created after x depends on it.  otherwise, we will have to
+     substitute the context, which is impossible *)
   if Term.isRel x then
     let rel = Term.destRel x in
     if Vars.noccurn rel p then
@@ -259,94 +258,94 @@ let rec run' (env, sigma as ctxt) t =
   let t = ROps.whd_betadeltaiota env sigma t in
   let (h, args) = Term.decompose_app t in
   let nth = List.nth args in
-  let constr c = 
+  let constr c =
     if Term.isConstruct h then
       let (m, ix) = Term.destConstruct h in
       if Names.eq_ind m (Term.destInd (Lazy.force MtacNames.mkT_lazy)) then
-	ix
+        ix
       else
-	Exceptions.block Exceptions.error_stuck
+        Exceptions.block Exceptions.error_stuck
     else
       Exceptions.block Exceptions.error_stuck
   in
   match constr h with
-    | 1 -> (* ret *)        
-	return sigma (nth 1)
+  | 1 -> (* ret *)
+    return sigma (nth 1)
 
-    | 2 -> (* bind *)
-	run' ctxt (nth 2) >>= fun (sigma', v) ->
-	let t' = Term.mkApp(nth 3, [|v|]) in
-	run' (env, sigma') t'
+  | 2 -> (* bind *)
+    run' ctxt (nth 2) >>= fun (sigma', v) ->
+    let t' = Term.mkApp(nth 3, [|v|]) in
+    run' (env, sigma') t'
 
-    | 3 -> (* try *)
-	begin
-	match run' ctxt (nth 1) with
-	  | Val (sigma', v) -> return sigma' v
-	  | Err i -> 
-          let t' = Term.mkApp(nth 2, [|i|]) in
-          run' ctxt t'
-	end
+  | 3 -> (* try *)
+    begin
+      match run' ctxt (nth 1) with
+      | Val (sigma', v) -> return sigma' v
+      | Err i ->
+        let t' = Term.mkApp(nth 2, [|i|]) in
+        run' ctxt t'
+    end
 
-    | 4 -> (* raise *)
-	fail (nth 1)
+  | 4 -> (* raise *)
+    fail (nth 1)
 
-    | 5 -> (* fix1 *)
-	let a, b, s, i, f, x = nth 0, nth 1, nth 2, nth 3, nth 4, nth 5 in
-	run' ctxt (runfix h [|a|] b s i f [|x|])
+  | 5 -> (* fix1 *)
+    let a, b, s, i, f, x = nth 0, nth 1, nth 2, nth 3, nth 4, nth 5 in
+    run' ctxt (runfix h [|a|] b s i f [|x|])
 
-    | 6 -> (* fix 2 *)
-	let a1, a2, b, s, i, f, x1, x2 = 
-	  nth 0, nth 1, nth 2, nth 3, nth 4, nth 5, nth 6, nth 7 in
-	run' ctxt (runfix h [|a1; a2|] b s i f [|x1; x2|])
+  | 6 -> (* fix 2 *)
+    let a1, a2, b, s, i, f, x1, x2 =
+      nth 0, nth 1, nth 2, nth 3, nth 4, nth 5, nth 6, nth 7 in
+    run' ctxt (runfix h [|a1; a2|] b s i f [|x1; x2|])
 
-    | 7 -> (* fix 3 *)
-	let a1, a2, a3, b, s, i, f, x1, x2, x3 = 
-	  nth 0, nth 1, nth 2, nth 3, nth 4, nth 5, nth 6, nth 7, nth 8, nth 9 in
-	run' ctxt (runfix h [|a1; a2; a3|] b s i f [|x1; x2; x3|])
+  | 7 -> (* fix 3 *)
+    let a1, a2, a3, b, s, i, f, x1, x2, x3 =
+      nth 0, nth 1, nth 2, nth 3, nth 4, nth 5, nth 6, nth 7, nth 8, nth 9 in
+    run' ctxt (runfix h [|a1; a2; a3|] b s i f [|x1; x2; x3|])
 
-    | 8 -> (* match *)
-	let (sigma', body) = runmatch (env, sigma) (nth 2) (nth 0) (nth 3) in
-	run' (env, sigma') body
+  | 8 -> (* match *)
+    let (sigma', body) = runmatch (env, sigma) (nth 2) (nth 0) (nth 3) in
+    run' (env, sigma') body
 
-    | 9 -> (* print *)
-      Pp.msg_info (Printer.pr_constr_env env (nth 1));
-      return sigma (Lazy.force CoqUnit.mkTT)
+  | 9 -> (* print *)
+    Pp.msg_info (Printer.pr_constr_env env (nth 1));
+    return sigma (Lazy.force CoqUnit.mkTT)
 
-    | 10 -> (* nu *)
-      let a, f = nth 0, nth 2 in
-      runnu run' ctxt a f
+  | 10 -> (* nu *)
+    let a, f = nth 0, nth 2 in
+    runnu run' ctxt a f
 
-    | 11 -> (* is_param *)
-      let e = ROps.whd_betadeltaiota env sigma (nth 1) in
-      if Term.isRel e then
-	return sigma (Lazy.force CoqBool.mkTrue)
-      else
-	return sigma (Lazy.force CoqBool.mkFalse)
+  | 11 -> (* is_param *)
+    let e = ROps.whd_betadeltaiota env sigma (nth 1) in
+    if Term.isRel e then
+      return sigma (Lazy.force CoqBool.mkTrue)
+    else
+      return sigma (Lazy.force CoqBool.mkFalse)
 
-    | 12 -> (* abs *)
-      let a, p, x, y = nth 0, nth 1, nth 2, nth 3 in
-      abs ctxt a p x y
+  | 12 -> (* abs *)
+    let a, p, x, y = nth 0, nth 1, nth 2, nth 3 in
+    abs ctxt a p x y
 
-    | 13 -> (* evar *)
-      let t = nth 0 in
-      let (sigma', ev) = Evarutil.new_evar sigma env t in
-      return sigma' ev
-	
-    | 14 -> (* is_evar *)
-      let e = ROps.whd_betadeltaiota env sigma (nth 1) in
-      if Term.isEvar e then
-	return sigma (Lazy.force CoqBool.mkTrue)
-      else
-	return sigma (Lazy.force CoqBool.mkFalse)
+  | 13 -> (* evar *)
+    let t = nth 0 in
+    let (sigma', ev) = Evarutil.new_evar sigma env t in
+    return sigma' ev
 
-    | _ ->
-      Exceptions.block "I have no idea what is this Mtac2 construct that you have here"
+  | 14 -> (* is_evar *)
+    let e = ROps.whd_betadeltaiota env sigma (nth 1) in
+    if Term.isEvar e then
+      return sigma (Lazy.force CoqBool.mkTrue)
+    else
+      return sigma (Lazy.force CoqBool.mkFalse)
+
+  | _ ->
+    Exceptions.block "I have no idea what is this Mtac2 construct that you have here"
 
 
-let run (env, sigma) t  = 
+let run (env, sigma) t  =
   match run' (env, sigma) (Evarutil.nf_evar sigma t) with
-    | Err i -> 
-      Err i
-    | Val (sigma', v) -> 
-      Val (sigma', Evarutil.nf_evar sigma' v)
+  | Err i ->
+    Err i
+  | Val (sigma', v) ->
+    Val (sigma', Evarutil.nf_evar sigma' v)
 

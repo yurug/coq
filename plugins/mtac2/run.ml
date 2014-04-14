@@ -22,6 +22,9 @@ module CoqList = struct
   let mkNil  = Constr.mkConstr "Coq.Init.Datatypes.nil"
   let mkCons = Constr.mkConstr "Coq.Init.Datatypes.cons"
 
+  let makeNil ty = Term.mkApp (Lazy.force mkNil, [| ty |])
+  let makeCons t x xs = Term.mkApp (Lazy.force mkCons, [| t ; x ; xs |])
+
   let isNil  = Constr.isConstr mkNil
   let isCons = Constr.isConstr mkCons
 end
@@ -347,17 +350,15 @@ let rec run' (env, sigma as ctxt) t =
        [InternalHole] where I would expect the [GoalEvar] ...  *)
     let evars = Evd.fold_undefined (fun ev _info acc -> ev :: acc) sigma [] in
     let goals =
+      let ty = MtacNames.mkConstr "goal" in
       List.fold_left (fun coq_list evar ->
         (* That's a big hack: Rel allows us to directly send the evar to the Coq
            side as an int. Not sure if that'll break something or not.
            TODO: ask pmp. *)
         let fake_rel = Term.mkRel (Evar.repr evar) in
         let g = Term.mkApp (MtacNames.mkConstr "opaque", [| fake_rel |]) in
-        Term.mkApp (
-          Lazy.force CoqList.mkCons,
-          [| MtacNames.mkConstr "goal" ; g ; coq_list |]
-        )
-      ) (Lazy.force CoqList.mkNil) evars
+        CoqList.makeCons ty g coq_list
+      ) (CoqList.makeNil ty) evars
     in
     return sigma goals
 
@@ -380,10 +381,12 @@ let rec run' (env, sigma as ctxt) t =
       let sigma' = Evd.define evar (nth 2) sigma in
       let goal_set = Evarutil.evars_of_term (nth 1) in
       let goals =
+        let ty = MtacNames.mkConstr "goal" in
         Evar.Set.fold (fun evar coq_list ->
-          let goal = Term.mkEvar (evar, [||]) in
-          Term.mkApp (Lazy.force CoqList.mkCons, [| goal ; coq_list |])
-        ) goal_set (Lazy.force CoqList.mkNil)
+          let fake_rel = Term.mkRel (Evar.repr evar) in
+          let g = Term.mkApp (MtacNames.mkConstr "opaque", [| fake_rel |]) in
+          CoqList.makeCons ty g coq_list
+        ) goal_set (CoqList.makeNil ty)
       in
       return sigma' goals
     | _ ->

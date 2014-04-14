@@ -352,17 +352,19 @@ let rec run' (env, sigma as ctxt) t =
            side as an int. Not sure if that'll break something or not.
            TODO: ask pmp. *)
         let fake_rel = Term.mkRel (Evar.repr evar) in
-        let g = Term.mkApp (MtacNames.mkConstr "Mgoal.opaque", [| fake_rel |]) in
+        let g = Term.mkApp (MtacNames.mkConstr "opaque", [| fake_rel |]) in
         Term.mkApp (
           Lazy.force CoqList.mkCons,
-          [| MtacNames.mkConstr "Mgoal.t" ; g ; coq_list |]
+          [| MtacNames.mkConstr "goal" ; g ; coq_list |]
         )
       ) (Lazy.force CoqList.mkNil) evars
     in
     return sigma goals
 
   | 16 -> (* refine *)
-    begin match Term.kind_of_term (nth 1) with
+    let goal = ROps.whd_betadeltaiota env sigma (nth 1) in
+    let _constr, params = Term.destApp goal in
+    begin match Term.kind_of_term params.(0) with
     | Term.Rel n -> (* stay consistant with the hack explained above *)
       let evar = Evar.unsafe_of_int n in
       let ev_info =

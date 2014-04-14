@@ -4,19 +4,7 @@ Declare ML Module "mtac2_plugin".
 
 Inductive Exception : Type := exception : Exception.
 
-Module Type Goal_sig.
-  Parameter t : Type.
-
-  Parameter opaque : forall {A : Type} {x : A},  t.
-End Goal_sig.
-
-Module Mgoal : Goal_sig.
-  Inductive goal : Type := current : forall {A : Type}, A -> goal.
-
-  Definition t := goal.
-
-  Definition opaque {A:Type} {x:A} := current x.
-End Mgoal.
+Inductive goal : Type := opaque : forall {A : Type}, goal.
 
 Inductive Mtac2 : Type -> Prop :=
 | Mret : forall {A}, A -> Mtac2 A
@@ -44,8 +32,8 @@ Inductive Mtac2 : Type -> Prop :=
 | Mabs : forall {A P} (x : A), P x -> Mtac2 (forall x, P x)
 | Mevar : forall A, Mtac2 A
 | Mis_evar : forall {A}, A -> Mtac2 bool
-| Mgoals : Mtac2 (list Mgoal.t)
-| Mrefine : forall {A}, Mgoal.t -> A -> Mtac2 (list Mgoal.t)
+| Mgoals : Mtac2 (list goal)
+| Mrefine : forall {A}, goal -> A -> Mtac2 (list goal)
 
 with Mpatt : forall A (B : A -> Type) (t : A), Type := 
 | Mbase : forall {A B t} (x:A) (b : t = x -> Mtac2 (B x)), Mpatt A B t

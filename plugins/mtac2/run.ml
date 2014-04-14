@@ -393,6 +393,31 @@ let rec run' (env, sigma as ctxt) t =
       Exceptions.block "Not a refinable goal"
     end
 
+  | 17 ->
+    let goal = ROps.whd_betadeltaiota env sigma (nth 0) in
+    let _constr, params = Term.destApp goal in
+    begin match Term.kind_of_term params.(0) with
+    | Term.Rel n -> (* stay consistant with the hack explained above *)
+      let evar = Evar.unsafe_of_int n in
+      let ev_info =
+        try Evd.find sigma evar
+        with Not_found -> Exceptions.block "Unknown goal"
+      in
+      begin match ev_info.Evd.evar_body with
+      | Evd.Evar_empty -> Pp.pperr (Pp.str "Goal: ")
+      | Evd.Evar_defined cstr ->
+        let pp_std = Printer.prterm cstr in
+        Pp.pperr (Pp.str "Already solved with: ") ;
+        Pp.pperrnl pp_std ;
+        Pp.pperr (Pp.str "Goal was: ") ;
+      end ;
+      let pp_std = Printer.prterm ev_info.Evd.evar_concl in
+      Pp.pperrnl pp_std ;
+      return sigma (Lazy.force CoqUnit.mkTT)
+
+    | _ -> Exceptions.block "Wtf"
+    end
+
   | _ ->
     Exceptions.block "I have no idea what is this Mtac2 construct that you have here"
 

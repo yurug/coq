@@ -34,6 +34,7 @@ Inductive Mtac2 : Type -> Prop :=
 | Mis_evar : forall {A}, A -> Mtac2 bool
 | Mgoals : Mtac2 (list goal)
 | Mrefine : forall {A}, goal -> A -> Mtac2 (list goal)
+| Mshow : goal -> Mtac2 unit
 
 with Mpatt : forall A (B : A -> Type) (t : A), Type := 
 | Mbase : forall {A B t} (x:A) (b : t = x -> Mtac2 (B x)), Mpatt A B t

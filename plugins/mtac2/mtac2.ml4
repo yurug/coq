@@ -20,7 +20,7 @@ let run_tac t i =
     let env = Proofview.Goal.env gl in
     match run (env, sigma) t with
     | Val (sigma', v) ->
-      Tacticals.New.tclTHEN (Proofview.V82.tactic (Refiner.tclEVARS sigma'))
+      Proofview.tclTHEN (Proofview.V82.tclEVARS sigma')
         (Tactics.letin_tac None (Name i) v None Locusops.nowhere)
     | Err e -> 
       raise (ExecFailed e)

@@ -338,6 +338,56 @@ let rec run' (env, sigma as ctxt) t =
     else
       return sigma (Lazy.force CoqBool.mkFalse)
 
+  | 15 -> (* goals *)
+    (* We could get goals directly from the [fold_undefined] but the goal order
+       would be reversed, which is sad.
+    
+       N.B. the evar_info contains the origin of the evar, which can be
+       [GoalEvar] and we might want to keep only those. But we appear to receive
+       [InternalHole] where I would expect the [GoalEvar] ...  *)
+    let evars = Evd.fold_undefined (fun ev _info acc -> ev :: acc) sigma [] in
+    let goals =
+      List.fold_left (fun coq_list evar ->
+        (* That's a big hack: Rel allows us to directly send the evar to the Coq
+           side as an int. Not sure if that'll break something or not.
+           TODO: ask pmp. *)
+        let fake_rel = Term.mkRel (Evar.repr evar) in
+        let g = Term.mkApp (MtacNames.mkConstr "Mgoal.opaque", [| fake_rel |]) in
+        Term.mkApp (
+          Lazy.force CoqList.mkCons,
+          [| MtacNames.mkConstr "Mgoal.t" ; g ; coq_list |]
+        )
+      ) (Lazy.force CoqList.mkNil) evars
+    in
+    return sigma goals
+
+  | 16 -> (* refine *)
+    begin match Term.kind_of_term (nth 1) with
+    | Term.Rel n -> (* stay consistant with the hack explained above *)
+      let evar = Evar.unsafe_of_int n in
+      let ev_info =
+        try Evd.find sigma evar
+        with Not_found -> Exceptions.block "Unknown goal"
+      in
+      let () =
+        match ev_info.Evd.evar_body with
+        | Evd.Evar_empty -> ()
+        | Evd.Evar_defined _ ->
+          Exceptions.block "Cannot refine an already \"solved\" goal"
+      in
+      let sigma' = Evd.define evar (nth 2) sigma in
+      let goal_set = Evarutil.evars_of_term (nth 1) in
+      let goals =
+        Evar.Set.fold (fun evar coq_list ->
+          let goal = Term.mkEvar (evar, [||]) in
+          Term.mkApp (Lazy.force CoqList.mkCons, [| goal ; coq_list |])
+        ) goal_set (Lazy.force CoqList.mkNil)
+      in
+      return sigma' goals
+    | _ ->
+      Exceptions.block "Not a refinable goal"
+    end
+
   | _ ->
     Exceptions.block "I have no idea what is this Mtac2 construct that you have here"
 

@@ -256,6 +256,14 @@ let abs (env, sigma) a p x y =
   else
     Exceptions.block Exceptions.error_abs
 
+(* TODO: document *)
+let recover_goal sigma goal_term =
+  let _constr, params = Term.destApp goal_term in
+  if not (Term.isRel params.(0)) then `Not_a_goal else
+  let evar_int = Term.destRel params.(0) in
+  let evar = Evar.unsafe_of_int evar_int in
+  try `Found (evar, Evd.find sigma evar)
+  with Not_found -> `Unknown_goal
 
 let rec run' (env, sigma as ctxt) t =
   let t = ROps.whd_betadeltaiota env sigma t in
@@ -364,22 +372,23 @@ let rec run' (env, sigma as ctxt) t =
 
   | 16 -> (* refine *)
     let goal = ROps.whd_betadeltaiota env sigma (nth 1) in
-    let _constr, params = Term.destApp goal in
-    begin match Term.kind_of_term params.(0) with
-    | Term.Rel n -> (* stay consistant with the hack explained above *)
-      let evar = Evar.unsafe_of_int n in
-      let ev_info =
-        try Evd.find sigma evar
-        with Not_found -> Exceptions.block "Unknown goal"
-      in
+    let constr = nth 2 in
+    begin match recover_goal sigma goal with
+    | `Not_a_goal -> Exceptions.block "Not a refinable goal"
+    | `Unknown_goal -> Exceptions.block "Unknown goal"
+    | `Found (evar, ev_info) ->
       let () =
         match ev_info.Evd.evar_body with
         | Evd.Evar_empty -> ()
         | Evd.Evar_defined _ ->
           Exceptions.block "Cannot refine an already \"solved\" goal"
       in
-      let sigma' = Evd.define evar (nth 2) sigma in
-      let goal_set = Evarutil.evars_of_term (nth 1) in
+      (* TODO: we need to check that the type of [nth 2] matches the type
+       * expected by the evar. *)
+      (* TODO: we need to check that [nth 2] does not refer to things outside
+       * the evar environment. *)
+      let sigma' = Evd.define evar constr sigma in
+      let goal_set = Evarutil.undefined_evars_of_term sigma' constr in
       let goals =
         let ty = MtacNames.mkConstr "goal" in
         Evar.Set.fold (fun evar coq_list ->

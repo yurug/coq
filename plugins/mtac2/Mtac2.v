@@ -6,6 +6,10 @@ Inductive Exception : Type := exception : Exception.
 
 Inductive goal : Type := opaque : forall {A : Type}, goal.
 
+(* Assumption: when one has [Named patt name], [name] comes from a [Mgtele] (see
+ * under) and its type will be unified with the pattern. *)
+Inductive hypothesis : Type := Named : forall A : Type, A -> hypothesis.
+
 Inductive Mtac2 : Type -> Prop :=
 | Mret : forall {A}, A -> Mtac2 A
 | Mbind : forall {A B}, Mtac2 A -> (A -> Mtac2 B) -> Mtac2 B
@@ -34,7 +38,12 @@ Inductive Mtac2 : Type -> Prop :=
 | Mis_evar : forall {A}, A -> Mtac2 bool
 | Mgoals : Mtac2 (list goal)
 | Mrefine : forall {A}, goal -> A -> Mtac2 (list goal)
+| Mgmatch : forall {A}, goal -> list (Mgoal_patt A) -> Mtac2 A
 | Mshow : goal -> Mtac2 unit
+
+with Mgoal_patt : Type -> Type :=
+| Mgbase : forall {A G}, list hypothesis -> G -> Mtac2 A -> Mgoal_patt A
+| Mgtele : forall {A B}, (forall (x : B), Mgoal_patt A) -> Mgoal_patt A
 
 with Mpatt : forall A (B : A -> Type) (t : A), Type := 
 | Mbase : forall {A B t} (x:A) (b : t = x -> Mtac2 (B x)), Mpatt A B t

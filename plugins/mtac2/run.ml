@@ -27,6 +27,18 @@ module CoqList = struct
 
   let isNil  = Constr.isConstr mkNil
   let isCons = Constr.isConstr mkCons
+
+  let rec to_list (env, sigma as ctx) cterm =
+    let (constr, args) = ROps.whd_betadeltaiota_stack env sigma cterm in
+    if isNil constr then [] else
+    if not (isCons constr) then invalid_arg "not a list" else
+    let elt = List.nth args 1 in
+    let ctail = List.nth args 2 in
+    elt :: to_list ctx ctail
+
+  let to_list_opt ctx cterm =
+    try Some (to_list ctx cterm)
+    with Invalid_argument _ -> None
 end
 
 (** Module to create equality type *)
@@ -62,9 +74,13 @@ module MtacNames = struct
 
   let mkBase = mkLazyConstr "Mbase"
   let mkTele = mkLazyConstr "Mtele"
-
   let isBase = Constr.isConstr mkBase
   let isTele = Constr.isConstr mkTele
+
+  let mkgBase = mkLazyConstr "Mgbase"
+  let mkgTele = mkLazyConstr "Mgtele"
+  let isgBase = Constr.isConstr mkgBase
+  let isgTele = Constr.isConstr mkgTele
 
 end
 
@@ -109,10 +125,9 @@ module UnificationStrategy = struct
   let unify rsigma env evars t1 t2 =
     try
       let sigma = Evarconv.the_conv_x env t2 t1 !rsigma in
-      rsigma := Evarconv.consider_remaining_unif_problems env sigma;
+      rsigma := Evarconv.consider_remaining_unif_problems env sigma ;
       no_delayed_evars !rsigma evars
     with _ -> false
-
 end
 
 
@@ -154,20 +169,32 @@ let open_pattern (env, sigma) p =
       None
   in op_patt sigma p []
 
+let open_gpattern (env, sigma) p =
+  let rec op_patt sigma p evars =
+    let (patt, args) = ROps.whd_betadeltaiota_stack env sigma p in
+    let nth = List.nth args in
+    if MtacNames.isgBase patt then
+      let hyps = nth 2 in
+      let goal = nth 3 in
+      let body = nth 4 in
+      Some (sigma, evars, hyps, goal, body)
+    else if MtacNames.isgTele patt then
+      let b = nth 1 in
+      let f = nth 2 in
+      let (sigma', evar) = Evarutil.new_evar sigma env b in
+      op_patt sigma' (Term.mkApp (f, [|evar|])) (evar :: evars)
+    else
+      None
+  in op_patt sigma p []
+
 
 (** Given a list of patterns [patts], it tries to unify the term [t]
     (with type [ty]) with each of the patterns. If it succeeds, then
     it returns the body of the pattern applied to the reflexivity
     proof that [t] is equal to itself. *)
-let rec runmatch' (env, sigma as ctxt) t ty patts =
-  let (patts, args) =  ROps.whd_betadeltaiota_stack env sigma patts in
-  if CoqList.isNil patts then
-    Exceptions.block Exceptions.error_no_match
-  else if not (CoqList.isCons patts) then
-    Exceptions.block Exceptions.error_stuck
-  else
-    let patt = List.nth args 1 in
-    let tail = List.nth args 2 in
+let rec runmatch' (env, sigma as ctxt) t ty = function
+  | [] -> Exceptions.block Exceptions.error_no_match
+  | patt :: tail ->
     match open_pattern ctxt patt with
     | None -> Exceptions.block Exceptions.error_stuck
     | Some (sigma', evars, p, body) ->
@@ -181,7 +208,72 @@ let rec runmatch' (env, sigma as ctxt) t ty patts =
 
 
 let runmatch (env, sigma as ctxt) t ty patts =
-  runmatch' ctxt t ty patts
+  match CoqList.to_list_opt ctxt patts with
+  | None -> Exceptions.block Exceptions.error_stuck
+  | Some patt_list -> runmatch' ctxt t ty patt_list
+
+(** [find_hypotheses] always selects the first hypothesis matching a given
+ *  pattern *)
+let rec find_hypotheses env rsigma evars hyps =
+  (* hyps          = named_context
+   * named_context = (id * constr option * constr) list *)
+  let rec first_match sigma patt = function
+    | [] -> None
+    | (_name, _body, ty as hyp) :: tail ->
+      let rsigma = ref sigma in
+      if not (UnificationStrategy.unify rsigma env evars patt ty) then (
+        match first_match sigma patt tail with
+        | None -> None
+        | Some (lst, sigma) -> Some (hyp :: lst, sigma)
+      ) else
+        Some (tail, !rsigma)
+  in
+  function
+  | [] -> true
+  | (_name, ty) :: hyp_patts ->
+    match first_match !rsigma ty hyps with
+    | None -> false
+    | Some (lst, sigma) ->
+      rsigma := sigma ;
+      find_hypotheses env rsigma evars lst hyp_patts
+
+let rec rungmatch' (_env, sigma as ctxt) (evar, ev_info as egoal) = function
+  | [] -> Exceptions.block Exceptions.error_no_match
+  | patt :: tail ->
+    (* We run all that follows in the env associated to the goal (read "evar")
+       we want to inspect.
+       That's a first approximation, it doesn't feel completly right. *)
+    let env = Evd.evar_env ev_info in
+    match open_gpattern (env, sigma) patt with
+    | None -> Exceptions.block Exceptions.error_stuck
+    | Some (sigma', evars, hyps, goal, body) ->
+      let rsigma' = ref sigma' in
+      let env_hyps  = Environ.named_context_of_val ev_info.Evd.evar_hyps in
+      let hyp_patts =
+        let lst = CoqList.to_list (env, sigma') hyps in
+        List.map (fun patt -> 
+          let (_constr, args) = ROps.whd_betadeltaiota_stack env sigma' patt in
+          match args with
+          | typ :: elt :: [] -> (elt, typ)
+          | _ -> Exceptions.block Exceptions.error_stuck
+        ) lst
+      in
+      (* FIXME: Will the following work?
+       * Some elements of [evars] won't appear in the conclusion but only in the 
+       * hypotheses. I'm afraid that the check performed in [UnificationStrategy]
+       * will then fail. *)
+      if not (UnificationStrategy.unify rsigma' env evars goal ev_info.Evd.evar_concl) then
+        rungmatch' ctxt egoal tail
+      else if not (find_hypotheses env rsigma' evars env_hyps hyp_patts) then
+        rungmatch' ctxt egoal tail
+      else
+        let body = Evarutil.nf_evar !rsigma' body in
+        (!rsigma', env, body)
+
+let rungmatch ctx egoal patts =
+  match CoqList.to_list_opt ctx patts with
+  | None -> Exceptions.block Exceptions.error_stuck
+  | Some patt_list -> rungmatch' ctx egoal patt_list
 
 (** To execute a fixpoint we just applied the function to the fixpoint of itself *)
 let runfix h a b s i f x =
@@ -398,20 +490,24 @@ let rec run' (env, sigma as ctxt) t =
         ) goal_set (CoqList.makeNil ty)
       in
       return sigma' goals
-    | _ ->
-      Exceptions.block "Not a refinable goal"
     end
 
-  | 17 ->
+  | 17 -> (* gmatch *)
+    let goal = ROps.whd_betadeltaiota env sigma (nth 1) in
+    begin match recover_goal sigma goal with
+    | `Not_a_goal -> Exceptions.block "Not a matchable goal"
+    | `Unknown_goal -> Exceptions.block "Unknown goal"
+    | `Found (evar, ev_info) ->
+      let (sigma', env, body) = rungmatch (env, sigma) (evar, ev_info) (nth 2) in
+      run' (env, sigma') body
+    end
+
+  | 18 ->
     let goal = ROps.whd_betadeltaiota env sigma (nth 0) in
-    let _constr, params = Term.destApp goal in
-    begin match Term.kind_of_term params.(0) with
-    | Term.Rel n -> (* stay consistant with the hack explained above *)
-      let evar = Evar.unsafe_of_int n in
-      let ev_info =
-        try Evd.find sigma evar
-        with Not_found -> Exceptions.block "Unknown goal"
-      in
+    begin match recover_goal sigma goal with
+    | `Not_a_goal -> Exceptions.block "Not a real goal??"
+    | `Unknown_goal -> Exceptions.block "Unknown goal"
+    | `Found (evar, ev_info) ->
       begin match ev_info.Evd.evar_body with
       | Evd.Evar_empty -> Pp.pperr (Pp.str "Goal: ")
       | Evd.Evar_defined cstr ->
@@ -422,9 +518,8 @@ let rec run' (env, sigma as ctxt) t =
       end ;
       let pp_std = Printer.prterm ev_info.Evd.evar_concl in
       Pp.pperrnl pp_std ;
+      Pp.flush_all () ;
       return sigma (Lazy.force CoqUnit.mkTT)
-
-    | _ -> Exceptions.block "Wtf"
     end
 
   | _ ->

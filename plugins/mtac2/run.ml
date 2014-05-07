@@ -475,21 +475,40 @@ let rec run' (env, sigma as ctxt) t =
         | Evd.Evar_defined _ ->
           Exceptions.block "Cannot refine an already \"solved\" goal"
       in
-      (* TODO: we need to check that the type of [nth 2] matches the type
-       * expected by the evar. *)
-      (* TODO: we need to check that [nth 2] does not refer to things outside
-       * the evar environment. *)
-      let sigma' = Evd.define evar constr sigma in
-      let goal_set = Evarutil.undefined_evars_of_term sigma' constr in
-      let goals =
-        let ty = MtacNames.mkConstr "goal" in
-        Evar.Set.fold (fun evar coq_list ->
-          let fake_rel = Term.mkRel (Evar.repr evar) in
-          let g = Term.mkApp (MtacNames.mkConstr "opaque", [| fake_rel |]) in
-          CoqList.makeCons ty g coq_list
-        ) goal_set (CoqList.makeNil ty)
+      (* FIXME: we need to check that [constr] does not refer to things outside
+       * the evar environment.
+       * Is this done by [solve_simple_eq]? *)
+      let args =
+        Context.instance_from_named_context
+          (Environ.named_context_of_val ev_info.Evd.evar_hyps)
       in
-      return sigma' goals
+      let args = Array.of_list args in
+      let ts = Conv_oracle.get_transp_state (Environ.oracle env) in
+      match
+        Evarsolve.solve_simple_eqn (Evarconv.evar_conv_x ts) env sigma
+          (None, (evar, args), constr)
+      with
+      | Evarsolve.Success sigma' ->
+        assert (Evd.is_defined sigma' evar) ;
+        let goal_set = Evarutil.undefined_evars_of_term sigma' constr in
+        let goals =
+          let ty = MtacNames.mkConstr "goal" in
+          Evar.Set.fold (fun evar coq_list ->
+              let fake_rel = Term.mkRel (Evar.repr evar) in
+              let g = Term.mkApp (MtacNames.mkConstr "opaque", [| fake_rel |]) in
+              CoqList.makeCons ty g coq_list
+            ) goal_set (CoqList.makeNil ty)
+        in
+        return sigma' goals
+      | Evarsolve.UnifFailure (em, err) ->
+        (* FIXME: Not sure if using [Himsg] here is "clean". But it does give
+         * some meaningful error messages. *)
+        let existential = Term.mkEvar (evar, args) in
+        let explanation =
+          Himsg.explain_pretype_error env em
+            (Pretype_errors.CannotUnify (existential, constr, Some err))
+        in
+        Errors.alreadydeclared explanation
     end
 
   | 17 -> (* gmatch *)

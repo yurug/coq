@@ -34,3 +34,12 @@ run (
   ) lst
 ) as t.
 Qed.
+
+Lemma should_fail : forall x : nat, x = x.
+Proof.
+  intro.
+  run (
+    lst <- Mgoals ;
+    iter (fun y => Mrefine y (eq_refl nat)) lst
+  ) as t.
+Qed.

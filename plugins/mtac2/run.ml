@@ -237,7 +237,7 @@ let rec find_hypotheses env rsigma evars hyps =
       rsigma := sigma ;
       find_hypotheses env rsigma evars lst hyp_patts
 
-let rec rungmatch' (_env, sigma as ctxt) (evar, ev_info as egoal) = function
+let rec rungmatch' (_env, sigma as ctxt) (_evar, ev_info as egoal) = function
   | [] -> Exceptions.block Exceptions.error_no_match
   | patt :: tail ->
     (* We run all that follows in the env associated to the goal (read "evar")
@@ -351,10 +351,9 @@ let abs (env, sigma) a p x y =
 (* TODO: document *)
 let recover_goal sigma goal_term =
   let _constr, params = Term.destApp goal_term in
-  if not (Term.isRel params.(0)) then `Not_a_goal else
-  let evar_int = Term.destRel params.(0) in
-  let evar = Evar.unsafe_of_int evar_int in
-  try `Found (evar, Evd.find sigma evar)
+  if not (Term.isEvar params.(0)) then `Not_a_goal else
+  let evar, args = Term.destEvar params.(0) in
+  try `Found (evar, args, Evd.find sigma evar)
   with Not_found -> `Unknown_goal
 
 let rec run' (env, sigma as ctxt) t =
@@ -452,11 +451,14 @@ let rec run' (env, sigma as ctxt) t =
     let goals =
       let ty = MtacNames.mkConstr "goal" in
       List.fold_left (fun coq_list evar ->
-        (* That's a big hack: Rel allows us to directly send the evar to the Coq
-           side as an int. Not sure if that'll break something or not.
-           TODO: ask pmp. *)
-        let fake_rel = Term.mkRel (Evar.repr evar) in
-        let g = Term.mkApp (MtacNames.mkConstr "opaque", [| fake_rel |]) in
+        let ev_info = Evd.find sigma evar in
+        let args =
+          Context.instance_from_named_context
+            (Environ.named_context_of_val ev_info.Evd.evar_hyps)
+        in
+        let args = Array.of_list args in
+        let evar = Term.mkEvar (evar, args) in
+        let g = Term.mkApp (MtacNames.mkConstr "opaque", [| evar |]) in
         CoqList.makeCons ty g coq_list
       ) (CoqList.makeNil ty) evars
     in
@@ -468,7 +470,7 @@ let rec run' (env, sigma as ctxt) t =
     begin match recover_goal sigma goal with
     | `Not_a_goal -> Exceptions.block "Not a refinable goal"
     | `Unknown_goal -> Exceptions.block "Unknown goal"
-    | `Found (evar, ev_info) ->
+    | `Found (evar, args, ev_info) ->
       let () =
         match ev_info.Evd.evar_body with
         | Evd.Evar_empty -> ()
@@ -478,11 +480,6 @@ let rec run' (env, sigma as ctxt) t =
       (* FIXME: we need to check that [constr] does not refer to things outside
        * the evar environment.
        * Is this done by [solve_simple_eq]? *)
-      let args =
-        Context.instance_from_named_context
-          (Environ.named_context_of_val ev_info.Evd.evar_hyps)
-      in
-      let args = Array.of_list args in
       let ts = Conv_oracle.get_transp_state (Environ.oracle env) in
       match
         Evarsolve.solve_simple_eqn (Evarconv.evar_conv_x ts) env sigma
@@ -516,8 +513,10 @@ let rec run' (env, sigma as ctxt) t =
     begin match recover_goal sigma goal with
     | `Not_a_goal -> Exceptions.block "Not a matchable goal"
     | `Unknown_goal -> Exceptions.block "Unknown goal"
-    | `Found (evar, ev_info) ->
-      let (sigma', env, body) = rungmatch (env, sigma) (evar, ev_info) (nth 2) in
+    | `Found (evar, args, ev_info) ->
+      let (sigma', env, body) =
+        rungmatch (env, sigma) ((evar, args), ev_info) (nth 2)
+      in
       run' (env, sigma') body
     end
 
@@ -526,7 +525,7 @@ let rec run' (env, sigma as ctxt) t =
     begin match recover_goal sigma goal with
     | `Not_a_goal -> Exceptions.block "Not a real goal??"
     | `Unknown_goal -> Exceptions.block "Unknown goal"
-    | `Found (evar, ev_info) ->
+    | `Found (evar, _, ev_info) ->
       begin match ev_info.Evd.evar_body with
       | Evd.Evar_empty -> Pp.pperr (Pp.str "Goal: ")
       | Evd.Evar_defined cstr ->

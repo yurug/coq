@@ -35,6 +35,20 @@ run (
 ) as t.
 Qed.
 
+Goal forall (x : nat) (f: forall (A:Type), A -> A * A), (nat * nat) * (nat * nat).
+Proof.
+intros.
+run (
+  goals <- Mgoals ;
+  iter (fun g =>
+    Mgmatch g [
+      Mgbase [Named nat x ; Named (forall (A : Type), A -> A * A) f] ((nat * nat) * (nat * nat))%type
+        (Mrefine g (f (nat * nat)%type (f nat x)))
+    ]
+  ) goals
+) as t.
+Qed.
+
 Lemma should_fail : forall x : nat, x = x.
 Proof.
   intro.

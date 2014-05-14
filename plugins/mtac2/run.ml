@@ -488,11 +488,18 @@ let rec run' (env, sigma as ctxt) t =
       | Evarsolve.Success sigma' ->
         assert (Evd.is_defined sigma' evar) ;
         let goal_set = Evarutil.undefined_evars_of_term sigma' constr in
+        (* TODO: this is not enough, we need to use [Goal.V82.mk_goal] *)
         let goals =
           let ty = MtacNames.mkConstr "goal" in
           Evar.Set.fold (fun evar coq_list ->
-              let fake_rel = Term.mkRel (Evar.repr evar) in
-              let g = Term.mkApp (MtacNames.mkConstr "opaque", [| fake_rel |]) in
+              let ev_info = Evd.find sigma evar in
+              let args =
+                Context.instance_from_named_context
+                  (Environ.named_context_of_val ev_info.Evd.evar_hyps)
+              in
+              let args = Array.of_list args in
+              let evar = Term.mkEvar (evar, args) in
+              let g = Term.mkApp (MtacNames.mkConstr "opaque", [| evar |]) in
               CoqList.makeCons ty g coq_list
             ) goal_set (CoqList.makeNil ty)
         in

@@ -18,10 +18,12 @@ let run_tac t i =
   Proofview.Goal.enter begin fun gl ->
     let sigma = Proofview.Goal.sigma gl in
     let env = Proofview.Goal.env gl in
-    match run (env, sigma) t with
+    let open Proofview.Notations in
+    run (env, sigma) t
+    >>= function
     | Val (sigma', v) ->
-      Proofview.tclTHEN (Proofview.V82.tclEVARS sigma')
-        (Tactics.letin_tac None (Name i) v None Locusops.nowhere)
+      (Proofview.V82.tclEVARS sigma')
+      <*> (Tactics.letin_tac None (Name i) v None Locusops.nowhere)
     | Err e -> 
       raise (ExecFailed e)
   end

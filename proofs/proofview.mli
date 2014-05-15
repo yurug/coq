@@ -135,7 +135,7 @@ val unfocus : focus_context -> proofview -> proofview
 
 
 (** The abstract type of tactics *)
-type +'a tactic 
+type +'a tactic
 
 (** Applies a tactic to the current proofview. Returns a tuple
     [a,pv,(b,sh,gu)] where [a] is the return value of the tactic, [pv]
@@ -155,7 +155,7 @@ val apply : Environ.env -> 'a tactic -> proofview -> 'a
 
 (** Unit of the tactic monad. *)
 val tclUNIT : 'a -> 'a tactic
- 
+
 (** Bind operation of the tactic monad. *)
 val tclBIND : 'a tactic -> ('a -> 'b tactic) -> 'b tactic
 
@@ -341,6 +341,14 @@ val tclEFFECTS : Declareops.side_effects -> unit tactic
 (** [mark_as_unsafe] declares the current tactic is unsafe. *)
 val mark_as_unsafe : unit tactic
 
+(* Add some new goals to the proofview. This is meant to be used by "external
+ * tactic languages" (such as Mtac) with their own refiner. *)
+val register_goals : Goal.goal list -> unit tactic
+
+(* Shelves all the goals under focus. The goals are placed on the
+   shelf for later use (or being solved by side-effects). *)
+val shelve : unit tactic
+
 (** Gives up on the goal under focus. Reports an unsafe status. Proofs
     with given up goals cannot be closed. *)
 val give_up : unit tactic
@@ -378,7 +386,7 @@ module Unsafe : sig
       goal. If goals have been solved in [sigma] they will still
       appear as unsolved goals. *)
   val tclEVARS : Evd.evar_map -> unit tactic
-    
+
   (** Like {!tclEVARS} but also checks whether goals have been solved. *)
   val tclEVARSADVANCE : Evd.evar_map -> unit tactic
 
@@ -546,15 +554,15 @@ module V82 : sig
      (in chronological order of insertion). *)
   val grab : proofview -> proofview
 
-  (* Returns the open goals of the proofview together with the evar_map to 
+  (* Returns the open goals of the proofview together with the evar_map to
      interprete them. *)
   val goals : proofview -> Evar.t list Evd.sigma
 
   val top_goals : entry -> proofview -> Evar.t list Evd.sigma
-  
+
   (* returns the existential variable used to start the proof *)
   val top_evars : entry -> Evd.evar list
-    
+
   (* Implements the Existential command *)
   val instantiate_evar : int -> Constrexpr.constr_expr -> proofview -> proofview
 

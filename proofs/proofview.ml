@@ -126,7 +126,7 @@ let focus_context f = f
     i]. *)
 let focus_sublist i j l =
   let (left,sub_right) = CList.goto (i-1) l in
-  let (sub, right) = 
+  let (sub, right) =
     try CList.chop (j-i+1) sub_right
     with Failure _ -> raise CList.IndexOutOfRange
   in
@@ -444,7 +444,7 @@ let fold_left2_goal i s l =
   let err =
     return () >>= fun () -> (* Delay the computation of list lengths. *)
     tclZERO (SizeMismatch (CList.length initial.comb,CList.length l))
-  in 
+  in
   Proof.List.fold_left2 err begin fun ((r,subgoals) as cur) goal a ->
     Solution.get >>= fun step ->
     match advance step goal with
@@ -480,7 +480,7 @@ let fold_left2_goal i s l =
 let tclDISPATCHGEN0 join tacs =
   match tacs with
   | [] ->
-      begin 
+      begin
         let open Proof in
         Comb.get >>= function
         | [] -> tclUNIT (join [])
@@ -806,7 +806,8 @@ let tclTIME s t =
         tclOR (tclUNIT x) (fun e -> aux (n+1) (k e))
   in aux 0 t
 
-
+let register_goals c =
+  Proof.modify (fun (step, env) -> ({ step with comb = c @ step.comb }, env))
 
 (** {7 Unsafe primitives} *)
 
@@ -828,7 +829,7 @@ module Unsafe = struct
   let tclEVARSADVANCE evd =
     Pv.modify (fun ps -> { solution = evd; comb = undefined evd ps.comb })
 
-  let tclEVARUNIVCONTEXT ctx = 
+  let tclEVARUNIVCONTEXT ctx =
     Pv.modify (fun ps -> { ps with solution = Evd.set_universe_context ps.solution ctx })
 
   let reset_future_goals p =
@@ -893,7 +894,7 @@ module Goal = struct
   let raw_concl { concl=concl } = concl
 
 
-  let gmake_with info env sigma goal = 
+  let gmake_with info env sigma goal =
     { env = Environ.reset_with_named_context (Evd.evar_filtered_hyps info) env ;
       sigma = sigma ;
       concl = Evd.evar_concl info ;
@@ -1084,7 +1085,7 @@ module V82 = struct
     let open Proof in
     Pv.get >>= fun ps ->
     try
-      let tac gl evd = 
+      let tac gl evd =
         let glsigma  =
           tac { Evd.it = gl ; sigma = evd; }  in
         let sigma = glsigma.Evd.sigma in
@@ -1113,7 +1114,7 @@ module V82 = struct
     let (goals,evd) = Evd.Monad.List.map map ps.comb ps.solution in
     { solution = evd; comb = goals; }
     end
-      
+
   let has_unresolved_evar pv =
     Evd.has_undefined pv.solution
 
@@ -1122,10 +1123,10 @@ module V82 = struct
     let undef = Evd.undefined_map pv.solution in
     let goals = CList.rev_map fst (Evar.Map.bindings undef) in
     { pv with comb = goals }
-      
-    
 
-  (* Returns the open goals of the proofview together with the evar_map to 
+
+
+  (* Returns the open goals of the proofview together with the evar_map to
      interprete them. *)
   let goals { comb = comb ; solution = solution; } =
    { Evd.it = comb ; sigma = solution }
@@ -1145,14 +1146,14 @@ module V82 = struct
       let evl = Evarutil.non_instantiated pv.solution in
       let evl = Evar.Map.bindings evl in
       if (n <= 0) then
-	Errors.error "incorrect existential variable index"
+        Errors.error "incorrect existential variable index"
       else if CList.length evl < n then
-	  Errors.error "not so many uninstantiated existential variables"
+          Errors.error "not so many uninstantiated existential variables"
       else
-	CList.nth evl (n-1)
+        CList.nth evl (n-1)
     in
     { pv with
-	solution = Evar_refiner.instantiate_pf_com evk com pv.solution }
+        solution = Evar_refiner.instantiate_pf_com evk com pv.solution }
 
   let of_tactic t gls =
     try

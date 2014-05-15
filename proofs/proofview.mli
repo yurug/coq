@@ -238,6 +238,10 @@ val tclENV : Environ.env tactic
 (* [tclEFFECTS eff] add the effects [eff] to the current state. *)
 val tclEFFECTS : Declareops.side_effects -> unit tactic
 
+(* Add some new goals to the proofview. This is meant to be used by "external
+ * tactic languages" (such as Mtac) with their own refiner. *)
+val register_goals : Goal.goal list -> unit tactic
+
 (* Shelves all the goals under focus. The goals are placed on the
    shelf for later use (or being solved by side-effects). *)
 val shelve : unit tactic

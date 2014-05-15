@@ -576,6 +576,9 @@ let tclTIMEOUT n t =
 let mark_as_unsafe =
   Proof.put (false,([],[]))
 
+let register_goals c =
+  Proof.modify (fun step -> { step with comb = c @ step.comb })
+
 (* Shelves all the goals under focus. *)
 let shelve =
   (* spiwack: convenience notations, waiting for ocaml 3.12 *)

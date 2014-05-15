@@ -488,21 +488,21 @@ let rec run' (env, sigma as ctxt) t =
         assert (Evd.is_defined sigma' evar) ;
         let goal_set = Evarutil.undefined_evars_of_term sigma' constr in
         (* TODO: this is not enough, we need to use [Goal.V82.mk_goal] *)
-        let goals =
+        let goals, comb =
           let ty = MtacNames.mkConstr "goal" in
-          Evar.Set.fold (fun evar coq_list ->
-              let ev_info = Evd.find sigma evar in
-              let args =
-                Context.instance_from_named_context
-                  (Environ.named_context_of_val ev_info.Evd.evar_hyps)
-              in
-              let args = Array.of_list args in
-              let evar = Term.mkEvar (evar, args) in
-              let g = Term.mkApp (MtacNames.mkConstr "opaque", [| evar |]) in
-              CoqList.makeCons ty g coq_list
-            ) goal_set (CoqList.makeNil ty)
+          Evar.Set.fold (fun evar (coq_list, comb) ->
+            let ev_info = Evd.find sigma evar in
+            let args =
+              Context.instance_from_named_context
+                (Environ.named_context_of_val ev_info.Evd.evar_hyps)
+            in
+            let args = Array.of_list args in
+            let evar_trm = Term.mkEvar (evar, args) in
+            let g = Term.mkApp (MtacNames.mkConstr "opaque", [|evar_trm|]) in
+            CoqList.makeCons ty g coq_list, Goal.build evar :: comb
+          ) goal_set (CoqList.makeNil ty, [])
         in
-        return sigma' goals
+        Proofview.tclTHEN (Proofview.register_goals comb) (return sigma' goals)
       | Evarsolve.UnifFailure (em, err) ->
         (* FIXME: Not sure if using [Himsg] here is "clean". But it does give
          * some meaningful error messages. *)

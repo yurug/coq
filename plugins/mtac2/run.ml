@@ -137,14 +137,11 @@ end
 type data = Val of (Evd.evar_map * Term.constr) | Err of Term.constr
 
 (** Monad for execution values *)
-let (>>=) v g =
-  match v with
-  | Val v' -> g v'
-  | _ -> v
+let (>>=) v g = Proofview.tclBIND v (function Val v' -> g v' | _ -> v)
 
-let return s t = Val (s, t)
+let return s t = Proofview.tclUNIT (Val (s, t))
 
-let fail t = Err t
+let fail t = Proofview.tclUNIT (Err t)
 
 (** Given a pattern [p], it returns:
     - a new sigma context containing all the evars created,
@@ -292,17 +289,19 @@ let runnu run' (env, sigma) a f =
     else
       Names.Anonymous, Term.mkApp(Vars.lift 1 f, [|Term.mkRel 1|])
   in
-  match run' (Environ.push_rel (v, None, a) env, sigma) fx with
-  | Val (sigma', e) ->
-    if Int.Set.mem 1 (TOps.free_rels e) then
-      Exceptions.block Exceptions.error_param
-    else
-      return sigma' (TOps.pop e)
-  | Err e ->
-    if Int.Set.mem 1 (TOps.free_rels e) then
-      Exceptions.block Exceptions.error_param
-    else
-      fail (TOps.pop e)
+  Proofview.tclBIND (run' (Environ.push_rel (v, None, a) env, sigma) fx) (
+    function
+    | Val (sigma', e) ->
+      if Int.Set.mem 1 (TOps.free_rels e) then
+        Exceptions.block Exceptions.error_param
+      else
+        return sigma' (TOps.pop e)
+    | Err e ->
+      if Int.Set.mem 1 (TOps.free_rels e) then
+        Exceptions.block Exceptions.error_param
+      else
+        fail (TOps.pop e)
+  )
 
 
 (* checks that no variable in env to the right of i (that is, smaller
@@ -380,13 +379,13 @@ let rec run' (env, sigma as ctxt) t =
     run' (env, sigma') t'
 
   | 3 -> (* try *)
-    begin
-      match run' ctxt (nth 1) with
+    Proofview.tclBIND (run' ctxt (nth 1)) (
+      function
       | Val (sigma', v) -> return sigma' v
       | Err i ->
         let t' = Term.mkApp(nth 2, [|i|]) in
         run' ctxt t'
-    end
+    )
 
   | 4 -> (* raise *)
     fail (nth 1)
@@ -552,9 +551,9 @@ let rec run' (env, sigma as ctxt) t =
 
 
 let run (env, sigma) t  =
-  match run' (env, sigma) (Evarutil.nf_evar sigma t) with
-  | Err i ->
-    Err i
-  | Val (sigma', v) ->
-    Val (sigma', Evarutil.nf_evar sigma' v)
+  Proofview.tclBIND (run' (env, sigma) (Evarutil.nf_evar sigma t)) (
+    function
+    | Err i -> fail i
+    | Val (sigma', v) -> return sigma' (Evarutil.nf_evar sigma' v)
+  )
 

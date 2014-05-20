@@ -72,16 +72,12 @@ module MtacNames = struct
   let mkConstr = fun e-> Lazy.force (Constr.mkConstr (mtac_module_name ^ "." ^ e))
   let mkT_lazy = lazy (mkConstr "Mtac2")
 
+  let mkGoal = mkLazyConstr "Mgoal"
   let mkBase = mkLazyConstr "Mbase"
   let mkTele = mkLazyConstr "Mtele"
   let isBase = Constr.isConstr mkBase
   let isTele = Constr.isConstr mkTele
-
-  let mkgBase = mkLazyConstr "Mgbase"
-  let mkgTele = mkLazyConstr "Mgtele"
-  let isgBase = Constr.isConstr mkgBase
-  let isgTele = Constr.isConstr mkgTele
-
+  let isGoal = Constr.isConstr mkGoal
 end
 
 (** There are two types of exception in Mtac2: those raised by the application
@@ -156,34 +152,20 @@ let open_pattern (env, sigma) p =
     if MtacNames.isBase patt then
       let p = nth 3 in
       let b = nth 4 in
-      Some (sigma, evars, p, b)
+      `Base (sigma, evars, p, b)
+    else if MtacNames.isGoal patt then
+      let hyps = nth 3 in
+      let goal = nth 4 in
+      let body = nth 5 in
+      `Goal (sigma, evars, hyps, goal, body)
     else if MtacNames.isTele patt then
       let c = nth 2 in
       let f = nth 4 in
       let (sigma', evar) = Evarutil.new_evar sigma env c in
       op_patt sigma' (Term.mkApp (f, [|evar|])) (evar :: evars)
     else
-      None
+      `None
   in op_patt sigma p []
-
-let open_gpattern (env, sigma) p =
-  let rec op_patt sigma p evars =
-    let (patt, args) = ROps.whd_betadeltaiota_stack env sigma p in
-    let nth = List.nth args in
-    if MtacNames.isgBase patt then
-      let hyps = nth 2 in
-      let goal = nth 3 in
-      let body = nth 4 in
-      Some (sigma, evars, hyps, goal, body)
-    else if MtacNames.isgTele patt then
-      let b = nth 1 in
-      let f = nth 2 in
-      let (sigma', evar) = Evarutil.new_evar sigma env b in
-      op_patt sigma' (Term.mkApp (f, [|evar|])) (evar :: evars)
-    else
-      None
-  in op_patt sigma p []
-
 
 (** Given a list of patterns [patts], it tries to unify the term [t]
     (with type [ty]) with each of the patterns. If it succeeds, then
@@ -193,8 +175,8 @@ let rec runmatch' (env, sigma as ctxt) t ty = function
   | [] -> Exceptions.block Exceptions.error_no_match
   | patt :: tail ->
     match open_pattern ctxt patt with
-    | None -> Exceptions.block Exceptions.error_stuck
-    | Some (sigma', evars, p, body) ->
+    | `None | `Goal _ -> Exceptions.block Exceptions.error_stuck
+    | `Base (sigma', evars, p, body) ->
       let rsigma' = ref sigma' in
       if not (UnificationStrategy.unify rsigma' env evars p t) then
         runmatch' ctxt t ty tail
@@ -241,9 +223,9 @@ let rec rungmatch' (_env, sigma as ctxt) (_evar, ev_info as egoal) = function
        we want to inspect.
        That's a first approximation, it doesn't feel completly right. *)
     let env = Evd.evar_env ev_info in
-    match open_gpattern (env, sigma) patt with
-    | None -> Exceptions.block Exceptions.error_stuck
-    | Some (sigma', evars, hyps, goal, body) ->
+    match open_pattern (env, sigma) patt with
+    | `None | `Base _ -> Exceptions.block Exceptions.error_stuck
+    | `Goal (sigma', evars, hyps, goal, body) ->
       let rsigma' = ref sigma' in
       let env_hyps  = Environ.named_context_of_val ev_info.Evd.evar_hyps in
       let hyp_patts =

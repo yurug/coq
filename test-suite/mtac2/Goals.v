@@ -27,9 +27,9 @@ run (
   lst <- Mgoals ;
   iter (fun g =>
     Mgmatch g [
-      Mgbase nil (0 >= 0)(Mrefine g (Le.le_0_n 0)) ;
-      Mgtele (fun z =>
-        Mgbase [Named nat z] (S z >= 0) (Mrefine g (Le.le_0_n (S z))))
+      Mgoal nil (0 >= 0) (Mrefine g (Le.le_0_n 0)) ;
+      Mtele (fun z =>
+        Mgoal [Named nat z] (S z >= 0) (Mrefine g (Le.le_0_n (S z))))
     ]
   ) lst
 ) as t.
@@ -42,7 +42,7 @@ run (
   goals <- Mgoals ;
   iter (fun g =>
     Mgmatch g [
-      Mgbase [Named nat x ; Named (forall (A : Type), A -> A * A) f] ((nat * nat) * (nat * nat))%type
+      Mgoal [Named nat x ; Named (forall (A : Type), A -> A * A) f] ((nat * nat) * (nat * nat))%type
         (Mrefine g (f (nat * nat)%type (f nat x)))
     ]
   ) goals

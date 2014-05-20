@@ -38,15 +38,12 @@ Inductive Mtac2 : Type -> Prop :=
 | Mis_evar : forall {A}, A -> Mtac2 bool
 | Mgoals : Mtac2 (list goal)
 | Mrefine : forall {A}, goal -> A -> Mtac2 (list goal)
-| Mgmatch : forall {A}, goal -> list (Mgoal_patt A) -> Mtac2 A
+| Mgmatch : forall {A} (g:goal), list (Mpatt goal (fun g => A) g) -> Mtac2 A
 | Mshow : goal -> Mtac2 unit
-
-with Mgoal_patt : Type -> Type :=
-| Mgbase : forall {A G}, list hypothesis -> G -> Mtac2 A -> Mgoal_patt A
-| Mgtele : forall {A B}, (forall (x : B), Mgoal_patt A) -> Mgoal_patt A
 
 with Mpatt : forall A (B : A -> Type) (t : A), Type := 
 | Mbase : forall {A B t} (x:A) (b : t = x -> Mtac2 (B x)), Mpatt A B t
+| Mgoal : forall {A G g}, list hypothesis -> G -> Mtac2 A -> Mpatt goal (fun g => A) g
 | Mtele : forall {A B C t}, (forall (x : C), Mpatt A B t) -> Mpatt A B t.
 
 

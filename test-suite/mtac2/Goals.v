@@ -1,7 +1,6 @@
 Require Import Mtac2.
 Require Import List.
 Import Mtac2Notations.
-Import ListNotations.
 
 Definition iter {A B : Type} (f : A -> M B) :=
   mfix1 y (lst : list A) : M unit :=
@@ -24,14 +23,13 @@ Goal forall x : nat, x >= 0.
 intro.
 destruct x.
 run (
-  lst <- Mgoals ;
+  Mgoals >>
   iter (fun g =>
-    Mgmatch g [
-      Mgoal nil (0 >= 0) (Mrefine g (Le.le_0_n 0)) ;
-      Mtele (fun z =>
-        Mgoal [Named nat z] (S z >= 0) (Mrefine g (Le.le_0_n (S z))))
-    ]
-  ) lst
+    gmatch g with
+    | {} 0 >= 0 => Mrefine g (Le.le_0_n 0)
+    | [ z ] { Named nat z } S z >= 0 => Mrefine g (Le.le_0_n (S z))
+    end
+  )
 ) as t.
 Qed.
 
@@ -39,13 +37,14 @@ Goal forall (x : nat) (f: forall (A:Type), A -> A * A), (nat * nat) * (nat * nat
 Proof.
 intros.
 run (
-  goals <- Mgoals ;
+  Mgoals >>
   iter (fun g =>
-    Mgmatch g [
-      Mgoal [Named nat x ; Named (forall (A : Type), A -> A * A) f] ((nat * nat) * (nat * nat))%type
-        (Mrefine g (f (nat * nat)%type (f nat x)))
-    ]
-  ) goals
+    gmatch g with
+    | { Named nat x , Named (forall (A:Type), A -> A * A) f }
+        ((nat * nat) * (nat * nat))%type =>
+      Mrefine g (f (nat * nat)%type (f nat x))
+    end
+  )
 ) as t.
 Qed.
 

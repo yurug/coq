@@ -27,7 +27,7 @@ run (
   iter (fun g =>
     gmatch g with
     | {} 0 >= 0 => Mrefine g (Le.le_0_n 0)
-    | [ z ] { Named nat z } S z >= 0 => Mrefine g (Le.le_0_n (S z))
+    | [ z ] { z : nat } S z >= 0 => Mrefine g (Le.le_0_n (S z))
     end
   )
 ) as t.
@@ -40,8 +40,7 @@ run (
   Mgoals >>
   iter (fun g =>
     gmatch g with
-    | { Named nat x , Named (forall (A:Type), A -> A * A) f }
-        ((nat * nat) * (nat * nat))%type =>
+    | { x:nat , f : (forall (A:Type), A -> A * A) } (nat * nat) * (nat * nat) =>
       Mrefine g (f (nat * nat)%type (f nat x))
     end
   )

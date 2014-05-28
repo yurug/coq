@@ -95,17 +95,21 @@ Notation "p => [ H ] b" := (Mbase p%core (fun H=>b%core))
 Notation "'_' => b " := (Mtele (fun x=> Mbase x (fun _=>b%core))) 
   (at level 201, b at next level) : mtac_patt_scope.
 
-Notation "{ } g => b" := (Mgoal nil g%core b%core)
-  (no associativity, at level 201) : mtac_patt_scope.
-Notation "{ hyp1 , .. , hypn } g => b" :=
-  (Mgoal (cons hyp1%core (.. (cons hypn%core nil) ..)) g%core b%core)
-    (no associativity, at level 201) : mtac_patt_scope.
+Notation "{ } g => b" := (Mgoal nil g%type b%core)
+  (no associativity, at level 201, b at next level) : mtac_patt_scope.
+
+(* CARE: the following is a hack, I'm assuming [xi] will actually be of the form
+ * [ident : type] so the wildcard in [Named _ xi] will get resolved. *)
+Notation "{ x1 , .. , xn } g => b" :=
+  (Mgoal (cons (Named _ x1) (.. (cons (Named _ xn) nil) ..)) g%type b%core)
+    (no associativity, at level 201, b at next level) : mtac_patt_scope.
 
 Delimit Scope mtac_patt_scope with mtac_patt.
 
 Notation "'gmatch' g 'with' | p1 | .. | pn 'end'" := 
   (Mgmatch g (cons p1%mtac_patt (.. (cons pn%mtac_patt nil) ..))) 
-    (at level 90, p1 at level 210, pn at level 210, only parsing).
+    (at level 90, p1 at level 210, pn at level 210, format
+  "'[v' 'gmatch'  g  'with' '/' '|'  p1 '/' '|'  .. '/' '|'  pn '/' end ']'").
 
 Notation "'mmatch' t 'with' | p1 | .. | pn 'end'" := 
   (Mmatch (fun _=>_) t (cons p1%mtac_patt (.. (cons pn%mtac_patt nil) ..))) 

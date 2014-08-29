@@ -48,6 +48,35 @@ Proof.
   ) as H.
 Admitted.
 
+Goal forall (A B C : Type) (a : A) (b : B) (c : C), B.
+Proof.
+  intros.
+  run (
+    Mgoals >>
+    iter (fun g =>
+      gmatch g with
+      | [ (Res:Type) l ] { < { U:Type & { _ : U & unit } } >* as l } Res =>
+        (mfix1 y (lst : LazyList { U : Type & { _ : U & unit } }) : M unit :=
+          res <- Mnext lst ;
+          _ <- Mprint res ;
+          mmatch res with
+          | None => Mprint 0
+          | [ x l' ] Some (x, l') =>
+            mmatch x return M unit with
+            | [ m ] existT (fun T => { _ : T & unit }) Res (existT (fun (_:Res) => unit) m tt) =>
+              _ <- Mrefine g m ;
+              ret tt
+            | _ =>
+              y l'
+            end
+          end
+        ) l
+      end
+    )
+  ) as H.
+  Show Proof.
+Qed.
+
 Goal forall x y : nat, x >= 0.
 intros x y.
 destruct x.

@@ -4,11 +4,24 @@ Declare ML Module "mtac2_plugin".
 
 Inductive Exception : Type := exception : Exception.
 
+Parameter LazyList : Type -> Type.
+
 Inductive goal : Type := opaque : forall {A : Type}, goal.
 
-(* Assumption: when one has [Named patt name], [name] comes from a [Mgtele] (see
+(* Assumption: when one has [Named patt name], [name] comes from a [Mtele] (see
  * under) and its type will be unified with the pattern. *)
-Inductive hypothesis : Type := Named : forall A : Type, A -> hypothesis.
+Inductive hypothesis := Named : forall A : Type, A -> hypothesis.
+
+Inductive local_telescope (A:Type) (P: A -> Type) : Type :=
+  lTele : forall x:A, P x -> local_telescope A P.
+
+(* Assumption: the first parameter of enum will actually be (nested) dependent
+ * pairs; e.g. {x : nat & {H : x = 3 & unit}}
+ * Of course we will provide a notation for it, so the user doesn't have to
+ * write that. *)
+Inductive hyp_pattern : Type :=
+| Simple : hypothesis -> hyp_pattern
+| Enum   : forall A:Type, LazyList A -> hyp_pattern.
 
 Inductive Mtac2 : Type -> Prop :=
 | Mret : forall {A}, A -> Mtac2 A
@@ -39,11 +52,12 @@ Inductive Mtac2 : Type -> Prop :=
 | Mgoals : Mtac2 (list goal)
 | Mrefine : forall {A}, goal -> A -> Mtac2 (list goal)
 | Mgmatch : forall {A} (g:goal), list (Mpatt goal (fun g => A) g) -> Mtac2 A
+| Mnext : forall {A:Type}, LazyList A -> Mtac2 (option (A * LazyList A))
 | Mshow : goal -> Mtac2 unit
 
 with Mpatt : forall A (B : A -> Type) (t : A), Type := 
 | Mbase : forall {A B t} (x:A) (b : t = x -> Mtac2 (B x)), Mpatt A B t
-| Mgoal : forall {A G g}, list hypothesis -> G -> Mtac2 A -> Mpatt goal (fun g => A) g
+| Mgoal : forall {A G g}, list hyp_pattern -> G -> Mtac2 A -> Mpatt goal (fun g => A) g
 | Mtele : forall {A B C t}, (forall (x : C), Mpatt A B t) -> Mpatt A B t.
 
 
@@ -100,9 +114,23 @@ Notation "{ } g => b" := (Mgoal nil g%type b%core)
 
 (* CARE: the following is a hack, I'm assuming [xi] will actually be of the form
  * [ident : type] so the wildcard in [Named _ xi] will get resolved. *)
+Notation "x ::: ty" := (Simple (Named ty x))
+  (no associativity, at level 10) : mtac_hyp_scope.
+Notation "< ty >* 'as' l" := (Enum ty%type l) (no associativity, at level 10) : mtac_hyp_scope.
+
+Delimit Scope mtac_hyp_scope with mtac_hyp.
+
 Notation "{ x1 , .. , xn } g => b" :=
-  (Mgoal (cons (Named _ x1) (.. (cons (Named _ xn) nil) ..)) g%type b%core)
+  (Mgoal (cons x1%mtac_hyp (.. (cons xn%mtac_hyp nil) ..)) g%type b%core)
     (no associativity, at level 201, b at next level) : mtac_patt_scope.
+
+(*
+(* CARE: the following is a hack, I'm assuming [xi] will actually be of the form
+ * [ident : type] so the wildcard in [Named _ xi] will get resolved. *)
+Notation "{ x1 , .. , xn } g => b" :=
+  (Mgoal (cons (Simple (Named _ x1)) (.. (cons (Simple (Named _ xn)) nil) ..)) g%type b%core)
+    (no associativity, at level 201, b at next level) : mtac_patt_scope.
+*)
 
 Delimit Scope mtac_patt_scope with mtac_patt.
 

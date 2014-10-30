@@ -584,6 +584,122 @@ let recover_goal sigma goal_term =
   try `Found (evar, args, Evd.find sigma evar)
   with Not_found -> `Unknown_goal
 
+
+let dest_Case (env, sigma) t_type t =
+  let nil = Constr.mkConstr "Coq.Init.Datatypes.nil" in
+  let cons = Constr.mkConstr "Coq.Init.Datatypes.cons" in
+  let mkCase = MtacNames.mkConstr "mkCase" in
+  let dyn = MtacNames.mkConstr "dyn" in
+  let mkDyn = MtacNames.mkConstr "Dyn" in
+  try
+    let (info, return_type, discriminant, branches) = Term.destCase t in
+    let branch_dyns = Array.fold_left (
+      fun l t -> 
+        let dyn_type = Retyping.get_type_of env sigma t in
+        Term.applist (Lazy.force cons, [dyn; Term.applist (mkDyn, [dyn_type; t]); l])
+      ) (Lazy.force nil) branches in
+    let ind_type = Retyping.get_type_of env sigma discriminant in
+    let return_type_type = Retyping.get_type_of env sigma return_type in
+    (* (sigma, (Term.applist(mkCase, [t_type; t; ind_type; discriminant; branch_dyns]))) *)
+    (sigma, (Term.applist(mkCase, 
+      [ind_type; discriminant; t_type;
+       Term.applist(mkDyn, [return_type_type; return_type]); 
+       branch_dyns
+      ])
+      )
+      )
+  with
+   | Not_found -> (sigma, Lazy.force (Constr.mkConstr "Coq.Init.Datatypes.false"))
+   | Term.DestKO -> (sigma, Lazy.force (Constr.mkConstr "Coq.Init.Datatypes.true"))
+   | _ -> (sigma, t)
+
+let make_Case (env, sigma) case =
+  let map = Constr.mkConstr "List.map" in
+  let elem = MtacNames.mkConstr "elem" in
+  let mkDyn = MtacNames.mkConstr "Dyn" in
+  let case_ind = MtacNames.mkConstr "case_ind" in
+  let case_val = MtacNames.mkConstr "case_val" in
+  let case_type = MtacNames.mkConstr "case_type" in
+  let case_return = MtacNames.mkConstr "case_return" in
+  let case_branches = MtacNames.mkConstr "case_branches" in
+  let repr_ind = Term.applist(case_ind, [case]) in
+  let repr_val = Term.applist(case_val, [case]) in
+  let repr_val_red = ROps.whd_betadeltaiota env sigma repr_val in
+  let repr_type = Term.applist(case_type, [case]) in
+  let repr_return = Term.applist(case_return, [case]) in
+  let repr_return_unpack = Term.applist(elem, [repr_return]) in
+  let repr_return_red = ROps.whd_betadeltaiota env sigma repr_return_unpack in
+  let repr_branches = Term.applist(case_branches, [case]) in
+  let repr_branches_list = CoqList.to_list (env, sigma) repr_branches in
+  let repr_branches_dyns = 
+      List.map (fun t -> Term.applist(elem, [t])) repr_branches_list in
+  let repr_branches_red =       
+    List.map (fun t -> ROps.whd_betadeltaiota env sigma t) repr_branches_dyns in
+  let t_type, l = Term.decompose_app (ROps.whd_betadeltaiota env sigma repr_ind) in
+  if Term.isInd t_type then
+    match Term.kind_of_term t_type with
+    | Term.Ind (mind, ind_i) -> 
+      let mbody = Environ.lookup_mind mind env in
+      let ind = Array.get (mbody.mind_packets) ind_i in
+      let case_info = Inductiveops.make_case_info env (mind, ind_i)
+      Term.LetPatternStyle in
+      let match_term = Term.mkCase (case_info, repr_return_red, repr_val_red,
+      Array.of_list (List.rev repr_branches_red)) in
+      let match_type = Retyping.get_type_of env sigma match_term in
+      (sigma, Term.applist(mkDyn, [match_type;  match_term]))
+  else
+    Exceptions.block "case_type is not an inductive type"
+
+
+let get_Constrs (env, sigma) t =
+  let t_type, l = Term.decompose_app (ROps.whd_betadeltaiota env sigma t) in
+  if Term.isInd t_type then
+    match Term.kind_of_term t_type with
+    | Term.Ind (mind, ind_i) -> 
+      let mbody = Environ.lookup_mind mind env in
+      Pp.pperr (Pp.str "lookup OK\n");
+      Pp.flush_all ();
+      let ind = Array.get (mbody.mind_packets) ind_i in
+      Pp.pperr (Pp.str "packets OK\n");
+      Pp.flush_all ();
+      let dyn = MtacNames.mkConstr "dyn" in
+      let mkDyn = MtacNames.mkConstr "Dyn" in
+      Pp.pperr (Pp.str "defs OK\n");
+      Pp.flush_all ();
+      let l = Array.fold_left 
+          (fun l i ->
+              let constr = Names.ith_constructor_of_inductive (mind, ind_i) i in
+              Pp.pperr (Pp.str "ith constr OK\n");
+              Pp.pperr (Pp.int i);
+              Pp.pperr (Pp.str "\n");
+              Pp.flush_all ();
+              let coq_constr = Term.applist (mkDyn, [CoqList.makeNil dyn]) in
+              let coq_constr = Term.mkConstruct constr in
+              let dyn_constr = Term.applist (mkDyn, [coq_constr]) in
+              Pp.pperr (Pp.str "applist OK\n");
+              Pp.flush_all ();
+              CoqList.makeCons dyn dyn_constr l 
+          )
+              (let x = 
+          CoqList.makeNil dyn in
+             Pp.pperr (Pp.str "nil OK\n");
+              Pp.flush_all (); x )  
+          (* this is just a dirty hack to get the indices of constructors *)
+          (let x = Array.mapi (fun i t -> i+1) ind.mind_consnames in 
+              Pp.pperr (Pp.str "mapi OK\n");
+              Pp.flush_all (); x
+          )
+
+      in  
+      Pp.pperr (Pp.str "everything OK\n");
+              Pp.flush_all () ;
+      (sigma, l)
+  else
+    Exceptions.block "The argument of Mconstrs is not an inductive type"
+
+
+
+
 let rec run' lazy_map (env, sigma as ctxt) t =
   let t = ROps.whd_betadeltaiota env sigma t in
   let (h, args) = Term.decompose_app t in
@@ -822,6 +938,22 @@ let rec run' lazy_map (env, sigma as ctxt) t =
       Pp.flush_all () ;
       return sigma lazy_map (Lazy.force CoqUnit.mkTT)
     end
+
+  | 20 -> (* dest case *) 
+    let t_type = nth 0 in
+    let t = nth 1 in
+    let (sigma', case) = dest_Case (env, sigma) t_type t in
+    return sigma' lazy_map case
+
+  | 21 -> (* get constrs *) 
+    let t = nth 1 in
+    let (sigma', constrs) = get_Constrs (env, sigma) t in
+    return sigma' lazy_map constrs
+
+  | 22 -> (* make case *) 
+    let case = nth 0 in
+    let (sigma', case) = make_Case (env, sigma) case in
+    return sigma' lazy_map case
 
   | _ ->
     Exceptions.block "I have no idea what is this Mtac2 construct that you have here"

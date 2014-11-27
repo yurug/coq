@@ -976,12 +976,12 @@ let rec eta_reduce_head c =
 	(match kind_of_term (eta_reduce_head c') with
            | App (f,cl) ->
                let lastn = (Array.length cl) - 1 in
-               if lastn < 1 then anomaly (Pp.str "application without arguments")
+               if lastn < 0 then anomaly (Pp.str "application without arguments")
                else
                  (match kind_of_term cl.(lastn) with
                     | Rel 1 ->
 			let c' =
-                          if Int.equal lastn 1 then f
+                          if Int.equal lastn 0 then f
 			  else mkApp (f, Array.sub cl 0 lastn)
 			in
 			if noccurn 1 c'

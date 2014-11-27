@@ -31,6 +31,10 @@ module IOBase =
   
   let seq = fun a k -> (); fun () -> a (); k ()
   
+  (** val map : ('a1 -> 'a2) -> 'a1 coq_T -> 'a2 coq_T **)
+  
+  let map = fun f a -> (); fun () -> f (a ())
+  
   (** val ref : 'a1 -> 'a1 coq_Ref coq_T **)
   
   let ref = fun a -> (); fun () -> Pervasives.ref a
@@ -90,8 +94,7 @@ module IOBase =
  
  end
 
-type proofview = { initial : (Term.constr*Term.types) list;
-                   solution : Evd.evar_map; comb : Goal.goal list }
+type proofview = { solution : Evd.evar_map; comb : Goal.goal list }
 
 type logicalState = proofview
 
@@ -124,6 +127,11 @@ module NonLogical =
   
   let seq x k =
     IOBase.seq x k
+  
+  (** val map : ('a1 -> 'a2) -> 'a1 t -> 'a2 t **)
+  
+  let map f x =
+    (); (IOBase.map f x)
   
   (** val new_ref : 'a1 -> 'a1 ref t **)
   
@@ -297,6 +305,30 @@ module Logical =
   let seq x k =
     (); (fun _ k0 s -> Obj.magic x __ (fun x1 s' -> Obj.magic k __ k0 s') s)
   
+  (** val map :
+      ('a1 -> 'a2) -> 'a1 t -> __ -> ('a2 -> proofview -> __ -> ('a3 -> __ ->
+      (__ -> (bool*(Goal.goal list*Goal.goal list)) -> __ -> (__ -> (exn ->
+      __ IOBase.coq_T) -> __ IOBase.coq_T) -> (exn -> __ IOBase.coq_T) -> __
+      IOBase.coq_T) -> __ -> (__ -> (exn -> __ IOBase.coq_T) -> __
+      IOBase.coq_T) -> (exn -> __ IOBase.coq_T) -> __ IOBase.coq_T) ->
+      Environ.env -> __ -> (__ -> (bool*(Goal.goal list*Goal.goal list)) ->
+      __ -> (__ -> (exn -> __ IOBase.coq_T) -> __ IOBase.coq_T) -> (exn -> __
+      IOBase.coq_T) -> __ IOBase.coq_T) -> __ -> (__ -> (exn -> __
+      IOBase.coq_T) -> __ IOBase.coq_T) -> (exn -> __ IOBase.coq_T) -> __
+      IOBase.coq_T) -> proofview -> __ -> ('a3 -> __ -> ('a4 ->
+      (bool*(Goal.goal list*Goal.goal list)) -> __ -> (__ -> (exn -> __
+      IOBase.coq_T) -> __ IOBase.coq_T) -> (exn -> __ IOBase.coq_T) -> __
+      IOBase.coq_T) -> __ -> (__ -> (exn -> __ IOBase.coq_T) -> __
+      IOBase.coq_T) -> (exn -> __ IOBase.coq_T) -> __ IOBase.coq_T) ->
+      Environ.env -> __ -> ('a4 -> (bool*(Goal.goal list*Goal.goal list)) ->
+      __ -> ('a5 -> (exn -> __ IOBase.coq_T) -> __ IOBase.coq_T) -> (exn ->
+      __ IOBase.coq_T) -> __ IOBase.coq_T) -> __ -> ('a5 -> (exn -> 'a6
+      IOBase.coq_T) -> 'a6 IOBase.coq_T) -> (exn -> 'a6 IOBase.coq_T) -> 'a6
+      IOBase.coq_T **)
+  
+  let map f x =
+    (); (fun _ k s -> Obj.magic x __ (fun a s0 -> k (f a) s0) s)
+  
   (** val set :
       logicalState -> __ -> (unit -> proofview -> __ -> ('a1 -> __ -> (__ ->
       (bool*(Goal.goal list*Goal.goal list)) -> __ -> (__ -> (exn -> __
@@ -344,6 +376,30 @@ module Logical =
   
   let get r k s =
     Obj.magic k s s
+  
+  (** val modify :
+      (logicalState -> logicalState) -> __ -> (unit -> proofview -> __ ->
+      ('a1 -> __ -> (__ -> (bool*(Goal.goal list*Goal.goal list)) -> __ ->
+      (__ -> (exn -> __ IOBase.coq_T) -> __ IOBase.coq_T) -> (exn -> __
+      IOBase.coq_T) -> __ IOBase.coq_T) -> __ -> (__ -> (exn -> __
+      IOBase.coq_T) -> __ IOBase.coq_T) -> (exn -> __ IOBase.coq_T) -> __
+      IOBase.coq_T) -> Environ.env -> __ -> (__ -> (bool*(Goal.goal
+      list*Goal.goal list)) -> __ -> (__ -> (exn -> __ IOBase.coq_T) -> __
+      IOBase.coq_T) -> (exn -> __ IOBase.coq_T) -> __ IOBase.coq_T) -> __ ->
+      (__ -> (exn -> __ IOBase.coq_T) -> __ IOBase.coq_T) -> (exn -> __
+      IOBase.coq_T) -> __ IOBase.coq_T) -> proofview -> __ -> ('a1 -> __ ->
+      ('a2 -> (bool*(Goal.goal list*Goal.goal list)) -> __ -> (__ -> (exn ->
+      __ IOBase.coq_T) -> __ IOBase.coq_T) -> (exn -> __ IOBase.coq_T) -> __
+      IOBase.coq_T) -> __ -> (__ -> (exn -> __ IOBase.coq_T) -> __
+      IOBase.coq_T) -> (exn -> __ IOBase.coq_T) -> __ IOBase.coq_T) ->
+      Environ.env -> __ -> ('a2 -> (bool*(Goal.goal list*Goal.goal list)) ->
+      __ -> ('a3 -> (exn -> __ IOBase.coq_T) -> __ IOBase.coq_T) -> (exn ->
+      __ IOBase.coq_T) -> __ IOBase.coq_T) -> __ -> ('a3 -> (exn -> 'a4
+      IOBase.coq_T) -> 'a4 IOBase.coq_T) -> (exn -> 'a4 IOBase.coq_T) -> 'a4
+      IOBase.coq_T **)
+  
+  let modify f =
+    (); (fun _ k s -> Obj.magic k () (f s))
   
   (** val put :
       logicalMessageType -> __ -> (unit -> proofview -> __ -> ('a1 -> __ ->

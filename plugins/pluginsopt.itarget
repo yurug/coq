@@ -20,3 +20,4 @@ syntax/string_syntax_plugin.cmxa
 syntax/z_syntax_plugin.cmxa
 quote/quote_plugin.cmxa
 Derive/derive_plugin.cmxa
+mtac2/mtac2_plugin.cmxa

@@ -16,6 +16,10 @@ let pr_err s = Printf.eprintf "%s] %s\n" (process_id ()) s; flush stderr
 
 let prerr_endline s = if !Flags.debug then begin pr_err s end else ()
 
+let (f_process_error, process_error_hook) = Hook.make ()
+let ((f_interp : (?verbosely:bool -> ?proof:Proof_global.closed_proof ->
+  Loc.t * Vernacexpr.vernac_expr -> unit) Hook.value), interp_hook) = Hook.make ()
+
 open Vernacexpr
 open Errors
 open Pp
@@ -48,10 +52,11 @@ let vernac_interp ?proof id { verbose; loc; expr } =
     Pp.set_id_for_feedback (Interface.State id);
     Aux_file.record_in_aux_set_at loc;
     prerr_endline ("interpreting " ^ string_of_ppcmds(pr_vernac expr));
-    try Vernacentries.interp ~verbosely:verbose ?proof (loc, expr)
+    let interp = Hook.get f_interp in
+    try interp ~verbosely:verbose ?proof (loc, expr)
     with e ->
       let e = Errors.push e in
-      raise (Cerrors.process_vernac_interp_error e)
+      raise (Hook.get f_process_error e)
   end
 
 (* Wrapper for Vernac.parse_sentence to set the feedback id *)
@@ -125,7 +130,7 @@ module Vcs_aux : sig
   exception Expired
   val visit : (branch_type, transaction,'i) Vcs_.t -> Vcs_.Dag.node -> visit
 
-end = struct (* {{{ *)
+end = struct
 
   let proof_nesting vcs =
     List.fold_left max 0
@@ -166,7 +171,7 @@ end = struct (* {{{ *)
       | _ -> anomaly (str ("Malformed VCS at node "^Stateid.to_string id))
     with Not_found -> raise Expired
 
-end (* }}} *)
+end
 
 (* Imperative wrap around VCS to obtain _the_ VCS *)
 module VCS : sig
@@ -229,7 +234,7 @@ module VCS : sig
   val backup : unit -> vcs
   val restore : vcs -> unit
 
-end = struct (* {{{ *)
+end = struct
 
   include Vcs_
   exception Expired = Vcs_aux.Expired
@@ -237,7 +242,7 @@ end = struct (* {{{ *)
   module StateidSet = Set.Make(Stateid)
   open Printf
 
-  let print_dag vcs () = (* {{{ *)
+  let print_dag vcs () =
     let fname = "stm_" ^ process_id () in
     let string_of_transaction = function
       | Cmd (t, _) | Fork (t, _,_,_) ->
@@ -320,8 +325,7 @@ end = struct (* {{{ *)
     close_out oc;
     ignore(Sys.command
       ("dot -Tpdf -Gcharset=latin1 " ^ fname_dot ^ " -o" ^ fname_ps))
-  (* }}} *)
-  
+
   type vcs = (branch_type, transaction, vcs state_info) t
   let vcs : vcs ref = ref (empty Stateid.dummy)
 
@@ -332,7 +336,6 @@ end = struct (* {{{ *)
   let current_branch () = current_branch !vcs
 
   let checkout head = vcs := checkout !vcs head
-  let master = Branch.master
   let branches () = branches !vcs
   let get_branch head = get_branch !vcs head
   let get_branch_pos head = (get_branch head).pos
@@ -450,7 +453,7 @@ end = struct (* {{{ *)
 
     val command : now:bool -> (unit -> unit) -> unit
 
-  end = struct (* {{{ *)
+  end = struct
     
     let m = Mutex.create ()
     let c = Condition.create ()
@@ -482,7 +485,7 @@ end = struct (* {{{ *)
           worker := Some (Thread.create run_command ())
       end
 
-  end (* }}} *)
+  end
 
   let print ?(now=false) () =
     if not !Flags.debug && not now then () else NB.command ~now (print_dag !vcs)
@@ -490,7 +493,7 @@ end = struct (* {{{ *)
   let backup () = !vcs
   let restore v = vcs := v
 
-end (* }}} *)
+end
 
 (* Fills in the nodes of the VCS *)
 module State : sig
@@ -513,7 +516,7 @@ module State : sig
   val get_cached : Stateid.t -> frozen_state
   val assign : Stateid.t -> frozen_state -> unit
 
-end = struct (* {{{ *)
+end = struct
 
   (* cur_id holds Stateid.dummy in case the last attempt to define a state
    * failed, so the global state may contain garbage *)
@@ -568,7 +571,7 @@ end = struct (* {{{ *)
         let loc = Option.default Loc.ghost (Loc.get_loc e) in
         let msg = string_of_ppcmds (print e) in
         Pp.feedback ~state_id:id (Interface.ErrorMsg (loc, msg));
-        Stateid.add (Cerrors.process_vernac_interp_error e) ?valid id
+        Stateid.add (Hook.get f_process_error e) ?valid id
 
   let define ?(redefine=false) ?(cache=`No) f id =
     let str_id = Stateid.to_string id in
@@ -596,7 +599,6 @@ end = struct (* {{{ *)
       | None -> raise (exn_on id ~valid:good_id e)
 
 end
-(* }}} *)
 
 let hints = ref Aux_file.empty_aux_file
 let set_compilation_hints file =
@@ -666,7 +668,7 @@ module Slaves : sig
 
   val set_perspective : Stateid.t list -> unit
 
-end = struct (* {{{ *)
+end = struct
 
 
   let cancel_worker n = WorkersPool.cancel (n-1)
@@ -763,8 +765,9 @@ end = struct (* {{{ *)
             { verbose = false; loc;
               expr = (VernacEndProof (Proved (true,None))) };
           Some proof
-        with e -> (try
-          match Stateid.get e with
+        with e ->
+          let e = Errors.push e in
+          (try match Stateid.get e with
           | None ->
               Pp.pperrnl Pp.(
                 str"File " ++ str name ++ str ": proof of " ++ str s ++
@@ -892,7 +895,8 @@ end = struct (* {{{ *)
     if WorkersPool.is_empty () then
       if !Flags.compilation_mode = Flags.BuildVi then begin
         let force () : Entries.proof_output list Future.assignement =
-          try `Val (build_proof_here_core loc stop ()) with e -> `Exn e in
+          try `Val (build_proof_here_core loc stop ())
+          with e -> let e = Errors.push e in `Exn e in
         let f,assign = Future.create_delegate ~force (State.exn_on id ~valid) in
         let uuid = Future.uuid f in
         TQueue.push queue (TaskBuildProof
@@ -928,7 +932,7 @@ end = struct (* {{{ *)
   let rec manage_slave ~cancel:cancel_user_req id_slave respawn =
     let ic, oc, proc =
       let rec set_slave_opt = function
-        | [] -> ["-async-proofs"; "worker"; string_of_int id_slave]
+        | [] -> ["-async-proofs"; "worker"; string_of_int id_slave; "-feedback-glob"]
         | ("-ideslave"|"-emacs"|"-emacs-U")::tl -> set_slave_opt tl
         | ("-async-proofs"
           |"-compile"
@@ -1146,7 +1150,7 @@ end = struct (* {{{ *)
     List.map (function ReqBuildProof(a,b,c,d,x,e) ->
       ReqBuildProof(a,b,c,d,List.assoc x f2t_map,e)) tasks
 
-end (* }}} *)
+end
 
 (* Runs all transactions needed to reach a state *)
 module Reach : sig
@@ -1154,7 +1158,7 @@ module Reach : sig
   val known_state :
     ?redefine_qed:bool -> cache:Summary.marshallable -> Stateid.t -> unit
 
-end = struct (* {{{ *)
+end = struct
 
 let pstate = ["meta counter"; "evar counter"; "program-tcc-table"]
 
@@ -1360,7 +1364,8 @@ let known_state ?(redefine_qed=false) ~cache id =
     prerr_endline ("reached: "^ Stateid.to_string id) in
   reach ~redefine_qed id
 
-end (* }}} *)
+end
+
 let _ = Slaves.set_reach_known_state Reach.known_state
 
 (* The backtrack module simulates the classic behavior of a linear document *)
@@ -1376,7 +1381,7 @@ module Backtrack : sig
   (* To be installed during initialization *)
   val undo_vernac_classifier : vernac_expr -> vernac_classification
 
-end = struct (* {{{ *)
+end = struct
 
   let record () =
     let current_branch = VCS.current_branch () in
@@ -1391,7 +1396,9 @@ end = struct (* {{{ *)
   let backto oid =
     let info = VCS.get_info oid in
     match info.vcs_backup with
-    | None, _ -> anomaly(str"Backtrack.backto to a state with no vcs_backup")
+    | None, _ ->
+       anomaly(str"Backtrack.backto "++str(Stateid.to_string oid)++
+               str": a state with no vcs_backup")
     | Some vcs, _ ->
         VCS.restore vcs;
         let id = VCS.get_branch_pos (VCS.current_branch ()) in
@@ -1402,7 +1409,8 @@ end = struct (* {{{ *)
     let info = VCS.get_info id in
     match info.vcs_backup with
     | _, None ->
-       anomaly(str"Backtrack.branches_of on a state with no vcs_backup")
+       anomaly(str"Backtrack.backto "++str(Stateid.to_string id)++
+               str": a state with no vcs_backup")
     | _, Some x -> x
 
   let rec fold_until f acc id =
@@ -1488,7 +1496,7 @@ end = struct (* {{{ *)
        msg_warning(str"undo_vernac_classifier: going back to the initial state.");
        VtStm (VtBack Stateid.initial, true), VtNow
 
-end (* }}} *)
+end
 
 let init () =
   VCS.init Stateid.initial;
@@ -1576,6 +1584,7 @@ let finish_tasks name u d p (t,rcbackup as tasks) =
     let u, a, _ = List.fold_left finish_task u (info_tasks tasks) in
     (u,a,true), p
   with e ->
+    let e = Errors.push e in
     Pp.pperrnl Pp.(str"File " ++ str name ++ str ":" ++ spc () ++ print e);
     exit 1
 
@@ -1664,6 +1673,14 @@ let process_transaction ~tty verbose c (loc, expr) =
           List.iter (fun branch ->
             if not (List.mem_assoc branch (mine::others)) then
               ignore(merge_proof_branch x VtDrop branch))
+            (VCS.branches ());
+          VCS.checkout_shallowest_proof_branch ();
+          let head = VCS.current_branch () in
+          List.iter (fun b ->
+            if not(VCS.Branch.equal b head) then begin
+              VCS.checkout b;
+              VCS.commit (VCS.new_node ()) (Alias oid);
+            end)
             (VCS.branches ());
           VCS.checkout_shallowest_proof_branch ();
           VCS.commit id (Alias oid);
@@ -1788,7 +1805,7 @@ let process_transaction ~tty verbose c (loc, expr) =
     let e = Errors.push e in
     handle_failure e vcs tty
 
-(** STM interface {{{******************************************************* **)
+(** STM interface ******************************************************* **)
 
 let stop_worker n = Slaves.cancel_worker n
 
@@ -1927,9 +1944,8 @@ let edit_at id =
         VCS.restore vcs;
         VCS.print ();
         raise e
-(* }}} *)
 
-(** Old tty interface {{{*************************************************** **)
+(** Old tty interface *************************************************** **)
 
 let interp verb (_,e as lexpr) =
   let clas = classify_vernac e in
@@ -2051,9 +2067,5 @@ let show_script ?proof () =
     let indented_cmds = List.rev (indented_cmds) in
     msg_notice (v 0 (Pp.prlist_with_sep Pp.fnl (fun x -> x) indented_cmds))
   with Vcs_aux.Expired -> ()
-
-let () = Vernacentries.show_script := show_script
-
-(* }}} *)
 
 (* vim:set foldmethod=marker: *)

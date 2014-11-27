@@ -21,7 +21,6 @@ open Inductiveops
 open Printer
 open Retyping
 open Tacmach.New
-open Clenv
 open Tacticals.New
 open Tactics
 open Elim
@@ -31,24 +30,6 @@ open Tacexpr
 open Proofview.Notations
 
 let clear hyps = Proofview.V82.tactic (clear hyps)
-
-let collect_meta_variables c =
-  let rec collrec acc c = match kind_of_term c with
-    | Meta mv -> mv::acc
-    | _ -> fold_constr collrec acc c
-  in
-  collrec [] c
-
-let check_no_metas clenv ccl =
-  if occur_meta ccl then
-    let metas = List.filter (fun m -> not (Evd.meta_defined clenv.evd m))
-      (collect_meta_variables ccl) in
-    let metas = List.map (Evd.meta_name clenv.evd) metas in
-    let opts = match metas with [_] -> " " | _ -> "s " in
-    errorlabstrm "inversion"
-      (str ("Cannot find an instantiation for variable"^opts) ++
-	 prlist_with_sep pr_comma pr_name metas
-	 (* ajouter "in " ++ pr_lconstr ccl mais il faut le bon contexte *))
 
 let var_occurs_in_pf gl id =
   let env = Proofview.Goal.env gl in
@@ -84,7 +65,7 @@ let var_occurs_in_pf gl id =
 type inversion_status = Dep of constr option | NoDep
 
 let compute_eqn env sigma n i ai =
-  (ai, (mkRel (n-i),get_type_of env sigma (mkRel (n-i))))
+  (mkRel (n-i),get_type_of env sigma (mkRel (n-i)))
 
 let make_inv_predicate env sigma indf realargs id status concl =
   let nrealargs = List.length realargs in
@@ -116,16 +97,16 @@ let make_inv_predicate env sigma indf realargs id status concl =
   in
   let nhyps = rel_context_length hyps in
   let env' = push_rel_context hyps env in
-  let realargs' = List.map (lift nhyps) realargs in
-  let pairs = List.map_i (compute_eqn env' sigma nhyps) 0 realargs' in
   (* Now the arity is pushed, and we need to construct the pairs
    * ai,mkRel(n-i+1) *)
   (* Now, we can recurse down this list, for each ai,(mkRel k) whether to
      push <Ai>(mkRel k)=ai (when   Ai is closed).
    In any case, we carry along the rest of pairs *)
-  let rec build_concl eqns n = function
-    | [] -> (it_mkProd concl eqns,n)
-    | (ai,(xi,ti))::restlist ->
+  let rec build_concl eqns args n = function
+    | [] -> it_mkProd concl eqns, Array.rev_of_list args
+    | ai :: restlist ->
+        let ai = lift nhyps ai in
+        let (xi, ti) = compute_eqn env' sigma nhyps n ai in
         let (lhs,eqnty,rhs) =
           if closed0 ti then
 	    (xi,ti,ai)
@@ -134,13 +115,17 @@ let make_inv_predicate env sigma indf realargs id status concl =
 	in
         let eq_term = Coqlib.build_coq_eq () in
         let eqn = applist (eq_term ,[eqnty;lhs;rhs]) in
-	build_concl ((Anonymous,lift n eqn)::eqns) (n+1) restlist
+        let eqns = (Anonymous, lift n eqn) :: eqns in
+        let refl_term = Coqlib.build_coq_eq_refl () in
+        let refl = mkApp (refl_term, [|eqnty; rhs|]) in
+        let args = refl :: args in
+        build_concl eqns args (succ n) restlist
   in
-  let (newconcl,neqns) = build_concl [] 0 pairs in
+  let (newconcl, args) = build_concl [] [] 0 realargs in
   let predicate = it_mkLambda_or_LetIn_name env newconcl hyps in
   (* OK - this predicate should now be usable by res_elimination_then to
      do elimination on the conclusion. *)
-  (predicate,neqns)
+  predicate, args
 
 (* The result of the elimination is a bunch of goals like:
 
@@ -336,6 +321,9 @@ let projectAndApply thin id eqname names depids =
 	(Some (ElimOnConstr (mkVar id,NoBindings))))
     id
 
+let nLastDecls i tac =
+  Proofview.Goal.enter (fun gl -> tac (nLastDecls gl i))
+
 (* Inversion qui n'introduit pas les hypotheses, afin de pouvoir les nommer
    soi-meme (proposition de Valerie). *)
 let rewrite_equations_gene othin neqns ba =
@@ -460,44 +448,34 @@ let raw_inversion inv_kind id status names =
     let env = Proofview.Goal.env gl in
     let concl = Proofview.Goal.concl gl in
     let c = mkVar id in
-    let reduce_to_atomic_ind = pf_apply Tacred.reduce_to_atomic_ind gl in
-    let type_of = pf_type_of gl in
-    begin
-      try
-        Proofview.tclUNIT (reduce_to_atomic_ind (type_of c))
+    let (ind, t) =
+      try pf_apply Tacred.reduce_to_atomic_ind gl (pf_type_of gl c)
       with UserError _ ->
-        Proofview.tclZERO (Errors.UserError ("raw_inversion" ,
-	                                     str ("The type of "^(Id.to_string id)^" is not inductive.")))
-    end >>= fun (ind,t) ->
-    try
-      let indclause = Tacmach.New.of_old (fun gl -> mk_clenv_from gl (c,t)) gl in
-      let ccl = clenv_type indclause in
-      check_no_metas indclause ccl;
-      let IndType (indf,realargs) = find_rectype env sigma ccl in
-      let (elim_predicate,neqns) =
-        make_inv_predicate env sigma indf realargs id status concl in
-      let (cut_concl,case_tac) =
-        if status != NoDep && (dependent c concl) then
-          Reduction.beta_appvect elim_predicate (Array.of_list (realargs@[c])),
-          case_then_using
-        else
-          Reduction.beta_appvect elim_predicate (Array.of_list realargs),
-          case_nodep_then_using
-      in
-      (tclTHENS
-         (assert_tac Anonymous cut_concl)
-         [case_tac names
-             (introCaseAssumsThen (rewrite_equations_tac inv_kind id neqns))
-             (Some elim_predicate) ([],[]) ind indclause;
-          onLastHypId
-            (fun id ->
-              (tclTHEN
-                 (Proofview.V82.tactic (apply_term (mkVar id)
-                                          (List.init neqns (fun _ -> Evarutil.mk_new_meta()))))
-                 reflexivity))])
-    with e when Errors.noncritical e ->
-      let e = Errors.push e in
-      Proofview.tclZERO e
+        let msg = str "The type of " ++ pr_id id ++ str " is not inductive." in
+        Errors.errorlabstrm "" msg
+    in
+    let IndType (indf,realargs) = find_rectype env sigma t in
+    let (elim_predicate, args) =
+      make_inv_predicate env sigma indf realargs id status concl in
+    let (cut_concl,case_tac) =
+      if status != NoDep && (dependent c concl) then
+        Reduction.beta_appvect elim_predicate (Array.of_list (realargs@[c])),
+        case_then_using
+      else
+        Reduction.beta_appvect elim_predicate (Array.of_list realargs),
+        case_nodep_then_using
+    in
+    let refined id =
+      let prf = mkApp (mkVar id, args) in
+      Proofview.Refine.refine (fun h -> h, prf)
+    in
+    let neqns = List.length realargs in
+    tclTHENS
+        (assert_tac Anonymous cut_concl)
+        [case_tac names
+            (introCaseAssumsThen (rewrite_equations_tac inv_kind id neqns))
+            (Some elim_predicate) ind (c, t);
+        onLastHypId (fun id -> tclTHEN (refined id) reflexivity)]
   end
 
 (* Error messages of the inversion tactics *)
@@ -526,13 +504,11 @@ open Tacexpr
 
 let inv k = inv_gen false k NoDep
 
-let half_inv_tac id  = inv SimpleInversion None (NamedHyp id)
 let inv_tac id       = inv FullInversion None (NamedHyp id)
 let inv_clear_tac id = inv FullInversionClear None (NamedHyp id)
 
 let dinv k c = inv_gen false k (Dep c)
 
-let half_dinv_tac id  = dinv SimpleInversion None None (NamedHyp id)
 let dinv_tac id       = dinv FullInversion None None (NamedHyp id)
 let dinv_clear_tac id = dinv FullInversionClear None None (NamedHyp id)
 

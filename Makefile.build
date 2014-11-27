@@ -297,7 +297,7 @@ COQIDEFLAGS=$(addprefix -I , $(IDESRCDIRS)) $(COQIDEINCLUDES)
 
 .SUFFIXES:.vo
 
-IDEFILES=ide/coq.lang ide/coq_style.xml ide/coq.png ide/mac_default_accel_map
+IDEFILES=$(wildcard ide/coq*.lang) ide/coq_style.xml ide/coq.png ide/mac_default_accel_map
 
 coqide-binaries: coqide-$(HASCOQIDE)
 coqide-no:
@@ -388,7 +388,7 @@ test-suite: world $(ALLSTDLIB).v
 ##################################################################
 
 .PHONY: lib kernel byterun library proofs tactics interp parsing pretyping
-.PHONY: highparsing toplevel hightactics
+.PHONY: highparsing stm toplevel hightactics
 
 lib: lib/clib.cma lib/lib.cma
 kernel: kernel/kernel.cma
@@ -400,6 +400,7 @@ interp: interp/interp.cma
 parsing: parsing/parsing.cma
 pretyping: pretyping/pretyping.cma
 highparsing: parsing/highparsing.cma
+stm: stm/stm.cma
 toplevel: toplevel/toplevel.cma
 hightactics: tactics/hightactics.cma
 
@@ -471,7 +472,7 @@ pluginsbyte: $(PLUGINS)
 theories/Init/%.vo theories/Init/%.glob: theories/Init/%.v $(VO_TOOLS_DEP) | theories/Init/%.v.d
 	$(SHOW)'COQC -noinit $<'
 	$(HIDE)rm -f theories/Init/$*.glob
-	$(HIDE)$(BOOTCOQC) theories/Init/$* -noinit
+	$(HIDE)$(BOOTCOQC) theories/Init/$* -noinit -R theories Coq
 
 theories/Numbers/Natural/BigN/NMake_gen.v: theories/Numbers/Natural/BigN/NMake_gen.ml
 	$(OCAML) $< $(TOTARGET)
@@ -706,13 +707,13 @@ $(OCAMLDOCDIR)/coq.tex: $(DOCMLIS:.mli=.cmi)
 	-intro $(OCAMLDOCDIR)/docintro -o $@
 
 mli-doc: $(DOCMLIS:.mli=.cmi)
-	$(OCAMLDOC) -html -rectypes -I $(MYCAMLP4LIB) $(MLINCLUDES)\
+	$(OCAMLDOC) -html -rectypes -I +threads -I $(MYCAMLP4LIB) $(MLINCLUDES) $(COQIDEFLAGS)\
 	$(DOCMLIS) -d $(OCAMLDOCDIR)/html -colorize-code \
 	-t "Coq mlis documentation" -intro $(OCAMLDOCDIR)/docintro \
 	-css-style style.css
 
 ml-dot: $(MLFILES)
-	$(OCAMLDOC) -dot -dot-reduce -rectypes -I $(CAMLLIB) -I $(MYCAMLP4LIB) $(MLINCLUDES)\
+	$(OCAMLDOC) -dot -dot-reduce -rectypes -I +threads -I $(CAMLLIB) -I $(MYCAMLP4LIB) $(MLINCLUDES) $(COQIDEFLAGS)\
 	$(filter $(addsuffix /%.ml,$(CORESRCDIRS)),$(MLFILES)) -o $(OCAMLDOCDIR)/coq.dot
 
 %_dep.png: %.dot
@@ -728,7 +729,7 @@ OCAMLDOC_MLLIBD = $(OCAMLDOC) -rectypes $(MLINCLUDES) $(ODOCDOTOPTS) -o $@ \
 	$(OCAMLDOC_MLLIBD)
 
 ml-doc:
-	$(OCAMLDOC) -html -rectypes $(LOCALINCLUDES) -d $(SOURCEDOCDIR) $(MLSTATICFILES)
+	$(OCAMLDOC) -html -rectypes -I +threads $(MLINCLUDES) $(COQIDEFLAGS) -d $(OCAMLDOCDIR) $(MLSTATICFILES)
 
 parsing/parsing.dot : | parsing/parsing.mllib.d parsing/highparsing.mllib.d
 	$(OCAMLDOC_MLLIBD)

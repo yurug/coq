@@ -12,37 +12,11 @@ open Term
 open Declarations
 open Pre_env
 open Nativevalues
+open Nativeinstr
 
 (** This file defines the lambda code generation phase of the native compiler *)
-type lambda =
-  | Lrel          of name * int 
-  | Lvar          of identifier
-  | Lmeta         of metavariable * lambda (* type *)
-  | Levar         of existential * lambda (* type *)
-  | Lprod         of lambda * lambda 
-  | Llam          of name array * lambda  
-  | Llet          of name * lambda * lambda
-  | Lapp          of lambda * lambda array
-  | Lconst        of string * constant (* prefix, constant name *)
-  | Lcase         of annot_sw * lambda * lambda * lam_branches 
-                  (* annotations, term being matched, accu, branches *)
-  | Lif           of lambda * lambda * lambda
-  | Lfix          of (int array * int) * fix_decl 
-  | Lcofix        of int * fix_decl 
-  | Lmakeblock    of string * constructor * int * lambda array
-                  (* prefix, constructor name, constructor tag, arguments *)
-	(* A fully applied constructor *)
-  | Lconstruct    of string * constructor (* prefix, constructor name *)
-	(* A partially applied constructor *)
-  | Lval          of Nativevalues.t
-  | Lsort         of sorts
-  | Lind          of string * inductive (* prefix, inductive name *)
-  | Llazy
-  | Lforce
 
-and lam_branches = (constructor * name array * lambda) array 
-      
-and fix_decl =  name array * lambda array * lambda array
+exception NotClosed
 
 type evars =
     { evars_val : existential -> constr option;
@@ -110,8 +84,8 @@ let get_const_prefix env c =
 
 let map_lam_with_binders g f n lam =
   match lam with
-  | Lrel _ | Lvar _  | Lconst _ | Lval _ | Lsort _ | Lind _ | Lconstruct _
-  | Llazy | Lforce | Lmeta _ | Levar _ -> lam
+  | Lrel _ | Lvar _  | Lconst _ | Luint _ | Lval _ | Lsort _ | Lind _
+  | Lconstruct _ | Llazy | Lforce | Lmeta _ | Levar _ -> lam
   | Lprod(dom,codom) -> 
       let dom' = f n dom in
       let codom' = f n codom in
@@ -127,6 +101,9 @@ let map_lam_with_binders g f n lam =
       let fct' = f n fct in
       let args' = Array.smartmap (f n) args in
       if fct == fct' && args == args' then lam else mkLapp fct' args'
+  | Lprim(prefix,kn,op,args) ->
+      let args' = Array.smartmap (f n) args in
+      if args == args' then lam else Lprim(prefix,kn,op,args')
   | Lcase(annot,t,a,br) ->
       let t' = f n t in
       let a' = f n a in
@@ -313,7 +290,7 @@ let rec occurence k kind lam =
       if Int.equal n k then 
 	if kind then false else raise Not_found
       else kind
-  | Lvar _  | Lconst _  | Lval _ | Lsort _ | Lind _
+  | Lvar _  | Lconst _  | Luint _ | Lval _ | Lsort _ | Lind _
   | Lconstruct _ | Llazy | Lforce | Lmeta _ | Levar _ -> kind
   | Lprod(dom, codom) ->
       occurence k (occurence k kind dom) codom
@@ -323,7 +300,7 @@ let rec occurence k kind lam =
       occurence (k+1) (occurence k kind def) body
   | Lapp(f, args) ->
       occurence_args k (occurence k kind f) args
-  | Lmakeblock(_,_,_,args) ->
+  | Lprim(_,_,_,args) | Lmakeblock(_,_,_,args) ->
       occurence_args k kind args
   | Lcase(_,t,a,br) ->
       let kind = occurence k (occurence k kind t) a in
@@ -522,8 +499,24 @@ module Renv =
 	r
   end
 
-let is_lazy t = (* APPROXIMATION *)
-  isApp t || isLetIn t
+(* What about pattern matching ?*)
+let is_lazy prefix t =
+  match kind_of_term t with
+  | App (f,args) ->
+     begin match kind_of_term f with
+     | Construct c ->
+	let entry = mkInd (fst c) in
+	(try
+	    let _ =
+	      Retroknowledge.get_native_before_match_info (!global_env).retroknowledge
+							  entry prefix c Llazy;
+	    in
+	    false
+	  with Not_found -> true)
+     | _ -> true
+     end
+  | LetIn _ -> true
+  | _ -> false
 
 let evar_value sigma ev = sigma.evars_val ev
 
@@ -607,6 +600,13 @@ let rec lambda_of_constr env sigma c =
       in
       (* translation of the argument *)
       let la = lambda_of_constr env sigma a in
+      let entry = mkInd ind in
+      let la =
+	try
+	  Retroknowledge.get_native_before_match_info (!global_env).retroknowledge
+						      entry prefix (ind,1) la
+	with Not_found -> la
+      in
       (* translation of the type *)
       let lt = lambda_of_constr env sigma t in
       (* translation of branches *)
@@ -645,6 +645,14 @@ and lambda_of_app env sigma f args =
   | Const kn ->
       let kn = get_allias !global_env kn in
       let cb = lookup_constant kn !global_env in
+      (try
+          let prefix = get_const_prefix !global_env kn in
+	  (* We delay the compilation of arguments to avoid an exponential behavior *)
+	  let f = Retroknowledge.get_native_compiling_info
+		    (!global_env).retroknowledge (mkConst kn) prefix in
+	  let args = lambda_of_args env sigma 0 args in
+	  f args
+      with Not_found ->
       begin match cb.const_body with
       | Def csubst ->
           if cb.const_inline_code then
@@ -652,7 +660,7 @@ and lambda_of_app env sigma f args =
           else
           let prefix = get_const_prefix !global_env kn in
           let t =
-            if is_lazy (Mod_subst.force_constr csubst) then
+            if is_lazy prefix (Mod_subst.force_constr csubst) then
               mkLapp Lforce [|Lconst (prefix, kn)|]
             else Lconst (prefix, kn)
           in
@@ -660,17 +668,33 @@ and lambda_of_app env sigma f args =
       | OpaqueDef _ | Undef _ ->
           let prefix = get_const_prefix !global_env kn in
           mkLapp (Lconst (prefix, kn)) (lambda_of_args env sigma 0 args)
-      end
+      end)
   | Construct c ->
       let tag, nparams, arity = Renv.get_construct_info env c in
       let expected = nparams + arity in
       let nargs = Array.length args in
+      let prefix = get_mind_prefix !global_env (fst (fst c)) in
       if Int.equal nargs expected then 
-	let args = lambda_of_args env sigma nparams args in
-	makeblock !global_env c tag args
+      try
+	try
+	  Retroknowledge.get_native_constant_static_info
+                         (!global_env).retroknowledge
+                         f args
+          with NotClosed ->
+	    assert (Int.equal nparams 0); (* should be fine for int31 *)
+	    let args = lambda_of_args env sigma nparams args in
+	    Retroknowledge.get_native_constant_dynamic_info
+                           (!global_env).retroknowledge f prefix c args
+        with Not_found ->
+	  let args = lambda_of_args env sigma nparams args in
+	  makeblock !global_env c tag args
       else
-        let prefix = get_mind_prefix !global_env (fst (fst c)) in
-        mkLapp (Lconstruct (prefix, c)) (lambda_of_args env sigma 0 args)
+	let args = lambda_of_args env sigma 0 args in
+	(try
+	    Retroknowledge.get_native_constant_dynamic_info
+              (!global_env).retroknowledge f prefix c args
+	  with Not_found ->
+            mkLapp (Lconstruct (prefix, c)) args)
   | _ -> 
       let f = lambda_of_constr env sigma f in
       let args = lambda_of_args env sigma 0 args in
@@ -706,3 +730,45 @@ let lambda_of_constr env sigma c =
 
 let mk_lazy c =
   mkLapp Llazy [|c|]
+
+(** Retroknowledge, to be removed once we move to primitive machine integers *)
+let compile_static_int31 fc args =
+  if not fc then raise Not_found else
+    Luint (UintVal
+    (Uint31.of_int (Array.fold_left
+       (fun temp_i -> fun t -> match kind_of_term t with
+          | Construct (_,d) -> 2*temp_i+d-1
+          | _ -> raise NotClosed)
+       0 args)))
+
+let compile_dynamic_int31 fc prefix c args =
+  if not fc then raise Not_found else
+  Luint (UintDigits (prefix,c,args))
+
+(* We are relying here on the order of digits constructors *)
+let digits_from_uint digits_ind prefix i =
+  let d0 = Lconstruct (prefix, (digits_ind, 1)) in
+  let d1 = Lconstruct (prefix, (digits_ind, 2)) in
+  let digits = Array.make 31 d0 in
+  for k = 0 to 30 do
+    if Int.equal ((Uint31.to_int i lsr k) land 1) 1 then
+      digits.(30-k) <- d1
+  done;
+  digits
+
+let before_match_int31 digits_ind fc prefix c t =
+  if not fc then
+    raise Not_found
+  else
+  match t with
+  | Luint (UintVal i) ->
+     let digits = digits_from_uint digits_ind prefix i in
+     mkLapp (Lconstruct (prefix,c)) digits
+  | Luint (UintDigits (prefix,c,args)) ->
+     mkLapp (Lconstruct (prefix,c)) args
+  | _ -> Luint (UintDecomp (prefix,c,t))
+
+let compile_prim prim kn fc prefix args =
+  if not fc then raise Not_found
+  else
+    Lprim(prefix, kn, prim, args)

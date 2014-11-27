@@ -73,13 +73,9 @@ let outputstate = ref ""
 let set_outputstate s = outputstate:=s
 let outputstate () = if not (String.is_empty !outputstate) then extern_state !outputstate
 
-let set_default_include d = push_include (d,Nameops.default_root_prefix)
-let set_include d p =
+let set_include d p recursive implicit =
   let p = dirpath_of_string p in
-  push_include (d,p)
-let set_rec_include d p =
-  let p = dirpath_of_string p in
-  push_rec_include(d,p)
+  push_include d p recursive implicit
 
 let load_vernacular_list = ref ([] : (string * bool) list)
 let add_load_vernacular verb s =
@@ -98,8 +94,6 @@ let add_vernac_obj s = load_vernacular_obj := s :: !load_vernacular_obj
 let load_vernac_obj () =
   List.iter (fun f -> Library.require_library_from_file None f None)
     (List.rev !load_vernacular_obj)
-
-let load_init = ref true
 
 let require_prelude () =
   let vo = Envars.coqlib () / "theories/Init/Prelude.vo" in
@@ -307,19 +301,24 @@ let parse_args arglist =
     (* Complex options with many args *)
     |"-I"|"-include" ->
       begin match rem with
-      | d :: "-as" :: p :: rem -> set_include d p; args := rem
+      | d :: "-as" :: p :: rem -> set_include d p false true; args := rem
       | d :: "-as" :: [] -> error_missing_arg "-as"
-      | d :: rem -> set_default_include d; args := rem
+      | d :: rem -> push_ml_include d; args := rem
       | [] -> error_missing_arg opt
+      end
+    |"-Q" ->
+      begin match rem with
+      | d :: p :: rem -> set_include d p true false; args := rem
+      | _ -> error_missing_arg opt
       end
     |"-R" ->
       begin match rem with
-      | d :: "-as" :: p :: rem -> set_rec_include d p; args := rem
       | d :: "-as" :: [] -> error_missing_arg "-as"
-      | d :: p :: rem -> set_rec_include d p; args := rem
+      | d :: "-as" :: p :: rem
+      | d :: p :: rem -> set_include d p true true; args := rem
       | _ -> error_missing_arg opt
       end
-    
+
     (* Options with two arg *)
     |"-check-vi-tasks" ->
         let tno = get_task_list (next ()) in
@@ -347,6 +346,7 @@ let parse_args arglist =
     |"-compile" -> add_compile false (next ())
     |"-compile-verbose" -> add_compile true (next ())
     |"-dump-glob" -> Dumpglob.dump_into_file (next ()); glob_opt := true
+    |"-feedback-glob" -> Dumpglob.feedback_glob ()
     |"-exclude-dir" -> exclude_search_in_dirname (next ())
     |"-init-file" -> set_rcfile (next ())
     |"-inputstate"|"-is" -> set_inputstate (next ())
@@ -499,14 +499,14 @@ let start () =
   let () = init_toplevel (List.tl (Array.to_list Sys.argv)) in
   (* In batch mode, Coqtop has already exited at this point. In interactive one,
      dump glob is nothing but garbage ...  *)
-  let () = if Dumpglob.dump () then
-    let () = if_verbose warning "Dumpglob cannot be used in interactive mode." in
-    Dumpglob.noglob () in
   if !Flags.ide_slave then
     Ide_slave.loop ()
   else if Flags.async_proofs_is_worker () then
     Stm.slave_main_loop ()
   else
+    let () = if Dumpglob.dump () then
+      let () = if_verbose warning "Dumpglob cannot be used in interactive mode." in
+      Dumpglob.noglob () in
     Coqloop.loop();
   (* Initialise and launch the Ocaml toplevel *)
   Coqinit.init_ocaml_path();

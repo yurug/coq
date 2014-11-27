@@ -653,24 +653,7 @@ end
 
 module MiscMenu = struct
 
-let detach_view sn =
-  (* Open a separate window containing the current buffer *)
-  let file = match sn.fileops#filename with
-    |None -> "*scratch*"
-    |Some f -> f
-  in
-  let w = GWindow.window ~show:true ~title:file ~position:`CENTER
-    ~width:(prefs.window_width*2/3)
-    ~height:(prefs.window_height*2/3)
-    ()
-  in
-  let sb = GBin.scrolled_window ~packing:w#add ()
-  in
-  let nv = GText.view ~buffer:sn.buffer ~packing:sb#add ()
-  in
-  nv#misc#modify_font prefs.text_font;
-  (* If the buffer in the main window is closed, destroy this detached view *)
-  ignore (sn.script#connect#destroy ~callback:w#destroy)
+let detach_view sn = sn.control#detach ()
 
 let detach_view = cb_on_current_term detach_view
 
@@ -1284,12 +1267,18 @@ let build_ui () =
     let iter_session v = v.script#source_buffer#set_style_scheme style in
     List.iter iter_session notebook#pages
   in
+  let refresh_language () =
+    let lang =  lang_manager#language prefs.source_language in
+    let iter_session v = v.script#source_buffer#set_language lang in
+    List.iter iter_session notebook#pages
+  in
   let resize_window () =
     w#resize ~width:prefs.window_width ~height:prefs.window_height
   in
   refresh_toolbar ();
   refresh_toolbar_hook := refresh_toolbar;
   refresh_style_hook := refresh_style;
+  refresh_language_hook := refresh_language;
   refresh_editor_hook := refresh_editor_prefs;
   resize_window_hook := resize_window;
   refresh_tabs_hook := refresh_notebook_pos;

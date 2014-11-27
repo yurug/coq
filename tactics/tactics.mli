@@ -64,7 +64,6 @@ val intro_using          : Id.t -> unit Proofview.tactic
 val intro_mustbe_force   : Id.t -> unit Proofview.tactic
 val intro_then           : (Id.t -> unit Proofview.tactic) -> unit Proofview.tactic
 val intros_using         : Id.t list -> unit Proofview.tactic
-val intro_erasing        : Id.t -> tactic
 val intros_replacing     : Id.t list -> unit Proofview.tactic
 
 val intros               : unit Proofview.tactic
@@ -168,7 +167,6 @@ val revert        : Id.t list -> tactic
 (** {6 Resolution tactics. } *)
 
 val apply_type : constr -> constr list -> tactic
-val apply_term : constr -> constr list -> tactic
 val bring_hyps : named_context -> unit Proofview.tactic
 
 val apply                 : constr -> tactic
@@ -180,7 +178,7 @@ val apply_with_bindings_gen :
 val apply_with_bindings   : constr with_bindings -> tactic
 val eapply_with_bindings  : constr with_bindings -> tactic
 
-val cut_and_apply         : constr -> tactic
+val cut_and_apply         : constr -> unit Proofview.tactic
 
 val apply_in :
   advanced_flag -> evars_flag -> Id.t -> 
@@ -256,8 +254,6 @@ val general_elim_clause_gen : (int -> Clenv.clausenv -> 'a -> tactic) ->
 
 val general_elim  : evars_flag ->
   constr with_bindings -> eliminator -> tactic
-val general_elim_in : evars_flag -> Id.t ->
-  constr with_bindings -> eliminator -> tactic
 
 val default_elim  : evars_flag -> constr with_bindings -> unit Proofview.tactic
 val simplest_elim : constr -> unit Proofview.tactic
@@ -328,7 +324,6 @@ val setoid_symmetry : unit Proofview.tactic Hook.t
 val symmetry_red                : bool -> unit Proofview.tactic
 val symmetry                    : unit Proofview.tactic
 val setoid_symmetry_in : (Id.t -> unit Proofview.tactic) Hook.t
-val symmetry_in                 : Id.t -> unit Proofview.tactic
 val intros_symmetry             : clause -> unit Proofview.tactic
 
 val setoid_transitivity : (constr option -> unit Proofview.tactic) Hook.t
@@ -358,7 +353,7 @@ val generalize_dep  : ?with_let:bool (** Don't lose let bindings *) -> constr  -
 
 val unify           : ?state:Names.transparent_state -> constr -> constr -> tactic
 
-val tclABSTRACT : Id.t option -> unit Proofview.tactic -> tactic
+val tclABSTRACT : Id.t option -> unit Proofview.tactic -> unit Proofview.tactic
 
 val admit_as_an_axiom : unit Proofview.tactic
 

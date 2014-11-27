@@ -56,6 +56,25 @@ let registered_e_assumption gl =
 (*   PROLOG tactic                                                      *)
 (************************************************************************)
 
+(*s Tactics handling a list of goals. *)
+
+(* first_goal : goal list sigma -> goal sigma *)
+
+let first_goal gls =
+  let gl = gls.Evd.it and sig_0 = gls.Evd.sigma in
+  if List.is_empty gl then error "first_goal";
+  { Evd.it = List.hd gl; Evd.sigma = sig_0; }
+
+(* tactic -> tactic_list : Apply a tactic to the first goal in the list *)
+
+let apply_tac_list tac glls =
+  let (sigr,lg) = unpackage glls in
+  match lg with
+  | (g1::rest) ->
+      let gl = apply_sig_tac sigr tac g1 in
+      repackage sigr (gl@rest)
+  | _ -> error "apply_tac_list"
+
 let one_step l gl =
   [Proofview.V82.of_tactic Tactics.intro]
   @ (List.map Tactics.Simple.eapply (List.map mkVar (pf_ids_of_hyps gl)))
@@ -179,10 +198,6 @@ module SearchProblem = struct
   let success s = List.is_empty (sig_it s.tacres)
 
   let pr_ev evs ev = Printer.pr_constr_env (Evd.evar_env ev) (Evarutil.nf_evar evs ev.Evd.evar_concl)
-
-  let pr_goals gls =
-    let evars = Evarutil.nf_evar_map (Refiner.project gls) in
-      prlist (pr_ev evars) (sig_it gls)
 
   let filter_tactics glls l =
 (*     let _ = Proof_trees.db_pr_goal (List.hd (sig_it glls)) in *)
@@ -466,12 +481,10 @@ let autounfold_tac db cls gl =
   | Some [] -> ["core"]
   | Some l -> l
   in
-  autounfold dbs (Extraargs.glob_in_arg_hyp_to_clause cls) gl
-
-open Extraargs
+  autounfold dbs  cls gl
 
 TACTIC EXTEND autounfold
-| [ "autounfold" hintbases(db) in_arg_hyp(id) ] -> [ Proofview.V82.tactic (autounfold_tac db id) ]
+| [ "autounfold" hintbases(db) clause(cl) ] -> [ Proofview.V82.tactic (autounfold_tac db cl) ]
 END
 
 let unfold_head env (ids, csts) c = 

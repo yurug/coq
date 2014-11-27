@@ -61,10 +61,11 @@ CSDPCERT:=plugins/micromega/csdpcert$(EXE)
 
 CORESRCDIRS:=\
   config 	lib		kernel		kernel/byterun	library \
-  proofs 	tactics 	pretyping	interp		toplevel \
-  parsing	printing	grammar	        intf
+  proofs 	tactics 	pretyping	interp		stm \
+  toplevel	parsing	printing	grammar	        intf
 
 PLUGINS:=\
+  mtac2 \
   omega		romega 		micromega 	quote \
   setoid_ring 	xml 		extraction 	fourier \
   cc 		funind 		firstorder 	Derive \
@@ -157,10 +158,11 @@ BYTERUN:=$(addprefix kernel/byterun/, \
 CORECMA:=lib/clib.cma lib/lib.cma kernel/kernel.cma library/library.cma \
         pretyping/pretyping.cma interp/interp.cma proofs/proofs.cma \
         parsing/parsing.cma printing/printing.cma tactics/tactics.cma \
-	toplevel/toplevel.cma parsing/highparsing.cma tactics/hightactics.cma
+	stm/stm.cma toplevel/toplevel.cma parsing/highparsing.cma tactics/hightactics.cma
 
 GRAMMARCMA:=tools/compat5.cmo grammar/grammar.cma
 
+MTAC2CMA:=plugins/mtac2/mtac2_plugin.cma
 OMEGACMA:=plugins/omega/omega_plugin.cma
 ROMEGACMA:=plugins/romega/romega_plugin.cma
 MICROMEGACMA:=plugins/micromega/micromega_plugin.cma
@@ -186,7 +188,7 @@ DECLMODECMA:=plugins/decl_mode/decl_mode_plugin.cma
 DERIVECMA:=plugins/Derive/derive_plugin.cma
 
 PLUGINSCMA:=$(OMEGACMA) $(ROMEGACMA) $(MICROMEGACMA) $(DECLMODECMA) \
-        $(QUOTECMA) $(RINGCMA) \
+        $(QUOTECMA) $(RINGCMA) $(MTAC2CMA) \
         $(FOURIERCMA) $(EXTRACTIONCMA) $(XMLCMA) \
         $(CCCMA)  $(FOCMA) $(RTAUTOCMA) $(BTAUTOCMA) \
         $(FUNINDCMA) $(NSATZCMA) $(NATSYNTAXCMA) $(OTHERSYNTAXCMA) \
@@ -294,6 +296,7 @@ THEORIESLIGHTVO:= $(INITVO) $(LOGICVO) $(UNICODEVO) $(ARITHVO)
 
 ## Plugins
 
+MTAC2VO:=$(call cat_vo_itarget, plugins/mtac2)
 OMEGAVO:=$(call cat_vo_itarget, plugins/omega)
 ROMEGAVO:=$(call cat_vo_itarget, plugins/romega)
 MICROMEGAVO:=$(call cat_vo_itarget, plugins/micromega)
@@ -309,7 +312,7 @@ XMLVO:=
 CCVO:=
 DERIVEVO:=$(call cat_vo_itarget, plugins/Derive)
 
-PLUGINSVO:= $(OMEGAVO) $(ROMEGAVO) $(MICROMEGAVO) \
+PLUGINSVO:= $(MTAC2VO) $(OMEGAVO) $(ROMEGAVO) $(MICROMEGAVO) \
 	    $(XMLVO) $(FOURIERVO) $(CCVO) $(FUNINDVO) \
 	    $(RTAUTOVO) $(BTAUTOVO) $(RINGVO) $(QUOTEVO) \
             $(NSATZVO) $(EXTRACTIONVO) $(DERIVEVO)
@@ -354,7 +357,7 @@ OCAMLDOCDIR=dev/ocamldoc
 DOCMLIS=$(wildcard ./lib/*.mli ./intf/*.mli ./kernel/*.mli ./library/*.mli \
 	./pretyping/*.mli ./interp/*.mli printing/*.mli \
 	./parsing/*.mli ./proofs/*.mli \
-	./tactics/*.mli ./toplevel/*.mli)
+	./tactics/*.mli ./stm/*.mli ./toplevel/*.mli)
 
 # Defining options to generate dependencies graphs
 DOT=dot

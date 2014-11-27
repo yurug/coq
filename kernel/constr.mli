@@ -25,7 +25,8 @@ type case_printing =
 type case_info =
   { ci_ind        : inductive;
     ci_npar       : int;
-    ci_cstr_ndecls : int array; (** number of real args of each constructor *)
+    ci_cstr_ndecls : int array; (* number of pattern vars of each constructor (with let's)*)
+    ci_cstr_nargs : int array; (* number of pattern vars of each constructor (w/o let's) *)
     ci_pp_info    : case_printing (** not interpreted by the kernel *)
   }
 
@@ -202,6 +203,10 @@ val fold : ('a -> constr -> 'a) -> 'a -> constr -> 'a
    not specified *)
 
 val map : (constr -> constr) -> constr -> constr
+
+(** Like {!map}, but also has an additional accumulator. *)
+
+val fold_map : ('a -> constr -> 'a * constr) -> 'a -> constr -> 'a * constr
 
 (** [map_with_binders g f n c] maps [f n] on the immediate
    subterms of [c]; it carries an extra data [n] (typically a lift

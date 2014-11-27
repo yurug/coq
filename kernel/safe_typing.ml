@@ -300,7 +300,7 @@ let push_named_def (id,de) senv =
   let senv = add_constraints (Now cst') senv in
   let senv' = add_constraints (Now cst) senv in
   let env'' = safe_push_named (id,Some c,typ) senv'.env in
-  (cst, {senv' with env=env''})
+  (Univ.union_constraints cst cst', {senv' with env=env''})
 
 let push_named_assum (id,t) senv =
   let (t,cst) = Term_typing.translate_local_assum senv.env t in
@@ -688,7 +688,9 @@ let export compilation_mode senv dir =
     try
       if compilation_mode = Flags.BuildVi then { senv with future_cst = [] }
       else join_safe_environment senv
-    with e -> Errors.errorlabstrm "export" (Errors.print e)
+    with e ->
+      let e = Errors.push e in
+      Errors.errorlabstrm "export" (Errors.print e)
   in
   assert(senv.future_cst = []);
   let () = check_current_library dir senv in

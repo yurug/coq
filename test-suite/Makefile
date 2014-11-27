@@ -30,8 +30,8 @@
 BIN := ../bin/
 LIB := ..
 
-coqtop := $(BIN)coqtop -boot -q -batch -I prerequisite
-bincoqc := $(BIN)coqc -coqlib $(LIB) -I prerequisite
+coqtop := $(BIN)coqtop -boot -q -batch -R prerequisite TestSuite
+bincoqc := $(BIN)coqc -coqlib $(LIB) -R prerequisite TestSuite
 
 command := $(coqtop) -top Top -load-vernac-source
 coqc := $(coqtop) -compile
@@ -40,6 +40,15 @@ coqdep := $(BIN)coqdep -coqlib $(LIB)
 SHOW := $(if $(VERBOSE),@true,@echo)
 HIDE := $(if $(VERBOSE),,@)
 REDIR := $(if $(VERBOSE),,> /dev/null 2>&1)
+
+# read out an emacs config and look for coq-prog-args; if such exists, return it
+get_coq_prog_args_helper = sed -n s'/^.*coq-prog-args:\s*(\([^)]*\)).*/\1/p' $(1)
+get_coq_prog_args = $(strip $(filter-out "-emacs-U" "-emacs",$(shell $(call get_coq_prog_args_helper,$(1)))))
+SINGLE_QUOTE="
+#" # double up on the quotes, in a comment, to appease the emacs syntax highlighter
+# wrap the arguments in parens, but only if they exist
+get_coq_prog_args_in_parens = $(subst $(SINGLE_QUOTE),,$(if $(call get_coq_prog_args,$(1)), ($(call get_coq_prog_args,$(1)))))
+
 
 bogomips:=
 ifneq (,$(wildcard /proc/cpuinfo))
@@ -67,7 +76,7 @@ COMPLEXITY := $(if $(bogomips),complexity)
 BUGS := bugs/opened bugs/closed
 
 VSUBSYSTEMS := prerequisite success failure $(BUGS) output \
-  interactive micromega $(COMPLEXITY) modules stm
+  interactive micromega mtac2 $(COMPLEXITY) modules stm
 
 # All subsystems
 SUBSYSTEMS := $(VSUBSYSTEMS) misc bugs ide
@@ -110,7 +119,7 @@ $(foreach S,$(VSUBSYSTEMS),$(eval $(call mkstamp,$(S))))
 # Summary
 #######################################################################
 
-summary_dir = echo $(1); find $(2) -name '*.log' -print0 | xargs -0 -n 1 tail -n1 | sort -g
+summary_dir = echo $(1); find $(2) -name '*.log' -print0 | xargs -0 -n 1 tail -n1 | sort
 
 .PHONY: summary summary.log
 
@@ -123,6 +132,7 @@ summary:
 	  $(call summary_dir, "Output tests", output); \
 	  $(call summary_dir, "Interactive tests", interactive); \
 	  $(call summary_dir, "Micromega tests", micromega); \
+	  $(call summary_dir, "Mtac2 tests", mtac2); \
 	  $(call summary_dir, "Miscellaneous tests", misc); \
 	  $(call summary_dir, "Complexity tests", complexity); \
 	  $(call summary_dir, "Module tests", modules); \
@@ -152,10 +162,10 @@ summary.log:
 
 # Opened bugs that should not fail
 $(addsuffix .log,$(wildcard bugs/opened/*.v)): %.v.log: %.v
-	@echo "TEST      $<"
+	@echo "TEST      $<  $(call get_coq_prog_args_in_parens,"$<")"
 	$(HIDE){ \
 	  echo $(call log_intro,$<); \
-	  $(command) "$<" 2>&1; R=$$?; times; \
+	  $(command) "$<" $(call get_coq_prog_args,"$<") 2>&1; R=$$?; times; \
 	  if [ $$R = 0 ]; then \
 	    echo $(log_success); \
 	    echo "    $<...still active"; \
@@ -167,10 +177,10 @@ $(addsuffix .log,$(wildcard bugs/opened/*.v)): %.v.log: %.v
 
 # Closed bugs that should succeed
 $(addsuffix .log,$(wildcard bugs/closed/*.v)): %.v.log: %.v
-	@echo "TEST      $<"
+	@echo "TEST      $< $(call get_coq_prog_args_in_parens,"$<")"
 	$(HIDE){ \
 	  echo $(call log_intro,$<); \
-	  $(command) "$<" 2>&1; R=$$?; times; \
+	  $(command) "$<" $(call get_coq_prog_args,"$<") 2>&1; R=$$?; times; \
 	  if [ $$R = 0 ]; then \
 	    echo $(log_success); \
 	    echo "    $<...Ok"; \
@@ -185,10 +195,10 @@ $(addsuffix .log,$(wildcard bugs/closed/*.v)): %.v.log: %.v
 #######################################################################
 
 $(addsuffix .log,$(wildcard prerequisite/*.v)): %.v.log: %.v
-	@echo "TEST      $<"
+	@echo "TEST      $< $(call get_coq_prog_args_in_parens,"$<")"
 	$(HIDE){ \
 	  echo $(call log_intro,$<); \
-	  $(coqc) "$*" 2>&1; R=$$?; times; \
+	  $(coqc) "$*" $(call get_coq_prog_args,"$<") 2>&1; R=$$?; times; \
 	  if [ $$R != 0 ]; then \
 	    echo $(log_failure); \
 	    echo "    $<...could not be prepared" ; \
@@ -198,12 +208,12 @@ $(addsuffix .log,$(wildcard prerequisite/*.v)): %.v.log: %.v
 	  fi; \
 	} > "$@"
 
-$(addsuffix .log,$(wildcard success/*.v micromega/*.v modules/*.v)): %.v.log: %.v
-	@echo "TEST      $<"
+$(addsuffix .log,$(wildcard success/*.v micromega/*.v mtac2/*.v modules/*.v)): %.v.log: %.v
+	@echo "TEST      $< $(call get_coq_prog_args_in_parens,"$<")"
 	$(HIDE){ \
-	  opts="$(if $(findstring modules/,$<),-I modules -impredicative-set)"; \
+	  opts="$(if $(findstring modules/,$<),-R modules Mods -impredicative-set)"; \
 	  echo $(call log_intro,$<); \
-	  $(command) "$<" $$opts 2>&1; R=$$?; times; \
+	  $(command) "$<" $(call get_coq_prog_args,"$<") $$opts 2>&1; R=$$?; times; \
 	  if [ $$R = 0 ]; then \
 	    echo $(log_success); \
 	    echo "    $<...Ok"; \
@@ -215,10 +225,10 @@ $(addsuffix .log,$(wildcard success/*.v micromega/*.v modules/*.v)): %.v.log: %.
 
 stm: $(wildcard stm/*.v:%.v=%.v.log)
 $(addsuffix .log,$(wildcard stm/*.v)): %.v.log: %.v
-	@echo "TEST      $<"
+	@echo "TEST      $< $(call get_coq_prog_args_in_parens,"$<")"
 	$(HIDE){ \
 	  echo $(call log_intro,$<); \
-	  $(coqc) "$*" -async-proofs on \
+	  $(coqc) "$*" $(call get_coq_prog_args,"$<") -async-proofs on \
 	    -async-proofs-worker-flags fallback-to-lazy-if-marshal-error=no,fallback-to-lazy-if-slave-dies=no \
 	    $$opts 2>&1; R=$$?; times; \
 	  if [ $$R = 0 ]; then \
@@ -231,10 +241,10 @@ $(addsuffix .log,$(wildcard stm/*.v)): %.v.log: %.v
 	} > "$@"
 
 $(addsuffix .log,$(wildcard failure/*.v)): %.v.log: %.v
-	@echo "TEST      $<"
+	@echo "TEST      $< $(call get_coq_prog_args_in_parens,"$<")"
 	$(HIDE){ \
 	  echo $(call log_intro,$<); \
-	  $(command) "$<" 2>&1; R=$$?; times; \
+	  $(command) "$<" $(call get_coq_prog_args,"$<") 2>&1; R=$$?; times; \
 	  if [ $$R = 0 ]; then \
 	    echo $(log_success); \
 	    echo "    $<...Ok"; \
@@ -245,11 +255,11 @@ $(addsuffix .log,$(wildcard failure/*.v)): %.v.log: %.v
 	} > "$@"
 
 $(addsuffix .log,$(wildcard output/*.v)): %.v.log: %.v
-	@echo "TEST      $<"
+	@echo "TEST      $< $(call get_coq_prog_args_in_parens,"$<")"
 	$(HIDE){ \
 	  echo $(call log_intro,$<); \
 	  tmpoutput=`mktemp /tmp/coqcheck.XXXXXX`; \
-	  $(command) "$<" 2>&1 \
+	  $(command) "$<" $(call get_coq_prog_args,"$<") 2>&1 \
 	    | grep -v "Welcome to Coq" \
 	    | grep -v "\[Loading ML file" \
 	    | grep -v "Skipping rcfile loading" \
@@ -266,10 +276,10 @@ $(addsuffix .log,$(wildcard output/*.v)): %.v.log: %.v
 	} > "$@"
 
 $(addsuffix .log,$(wildcard interactive/*.v)): %.v.log: %.v
-	@echo "TEST      $<"
+	@echo "TEST      $< $(call get_coq_prog_args_in_parens,"$<")"
 	$(HIDE){ \
 	  echo $(call log_intro,$<); \
-	  $(coqtop) < "$<" 2>&1; R=$$?; times; \
+	  $(coqtop) $(call get_coq_prog_args,"$<") < "$<" 2>&1; R=$$?; times; \
 	  if [ $$R = 0 ]; then \
 	    echo $(log_success); \
 	    echo "    $<...Ok"; \
@@ -284,11 +294,11 @@ $(addsuffix .log,$(wildcard interactive/*.v)): %.v.log: %.v
 # time is a 6120 bogomips cpu.
 ifneq (,$(bogomips))
 $(addsuffix .log,$(wildcard complexity/*.v)): %.v.log: %.v
-	@echo "TEST      $<"
+	@echo "TEST      $< $(call get_coq_prog_args_in_parens,"$<")"
 	$(HIDE){ \
 	  echo $(call log_intro,$<); \
 	  true "extract effective user time"; \
-	  res=`$(command) "$<" 2>&1 | sed -n -e "s/Finished transaction in .*(\([0-9]*\.[0-9]*\)u.*)/\1/p" | head -1`; \
+	  res=`$(command) "$<" $(call get_coq_prog_args,"$<") 2>&1 | sed -n -e "s/Finished transaction in .*(\([0-9]*\.[0-9]*\)u.*)/\1/p" | head -1`; \
 	  R=$$?; times; \
 	  if [ $$R != 0 ]; then \
 	    echo $(log_failure); \
@@ -315,10 +325,10 @@ endif
 
 # Ideal-features tests
 $(addsuffix .log,$(wildcard ideal-features/*.v)): %.v.log: %.v
-	@echo "TEST      $<"
+	@echo "TEST      $< $(call get_coq_prog_args_in_parens,"$<")"
 	$(HIDE){ \
 	  echo $(call log_intro,$<); \
-	  $(command) "$<" 2>&1; R=$$?; times; \
+	  $(command) "$<" $(call get_coq_prog_args,"$<") 2>&1; R=$$?; times; \
 	  if [ $$R != 0 ]; then \
 	      echo $(log_success); \
 	      echo "    $<...still wished"; \
@@ -330,8 +340,8 @@ $(addsuffix .log,$(wildcard ideal-features/*.v)): %.v.log: %.v
 
 # Additionnal dependencies for module tests
 $(addsuffix .log,$(wildcard modules/*.v)): %.v.log: modules/Nat.vo modules/plik.vo
-%.vo: %.v
-	$(HIDE)$(coqtop) -compile $*
+modules/%.vo: modules/%.v
+	$(HIDE)$(coqtop) -R modules Mods -compile $(<:.v=)
 
 #######################################################################
 # Miscellaneous tests
@@ -357,8 +367,8 @@ misc/xml.log:
 	  fi; rm -rf misc/xml; \
 	} > "$@"
 
-# Check that both coqdep and coqtop/coqc takes the later -I/-R
-# Check that both coqdep and coqtop/coqc supports both -R and -I dir -as lib
+# Check that both coqdep and coqtop/coqc supports -R
+# Check that both coqdep and coqtop/coqc takes the later -R
 # See bugs 2242, 2337, 2339
 deps-order: misc/deps-order.log
 misc/deps-order.log:
@@ -367,12 +377,12 @@ misc/deps-order.log:
 	  echo $(call log_intro,deps-order); \
 	  rm -f misc/deps/*/*.vo; \
 	  tmpoutput=`mktemp /tmp/coqcheck.XXXXXX`; \
-	  $(coqdep) -I misc/deps/lib -as lib -R misc/deps/client client misc/deps/client/bar.v 2>&1 \
+	  $(coqdep) -R misc/deps/lib lib -R misc/deps/client client misc/deps/client/bar.v 2>&1 \
 	    | head -n 1 > $$tmpoutput; \
 	  diff -u misc/deps/deps.out $$tmpoutput 2>&1; R=$$?; times; \
-	  $(bincoqc) -I misc/deps/lib -as lib misc/deps/lib/foo.v 2>&1; \
-	  $(bincoqc) -I misc/deps/lib -as lib -R misc/deps/client client misc/deps/client/foo.v 2>&1; \
-	  $(coqtop) -I misc/deps/lib -as lib -R misc/deps/client client -load-vernac-source misc/deps/client/bar.v 2>&1; \
+	  $(bincoqc) -R misc/deps/lib lib misc/deps/lib/foo.v 2>&1; \
+	  $(bincoqc) -R misc/deps/lib lib -R misc/deps/client client misc/deps/client/foo.v 2>&1; \
+	  $(coqtop) -R misc/deps/lib lib -R misc/deps/client client -load-vernac-source misc/deps/client/bar.v 2>&1; \
 	  S=$$?; times; \
 	  if [ $$R = 0 -a $$S = 0 ]; then \
 	    echo $(log_success); \
@@ -390,8 +400,8 @@ universes: misc/universes.log
 misc/universes.log: misc/universes/all_stdlib.v
 	@echo "TEST      misc/universes"
 	$(HIDE){ \
-	  $(bincoqc) -I misc/universes misc/universes/all_stdlib 2>&1; \
-	  $(bincoqc) -I misc/universes misc/universes/universes 2>&1; \
+	  $(bincoqc) -R misc/universes Universes misc/universes/all_stdlib 2>&1; \
+	  $(bincoqc) -R misc/universes Universes misc/universes/universes 2>&1; \
 	  mv universes.txt misc/universes; \
 	  N=`awk '{print $$3}' misc/universes/universes.txt | sort -u | wc -l`; \
 	  times; \

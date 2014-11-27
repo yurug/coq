@@ -127,15 +127,15 @@ let run key gui action status =
         b#place_cursor ~where:(b#get_iter_at_mark `SEL_BOUND);
       status
   | Motion f ->
-      let b = (ct gui).script#source_buffer in
+      let b, script = (ct gui).script#source_buffer, (ct gui).script in
       let sel_mode = status.sel || List.mem `SHIFT (GdkEvent.Key.state key) in
       let i =
         if sel_mode then b#get_iter_at_mark `SEL_BOUND
         else b#get_iter_at_mark `INSERT in
       let where, status = f status i in
       let sel_mode = status.sel || List.mem `SHIFT (GdkEvent.Key.state key) in
-      if sel_mode then b#move_mark `SEL_BOUND ~where
-      else b#place_cursor ~where;
+      if sel_mode then (b#move_mark `SEL_BOUND ~where; script#scroll_mark_onscreen `SEL_BOUND)
+      else (b#place_cursor ~where; script#scroll_mark_onscreen `INSERT);
       status
 
 let emacs = empty 
@@ -294,6 +294,10 @@ let init w nb ags =
   let status = ref empty in
   let reset () = eprintf "reset\n%!"; cur := pg in
   ignore(w#event#connect#key_press ~callback:(fun t ->
+    if nb#current_term.script#misc#get_property "has-focus" <>
+       `BOOL true
+    then false
+    else begin
     eprintf "got key %s\n%!" (pr_key t);
     if current.nanoPG then begin
       match find gui !cur t with
@@ -305,7 +309,7 @@ let init w nb ags =
            cur := c; true
       | `NotFound -> reset (); false
     end else false
-  ));
+  end));
   ignore(w#event#connect#button_press ~callback:(fun t -> reset (); false))
 
 

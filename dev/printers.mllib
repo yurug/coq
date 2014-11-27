@@ -50,6 +50,7 @@ Monad
 Names
 Univ
 Esubst
+Uint31
 Sorts
 Evar
 Constr
@@ -61,6 +62,8 @@ Cbytecodes
 Copcodes
 Cemitcodes
 Nativevalues
+Primitives
+Nativeinstr
 Future
 Opaqueproof
 Declareops

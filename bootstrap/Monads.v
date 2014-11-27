@@ -123,14 +123,16 @@ Record Monad (T:Set->Set) := {
   ret : forall{A:Set}, A->T A;
   bind : forall{A B:Set}, T A -> (A -> T B) -> T B;
   ignore : forall{A:Set}, T A -> T unit;
-  seq : forall{A:Set}, T unit -> T A -> T A
+  seq : forall{A:Set}, T unit -> T A -> T A;
+  map : forall {A B : Set}, (A -> B) -> T A -> T B
 }.
 
 Notation "'do' M x ':=' e 'in' u" := (bind _ M e (fun x => u)).
 
 Record State (S:Set) (T:Set->Set) := {
   set : S -> T unit;
-  get : T S
+  get : T S ;
+  modify : (S -> S) -> T unit
 }.
 
 (* spiwack: Environment and Writer are given distinct interfaces from
@@ -174,7 +176,8 @@ Module Id.
    ret := fun _ x => x;
    bind := fun _ _ x k => k x;
    ignore := fun _ x => ();
-   seq := fun _ x k => k
+   seq := fun _ x k => k;
+   map := fun _ _ f x => f x
  |}.
 
 End Id.
@@ -198,6 +201,9 @@ Module IOBase.
  Parameter seq : forall A, T unit -> T A -> T A.
  Extract Constant seq => "fun a k -> (); fun () -> a (); k ()".
  Extraction Implicit seq [A].
+ Parameter map : forall (A B : Set), (A -> B) -> T A -> T B.
+ Extract Constant map => "fun f a -> (); fun () -> f (a ())".
+ Extraction Implicit map [A B].
 
  Parameter ref : forall (A:Set), A -> T (Ref A).
  Extract Constant ref => "fun a -> (); fun () -> Pervasives.ref a".
@@ -276,7 +282,8 @@ Module IO.
    ret := IOBase.ret;
    bind := IOBase.bind;
    ignore := IOBase.ignore;
-   seq := IOBase.seq
+   seq := IOBase.seq;
+   map := IOBase.map
  |}.
 
  Definition IO : S Ref T := {|
@@ -313,12 +320,14 @@ Section Common.
    ignore A x := fun R k s =>
             x R (fun _ s' => k tt s') s ;
    seq A x y := fun R k s =>
-           x R (fun _ s' => y R k s') s
+           x R (fun _ s' => y R k s') s;
+   map A B f x := fun R k s => x R (fun a s => k (f a) s) s
  |}.
 
  Definition State : State S T := {|
    set s := (fun R k _ => k () s) : T unit  ;
-   get := fun R k s => k s s
+   get := fun R k s => k s s ;
+   modify := fun f R k s => k () (f s)
  |}.
 
  Definition lift {A} (x:T₀ A) : T A := fun R k s =>
@@ -374,7 +383,8 @@ Section Common.
    ret A x := fun R k e => k x;
    bind A B x f := fun R k e => x _ (fun a => f a _ k e) e;
    ignore A x := fun R k e => x _ (fun _ => k tt) e;
-   seq A x y := fun R k e => x _ (fun _ => y _ k e) e
+   seq A x y := fun R k e => x _ (fun _ => y _ k e) e;
+   map A B f x := fun R k e => x _ (fun a => k (f a)) e
  |}.
 
  Definition Environment : Environment E T := {|
@@ -430,7 +440,8 @@ Section Common.
      x _ (fun a c => f a _ (fun b c' => k b (Monoid.prod _ m c c')));
    ignore A x := fun R k => x _ (fun _ c => k tt c);
    seq A x y := fun R k =>
-     x _ (fun _ c => y _ (fun b c' => k b (Monoid.prod _ m c c')))
+     x _ (fun _ c => y _ (fun b c' => k b (Monoid.prod _ m c c')));
+   map A B f x := fun R k => x _ (fun a c => k (f a) c)
  |}.
 
  Definition Writer : Writer C T := {|
@@ -505,7 +516,8 @@ Section Common.
    ignore A x R sk fk :=
       x _ (fun _ fk => sk () fk) fk;
    seq A x k R sk fk :=
-      x _ (fun _ fk => k _ sk fk) fk
+      x _ (fun _ fk => k _ sk fk) fk;
+   map A B f x R sk fk := x _ (fun a fk => sk (f a) fk) fk
  |}.
 
  Definition lift {A} (x:T₀ A) : T A := fun _ sk fk =>
@@ -565,7 +577,6 @@ Extract Inlined Constant goal => "Goal.goal".
 Extract Inlined Constant env => "Environ.env".
 
 Record proofview := {
-  initial : list (constr*types);
   solution : evar_map;
   comb : list goal
 }.
@@ -636,6 +647,8 @@ Module NonLogical.
  Extraction Implicit ignore [a].
  Definition seq {a:Set} (x:t unit) (k:t a) : t a := Eval compute in seq _ NonLogicalMonad x k.
  Extraction Implicit seq [a].
+ Definition map {a b:Set} (f:a -> b) (x:t a) : t b := Eval compute in freeze _ (map _ NonLogicalMonad f x).
+ Extraction Implicit map [a b].
 
  Definition new_ref {a:Set} (x:a) : t (ref a) := Eval compute in IO.ref _ _ NonLogicalIO x.
  Extraction Implicit new_ref [a].
@@ -678,9 +691,12 @@ Module Logical.
  Extraction Implicit ignore [a].
  Definition seq {a:Set} (x:t unit) (k:t a) : t a := Eval compute in freeze _ (seq _ LogicalMonad x k).
  Extraction Implicit seq [a].
+ Definition map {a b:Set} (f:a -> b) (x:t a) : t b := Eval compute in freeze _ (map _ LogicalMonad f x).
+ Extraction Implicit map [a b].
 
  Definition set (s:LogicalState) : t unit := Eval compute in freeze _ (set _ _ LogicalStateM s).
  Definition get : t LogicalState := Eval compute in get _ _ LogicalStateM.
+ Definition modify (f : LogicalState -> LogicalState) : t unit := Eval compute in freeze _ (modify _ _ LogicalStateM f).
  Definition put (m:LogicalMessageType) : t unit := Eval compute in freeze _ (put _ _ LogicalWriter m).
  Definition current : t LogicalEnvironment := Eval compute in current _ _ LogicalReader.
 

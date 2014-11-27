@@ -1,4 +1,5 @@
 Names
+Uint31
 Univ
 Esubst
 Sorts
@@ -12,6 +13,8 @@ Cbytecodes
 Copcodes
 Cemitcodes
 Nativevalues
+Primitives
+Nativeinstr
 Opaqueproof
 Declareops
 Retroknowledge

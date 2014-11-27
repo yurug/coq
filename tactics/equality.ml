@@ -387,11 +387,6 @@ let general_rewrite_ebindings_clause cls lft2rgt occs frzevars dep_proof_ok ?tac
             end
             begin function
               | e ->
-                  (* Try to see if there's an equality hidden *)
-                  (* spiwack: [Errors.push] here is unlikely to do
-                     what it's intended to, or anything meaningful for
-                     that matter. *)
-                  let e = Errors.push e in
 	          let env' = push_rel_context rels env in
 	          let rels',t' = splay_prod_assum env' sigma t in (* Search for underlying eq *)
 	          match match_with_equality_type t' with
@@ -505,6 +500,24 @@ let rewriteRL = general_rewrite false AllOccurrences true true
 
 (* Replacing tactics *)
 
+let classes_dirpath =
+  DirPath.make (List.map Id.of_string ["Classes";"Coq"])
+
+let init_setoid () =
+  if is_dirpath_prefix_of classes_dirpath (Lib.cwd ()) then ()
+  else Coqlib.check_required_library ["Coq";"Setoids";"Setoid"]
+
+let check_setoid cl = 
+  Option.fold_left
+    ( List.fold_left 
+	(fun b ((occ,_),_) -> 
+	  b||(Locusops.occurrences_map (fun x -> x) occ <> AllOccurrences)
+	)
+    )
+    ((Locusops.occurrences_map (fun x -> x) cl.concl_occs <> AllOccurrences) &&
+	(Locusops.occurrences_map (fun x -> x) cl.concl_occs <> NoOccurrences))
+    cl.onhyps
+    
 (* eq,sym_eq : equality on Type and its symmetry theorem
    c2 c1 : c1 is to be replaced by c2
    unsafe : If true, do not check that c1 and c2 are convertible
@@ -526,6 +539,8 @@ let multi_replace clause c2 c1 unsafe try_prove_eq_opt =
     let e = build_coq_eq () in
     let sym = build_coq_eq_sym () in
     let eq = applist (e, [t1;c1;c2]) in
+    if check_setoid clause
+    then init_setoid ();
     tclTHENS (assert_as false None eq)
       [onLastHypId (fun id ->
 	tclTHEN
@@ -543,11 +558,7 @@ let multi_replace clause c2 c1 unsafe try_prove_eq_opt =
 
 let replace c2 c1 = multi_replace onConcl c2 c1 false None
 
-let replace_in id c2 c1 = multi_replace (onHyp id) c2 c1 false None
-
 let replace_by c2 c1 tac = multi_replace onConcl c2 c1 false (Some tac)
-
-let replace_in_by id c2 c1 tac = multi_replace (onHyp id) c2 c1 false (Some tac)
 
 let replace_in_clause_maybe_by c2 c1 cl tac_opt =
   multi_replace cl c2 c1 false tac_opt
@@ -599,6 +610,18 @@ let replace_in_clause_maybe_by c2 c1 cl tac_opt =
 exception DiscrFound of
   (constructor * int) list * constructor * constructor
 
+let injection_on_proofs = ref true
+
+let _ =
+  declare_bool_option
+    { optsync  = true;
+      optdepr  = false;
+      optname  = "injection on prop arguments";
+      optkey   = ["Injection";"On";"Proofs"];
+      optread  = (fun () -> !injection_on_proofs) ;
+      optwrite = (fun b -> injection_on_proofs := b) }
+
+
 let find_positions env sigma t1 t2 =
   let rec findrec sorts posn t1 t2 =
     let hd1,args1 = whd_betadeltaiota_stack env sigma t1 in
@@ -637,8 +660,10 @@ let find_positions env sigma t1 t2 =
             then [(List.rev posn,t1_0,t2_0)] else []
   in
   try
-    (* Rem: to allow injection on proofs objects, just add InProp *)
-    Inr (findrec [InSet;InType] [] t1 t2)
+    let sorts = if !injection_on_proofs then [InSet;InType;InProp]
+		else [InSet;InType]
+    in
+    Inr (findrec sorts [] t1 t2)
   with DiscrFound (path,c1,c2) ->
     Inl (path,c1,c2)
 
@@ -881,20 +906,15 @@ let onEquality with_evars tac (c,lbindc) =
   Proofview.Goal.raw_enter begin fun gl ->
   let type_of = pf_type_of gl in
   let reduce_to_quantified_ind = pf_apply Tacred.reduce_to_quantified_ind gl in
-  try (* type_of can raise exceptions *)
   let t = type_of c in
   let t' = try snd (reduce_to_quantified_ind t) with UserError _ -> t in
   let eq_clause = pf_apply make_clenv_binding gl (c,t') lbindc in
-  begin try (* clenv_pose_dependent_evars can raise exceptions *)
   let eq_clause' = clenv_pose_dependent_evars with_evars eq_clause in
   let eqn = clenv_type eq_clause' in
   let (eq,eq_args) = find_this_eq_data_decompose gl eqn in
   tclTHEN
-    (Proofview.V82.tactic (Refiner.tclEVARS eq_clause'.evd))
+    (Proofview.V82.tclEVARS eq_clause'.evd)
     (tac (eq,eqn,eq_args) eq_clause')
-    with e when Proofview.V82.catchable_exception e -> Proofview.tclZERO e
-  end
-  with e when Proofview.V82.catchable_exception e -> Proofview.tclZERO e
   end
 
 let onNegatedEquality with_evars tac =
@@ -1245,21 +1265,21 @@ let injEqThen tac l2r (eq,_,(t,t1,t2) as u) eq_clause =
   let sigma = eq_clause.evd in
   let env = eq_clause.env in
   match find_positions env sigma t1 t2 with
-    | Inl _ ->
-	Proofview.tclZERO (Errors.UserError ("Inj",str"Not a projectable equality but a discriminable one."))
-    | Inr [] ->
-	Proofview.tclZERO (Errors.UserError ("Equality.inj",str"Nothing to do, it is an equality between convertible terms."))
-    | Inr [([],_,_)] when Flags.version_strictly_greater Flags.V8_3 ->
-        Proofview.tclZERO (Errors.UserError ("Equality.inj" , str"Nothing to inject."))
-    | Inr posns ->
-        Proofview.tclORELSE
-          (inject_if_homogenous_dependent_pair env sigma u)
-          begin function
-            | Not_dep_pair as e |e when Errors.noncritical e ->
-                inject_at_positions env sigma l2r u eq_clause posns
-                  (tac (clenv_value eq_clause))
-            | reraise -> Proofview.tclZERO reraise
-          end
+  | Inl _ ->
+     Proofview.tclZERO (Errors.UserError ("Inj",strbrk"This equality is discriminable. You should use the discriminate tactic to solve the goal."))
+  | Inr [] ->
+     Proofview.tclZERO (Errors.UserError ("Equality.inj",strbrk"No information can be deduced from this equality and the injectivity of constructors. This may be because the terms are convertible, or due to pattern restrictions in the sort Prop."))
+  | Inr [([],_,_)] when Flags.version_strictly_greater Flags.V8_3 ->
+     Proofview.tclZERO (Errors.UserError ("Equality.inj" , str"Nothing to inject."))
+  | Inr posns ->
+     Proofview.tclORELSE
+       (inject_if_homogenous_dependent_pair env sigma u)
+       begin function
+         | Not_dep_pair as e |e when Errors.noncritical e ->
+			       inject_at_positions env sigma l2r u eq_clause posns
+						   (tac (clenv_value eq_clause))
+         | reraise -> Proofview.tclZERO reraise
+       end
 
 let postInjEqTac ipats c n =
   match ipats with

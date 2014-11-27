@@ -490,8 +490,6 @@ let rec intros_using = function
 
 let intros = Tacticals.New.tclREPEAT intro
 
-let intro_erasing id = tclTHEN (thin [id]) (introduction id)
-
 let intro_forthcoming_then_gen loc name_flag move_flag dep_flag tac =
   let rec aux ids =
     Proofview.tclORELSE
@@ -596,7 +594,7 @@ let intros_until_gen red h =
   Tacticals.New.tclDO n (if red then introf else intro)
   end
 
-let intros_until_id id = intros_until_gen true (NamedHyp id)
+let intros_until_id id = intros_until_gen false (NamedHyp id)
 let intros_until_n_gen red n = intros_until_gen red (AnonHyp n)
 
 let intros_until = intros_until_gen true
@@ -659,15 +657,12 @@ let map_induction_arg f = function
 let apply_type hdcty argl gl =
   refine (applist (mkCast (Evarutil.mk_new_meta(),DEFAULTcast, hdcty),argl)) gl
 
-let apply_term hdc argl gl =
-  refine (applist (hdc,argl)) gl
-
 let bring_hyps hyps =
   if List.is_empty hyps then Tacticals.New.tclIDTAC
   else
-    Proofview.Goal.enter begin fun gl ->
+    Proofview.Goal.raw_enter begin fun gl ->
       let env = Proofview.Goal.env gl in
-      let concl = Proofview.Goal.concl gl in
+      let concl = Tacmach.New.pf_nf_concl gl in
       let newcl = List.fold_right mkNamedProd_or_LetIn hyps concl in
       let args = Array.of_list (instance_from_named_context hyps) in
       Proofview.Refine.refine begin fun h ->
@@ -932,9 +927,6 @@ let elimination_in_clause_scheme with_evars ?(flags=elim_flags) id i elimclause 
       (str "Nothing to rewrite in " ++ pr_id id ++ str".");
   clenv_refine_in with_evars id elimclause'' gl
 
-let general_elim_in with_evars id =
-  general_elim_clause (elimination_in_clause_scheme with_evars id)
-
 (* Apply a tactic below the products of the conclusion of a lemma *)
 
 type conjunction_status =
@@ -1132,14 +1124,21 @@ let apply_in_once sidecond_first with_delta with_destruct with_evars id
   end.
 *)
 
-let cut_and_apply c gl =
-  let goal_constr = pf_concl gl in
-    match kind_of_term (pf_hnf_constr gl (pf_type_of gl c)) with
+let cut_and_apply c =
+  Proofview.Goal.enter begin fun gl ->
+    match kind_of_term (Tacmach.New.pf_hnf_constr gl (Tacmach.New.pf_type_of gl c)) with
       | Prod (_,c1,c2) when not (dependent (mkRel 1) c2) ->
-	  tclTHENLAST
-	    (apply_type (mkProd (Anonymous,c2,goal_constr)) [mkMeta(new_meta())])
-	    (apply_term c [mkMeta (new_meta())]) gl
+        let concl = Proofview.Goal.concl gl in
+        let env = Tacmach.New.pf_env gl in
+        Proofview.Refine.refine begin fun h ->
+          let typ = mkProd (Anonymous, c2, concl) in
+          let (h, f) = Proofview.Refine.new_evar h env typ in
+          let (h, x) = Proofview.Refine.new_evar h env c1 in
+          let ans = mkApp (f, [|mkApp (c, [|x|])|]) in
+          (h, ans)
+        end
       | _ -> error "lapply needs a non-dependent product."
+  end
 
 (********************************************************************)
 (*               Exact tactics                                      *)
@@ -1154,6 +1153,8 @@ let exact_check c gl =
     error "Not an exact proof."
 
 let exact_no_check = refine_no_check
+let new_exact_no_check c =
+  Proofview.Refine.refine (fun h -> (h, c))
 
 let vm_cast_no_check c gl =
   let concl = pf_concl gl in
@@ -1298,16 +1299,14 @@ let constructor_tac with_evars expctdnumopt i lbind =
     let reduce_to_quantified_ind =
       Tacmach.New.pf_apply Tacred.reduce_to_quantified_ind gl
     in
-    try (* reduce_to_quantified_ind can raise an exception *)
-      let (mind,redcl) = reduce_to_quantified_ind cl in
-      let nconstr =
-        Array.length (snd (Global.lookup_inductive mind)).mind_consnames in
-      check_number_of_constructors expctdnumopt i nconstr;
-      let cons = mkConstruct (ith_constructor_of_inductive mind i) in
-      let apply_tac = Proofview.V82.tactic (general_apply true false with_evars (dloc,(cons,lbind))) in
-      (Tacticals.New.tclTHENLIST
-         [Proofview.V82.tactic (convert_concl_no_check redcl DEFAULTcast); intros; apply_tac])
-    with e when Proofview.V82.catchable_exception e -> Proofview.tclZERO e
+    let (mind,redcl) = reduce_to_quantified_ind cl in
+    let nconstr =
+      Array.length (snd (Global.lookup_inductive mind)).mind_consnames in
+    check_number_of_constructors expctdnumopt i nconstr;
+    let cons = mkConstruct (ith_constructor_of_inductive mind i) in
+    let apply_tac = Proofview.V82.tactic (general_apply true false with_evars (dloc,(cons,lbind))) in
+    (Tacticals.New.tclTHENLIST
+        [Proofview.V82.tactic (convert_concl_no_check redcl DEFAULTcast); intros; apply_tac])
   end
 
 let one_constructor i lbind = constructor_tac false None i lbind
@@ -1330,13 +1329,11 @@ let any_constructor with_evars tacopt =
     let reduce_to_quantified_ind =
       Tacmach.New.pf_apply Tacred.reduce_to_quantified_ind gl
     in
-  try (* reduce_to_quantified_ind can raise an exception *)
     let mind = fst (reduce_to_quantified_ind cl) in
     let nconstr =
       Array.length (snd (Global.lookup_inductive mind)).mind_consnames in
     if Int.equal nconstr 0 then error "The type has no constructors.";
     tclANY tac (List.interval 1 nconstr)
-  with e when Proofview.V82.catchable_exception e -> Proofview.tclZERO e
  end
 
 let left_with_bindings  with_evars = constructor_tac with_evars (Some 2) 1
@@ -1432,26 +1429,24 @@ let rewrite_hyp l2r id =
     let env = Proofview.Goal.env gl in
     let type_of = Tacmach.New.pf_type_of gl in
     let whd_betadeltaiota = Tacmach.New.pf_apply whd_betadeltaiota gl in
-    try (* type_of can raise an exception *)
-      let t = whd_betadeltaiota (type_of (mkVar id)) in
-      (* TODO: detect setoid equality? better detect the different equalities *)
-      match match_with_equality_type t with
-      | Some (hdcncl,[_;lhs;rhs]) ->
-          if l2r && isVar lhs && not (occur_var env (destVar lhs) rhs) then
-	    subst_on l2r (destVar lhs) rhs
-          else if not l2r && isVar rhs && not (occur_var env (destVar rhs) lhs) then
-	    subst_on l2r (destVar rhs) lhs
-          else
-	    Tacticals.New.tclTHEN (rew_on l2r onConcl) (Proofview.V82.tactic (tclTRY (clear [id])))
-      | Some (hdcncl,[c]) ->
-          let l2r = not l2r in (* equality of the form eq_true *)
-          if isVar c then
-	    Tacticals.New.tclTHEN (rew_on l2r allHypsAndConcl) (Proofview.V82.tactic (clear_var_and_eq c))
-          else
-	    Tacticals.New.tclTHEN (rew_on l2r onConcl) (Proofview.V82.tactic (tclTRY (clear [id])))
-      | _ ->
-          Proofview.tclZERO (Errors.UserError ("",Pp.str"Cannot find a known equation."))
-    with e when Proofview.V82.catchable_exception e -> Proofview.tclZERO e
+    let t = whd_betadeltaiota (type_of (mkVar id)) in
+    (* TODO: detect setoid equality? better detect the different equalities *)
+    match match_with_equality_type t with
+    | Some (hdcncl,[_;lhs;rhs]) ->
+        if l2r && isVar lhs && not (occur_var env (destVar lhs) rhs) then
+          subst_on l2r (destVar lhs) rhs
+        else if not l2r && isVar rhs && not (occur_var env (destVar rhs) lhs) then
+          subst_on l2r (destVar rhs) lhs
+        else
+          Tacticals.New.tclTHEN (rew_on l2r onConcl) (Proofview.V82.tactic (tclTRY (clear [id])))
+    | Some (hdcncl,[c]) ->
+        let l2r = not l2r in (* equality of the form eq_true *)
+        if isVar c then
+          Tacticals.New.tclTHEN (rew_on l2r allHypsAndConcl) (Proofview.V82.tactic (clear_var_and_eq c))
+        else
+          Tacticals.New.tclTHEN (rew_on l2r onConcl) (Proofview.V82.tactic (tclTRY (clear [id])))
+    | _ ->
+        Proofview.tclZERO (Errors.UserError ("",Pp.str"Cannot find a known equation."))
   end
 
 let rec explicit_intro_names = function
@@ -1909,12 +1904,8 @@ let forward usetac ipat c =
   match usetac with
   | None ->
       Proofview.Goal.raw_enter begin fun gl ->
-      let type_of = Tacmach.New.pf_type_of gl in
-      begin try (* type_of can raise an exception *)
-              let t = type_of c in
-              Tacticals.New.tclTHENFIRST (assert_as true ipat t) (Proofview.V82.tactic (exact_no_check c))
-        with e when Proofview.V82.catchable_exception e -> Proofview.tclZERO e
-      end
+      let t = Tacmach.New.pf_type_of gl  c in
+      Tacticals.New.tclTHENFIRST (assert_as true ipat t) (Proofview.V82.tactic (exact_no_check c))
       end
   | Some tac ->
       Tacticals.New.tclTHENFIRST (assert_as true ipat c) tac
@@ -2120,7 +2111,6 @@ let atomize_param_of_ind (indref,nparams,_) hyp0 =
   Proofview.Goal.enter begin fun gl ->
   let tmptyp0 = Tacmach.New.pf_get_hyp_typ hyp0 gl in
   let reduce_to_quantified_ref = Tacmach.New.pf_apply reduce_to_quantified_ref gl in
-  try (* reduce_to_quantified_ref can raise an exception *)
   let typ0 =  reduce_to_quantified_ref indref tmptyp0 in
   let prods, indtyp = decompose_prod typ0 in
   let argl = snd (decompose_app indtyp) in
@@ -2160,7 +2150,6 @@ let atomize_param_of_ind (indref,nparams,_) hyp0 =
     end
   in
   atomize_one (List.length argl) params
-  with e when Proofview.V82.catchable_exception e -> Proofview.tclZERO e
   end
 
 let find_atomic_param_of_ind nparams indtyp =
@@ -3161,7 +3150,6 @@ let induction_from_context isrec with_evars (indref,nparams,elim) (hyp0,lbind) n
   let reduce_to_quantified_ref =
     Tacmach.New.pf_apply reduce_to_quantified_ref gl
   in
-  try (* reduce_to_quantified_ref can raise an exception *)
   let typ0 = reduce_to_quantified_ref indref tmptyp0 in
   let indvars = find_atomic_param_of_ind nparams ((strip_prod typ0)) in
   let induct_tac elim = Proofview.V82.tactic (tclTHENLIST [
@@ -3171,7 +3159,6 @@ let induction_from_context isrec with_evars (indref,nparams,elim) (hyp0,lbind) n
   ]) in
   apply_induction_in_context
     (Some (hyp0,inhyps)) elim indvars names induct_tac
-  with e when Proofview.V82.catchable_exception e -> Proofview.tclZERO e
   end
 
 let induction_with_atomization_of_ind_arg isrec with_evars elim names (hyp0,lbind) inhyps =
@@ -3287,7 +3274,6 @@ let new_induct_gen_l isrec with_evars elim (eqname,names) lc =
 	    | _ ->
                 Proofview.Goal.raw_enter begin fun gl ->
                 let type_of = Tacmach.New.pf_type_of gl in
-		try (* type_of can raise an exception *)
                 let x =
 		  id_of_name_using_hdchar (Global.env()) (type_of c) Anonymous in
 
@@ -3298,7 +3284,6 @@ let new_induct_gen_l isrec with_evars elim (eqname,names) lc =
 		Tacticals.New.tclTHEN
 		  (letin_tac None (Name id) c None allHypsAndConcl)
 		  (atomize_list newl')
-                with e when Proofview.V82.catchable_exception e -> Proofview.tclZERO e 
                 end in
   Tacticals.New.tclTHENLIST
     [
@@ -3525,9 +3510,7 @@ let (forward_setoid_symmetry_in, setoid_symmetry_in) = Hook.make ()
 
 let symmetry_in id =
   Proofview.Goal.raw_enter begin fun gl ->
-  let type_of = Tacmach.New.pf_type_of gl in
-  try (* type_of can raise an exception *)
-  let ctype = type_of (mkVar id) in
+  let ctype = Tacmach.New.pf_type_of gl (mkVar id) in
   let sign,t = decompose_prod_assum ctype in
   Proofview.tclORELSE
     begin
@@ -3544,7 +3527,6 @@ let symmetry_in id =
       | NoEquationFound -> Hook.get forward_setoid_symmetry_in id
       | e -> Proofview.tclZERO e
     end
-  with e when Proofview.V82.catchable_exception e -> Proofview.tclZERO e
   end
 
 let intros_symmetry =
@@ -3636,9 +3618,13 @@ let interpretable_as_section_decl d1 d2 = match d1,d2 with
   | (_,Some b1,t1), (_,Some b2,t2) -> eq_constr b1 b2 && eq_constr t1 t2
   | (_,None,t1), (_,_,t2) -> eq_constr t1 t2
 
-let abstract_subproof id tac gl =
+let abstract_subproof id tac =
+  let open Tacticals.New in
+  let open Tacmach.New in
+  let open Proofview.Notations in
+  Proofview.Goal.enter begin fun gl ->
   let current_sign = Global.named_context()
-  and global_sign = pf_hyps gl in
+  and global_sign = Proofview.Goal.hyps gl in
   let sign,secsign =
     List.fold_right
       (fun (id,_,_ as d) (s1,s2) ->
@@ -3648,15 +3634,23 @@ let abstract_subproof id tac gl =
 	else (add_named_decl d s1,s2))
       global_sign (empty_named_context,empty_named_context_val) in
   let id = next_global_ident_away id (pf_ids_of_hyps gl) in
-  let concl = it_mkNamedProd_or_LetIn (pf_concl gl) sign in
+  let concl = it_mkNamedProd_or_LetIn (Proofview.Goal.concl gl) sign in
   let concl =
-    try flush_and_check_evars (project gl) concl
+    try flush_and_check_evars (Proofview.Goal.sigma gl) concl
     with Uninstantiated_evar _ ->
       error "\"abstract\" cannot handle existentials." in
-  (* spiwack: the [abstract] tacticals loses the "unsafe status" information *)
-  try
-  let (const,_) = Pfedit.build_constant_by_tactic id secsign concl
-    (Tacticals.New.tclCOMPLETE (Tacticals.New.tclTHEN (Tacticals.New.tclDO (List.length sign) intro) tac)) in
+  let solve_tac = tclCOMPLETE (tclTHEN (tclDO (List.length sign) intro) tac) in
+  let (const, safe) =
+    try Pfedit.build_constant_by_tactic id secsign concl solve_tac
+    with Proof_errors.TacticFailure e as src ->
+    (* if the tactic [tac] fails, it reports a [TacticFailure e],
+       which is an error irrelevant to the proof system (in fact it
+       means that [e] comes from [tac] failing to yield enough
+       success). Hence it reraises [e]. *)
+    let src = Errors.push src in
+    let e = Backtrace.app_backtrace ~src ~dst:e in
+    raise e
+  in
   let cd = Entries.DefinitionEntry const in
   let decl = (cd, IsProof Lemma) in
   (** ppedrot: seems legit to have abstracted subproofs as local*)
@@ -3665,20 +3659,14 @@ let abstract_subproof id tac gl =
   let open Declareops in
   let eff = Safe_typing.sideff_of_con (Global.safe_env ()) cst in
   let effs = cons_side_effects eff no_seff in
-  let gl = { gl with sigma = Evd.emit_side_effects effs gl.sigma; } in
-  exact_no_check
-    (applist (lem,List.rev (instance_from_named_context sign)))
-    gl
-  with Proof_errors.TacticFailure e ->
-    (* if the tactic [tac] fails, it reports a [TacticFailure e],
-       which is an error irrelevant to the proof system (in fact it
-       means that [e] comes from [tac] failing to yield enough
-       success). Hence it reraises [e]. *)
-    raise e
+  let args = List.rev (instance_from_named_context sign) in
+  let solve = Proofview.tclEFFECTS effs <*> new_exact_no_check (applist (lem, args)) in
+  if not safe then Proofview.mark_as_unsafe <*> solve else solve
+  end
 
 let anon_id = Id.of_string "anonymous"
 
-let tclABSTRACT name_op tac gl =
+let tclABSTRACT name_op tac =
   let open Proof_global in
   let s = match name_op with
     | Some s -> s
@@ -3686,7 +3674,7 @@ let tclABSTRACT name_op tac gl =
       let name = try get_current_proof_name () with NoCurrentProof -> anon_id in
       add_suffix name "_subproof"
   in
-  abstract_subproof s tac gl
+  abstract_subproof s tac
 
 
 let admit_as_an_axiom =

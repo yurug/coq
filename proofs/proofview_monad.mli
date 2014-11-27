@@ -5,8 +5,7 @@ type ('a, 'b) list_view =
 | Nil of exn
 | Cons of 'a * 'b
 
-type proofview = { initial : (Term.constr * Term.types) list;
-                   solution : Evd.evar_map; comb : Goal.goal list }
+type proofview = { solution : Evd.evar_map; comb : Goal.goal list }
 
 type logicalState = proofview
 
@@ -24,6 +23,7 @@ module NonLogical : sig
 
   val ret : 'a -> 'a t
   val bind : 'a t -> ('a -> 'b t) -> 'b t
+  val map : ('a -> 'b) -> 'a t -> 'b t
   val ignore : 'a t -> unit t
   val seq : unit t -> 'a t -> 'a t
 
@@ -52,11 +52,13 @@ module Logical : sig
 
   val ret : 'a -> 'a t
   val bind : 'a t -> ('a -> 'b t) -> 'b t
+  val map : ('a -> 'b) -> 'a t -> 'b t
   val ignore : 'a t -> unit t
   val seq : unit t -> 'a t -> 'a t
 
   val set : logicalState -> unit t
   val get : logicalState t
+  val modify : (logicalState -> logicalState) -> unit t
   val put : logicalMessageType -> unit t
   val current : logicalEnvironment t
 
@@ -68,22 +70,3 @@ module Logical : sig
 
   val run : 'a t -> logicalEnvironment -> logicalState -> (('a*logicalState)*logicalMessageType) NonLogical.t
 end
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-

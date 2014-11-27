@@ -22,6 +22,7 @@ type glob_output_t =
     | NoGlob
     | StdOut
     | MultFiles
+    | Feedback
     | File of string
 
 let glob_output = ref NoGlob
@@ -38,8 +39,11 @@ let dump_into_file f =
   else
     (glob_output := File f; open_glob_file f)
 
+let feedback_glob () = glob_output := Feedback
+
 let dump_string s =
-  if dump () then Pervasives.output_string !glob_file s
+  if dump () && !glob_output != Feedback then 
+    Pervasives.output_string !glob_file s
 
 let start_dump_glob vfile =
   match !glob_output with
@@ -51,13 +55,13 @@ let start_dump_glob vfile =
   | File f ->
       open_glob_file f;
       output_string !glob_file "DIGEST NO\n"
-  | NoGlob | StdOut ->
+  | NoGlob | Feedback | StdOut ->
       ()
 
 let end_dump_glob () =
   match !glob_output with
   | MultFiles | File _ -> close_glob_file ()
-  | NoGlob | StdOut -> ()
+  | NoGlob | Feedback | StdOut -> ()
 
 let previous_state = ref MultFiles
 let pause () = previous_state := !glob_output; glob_output := NoGlob
@@ -126,75 +130,27 @@ let interval loc =
   loc1, loc2-1
 
 let dump_ref loc filepath modpath ident ty =
-  let bl,el = interval loc in
-  dump_string (Printf.sprintf "R%d:%d %s %s %s %s\n"
+  if !glob_output = Feedback then
+    Pp.feedback (Interface.GlobRef (loc, filepath, modpath, ident, ty))
+  else
+    let bl,el = interval loc in
+    dump_string (Printf.sprintf "R%d:%d %s %s %s %s\n"
 		  bl el filepath modpath ident ty)
 
-let add_glob_gen loc sp lib_dp ty =
-  if dump () then
-    let mod_dp,id = Libnames.repr_path sp in
-    let mod_dp = remove_sections mod_dp in
-    let mod_dp_trunc = Libnames.drop_dirpath_prefix lib_dp mod_dp in
-    let filepath = Names.DirPath.to_string lib_dp in
-    let modpath = Names.DirPath.to_string mod_dp_trunc in
-    let ident = Names.Id.to_string id in
-      dump_ref loc filepath modpath ident ty
-
-let add_glob loc ref =
-  if dump () && not (Loc.is_ghost loc) then
-    let sp = Nametab.path_of_global ref in
-    let lib_dp = Lib.library_part ref in
-    let ty = type_of_global_ref ref in
-      add_glob_gen loc sp lib_dp ty
-
-let mp_of_kn kn =
-  let mp,sec,l = Names.repr_kn kn in
-    Names.MPdot (mp,l)
-
-let add_glob_kn loc kn =
-  if dump () && not (Loc.is_ghost loc) then
-    let sp = Nametab.path_of_syndef kn in
-    let lib_dp = Lib.dp_of_mp (mp_of_kn kn) in
-      add_glob_gen loc sp lib_dp "syndef"
-
-let dump_binding loc id = ()
-
-let dump_definition (loc, id) sec s =
-  let bl,el = interval loc in
-  dump_string (Printf.sprintf "%s %d:%d %s %s\n" s bl el
-			(Names.DirPath.to_string (Lib.current_dirpath sec)) (Names.Id.to_string id))
-
 let dump_reference loc modpath ident ty =
-  let bl,el = interval loc in
-  dump_string (Printf.sprintf "R%d:%d %s %s %s %s\n"
-		  bl el (Names.DirPath.to_string (Lib.library_dp ())) modpath ident ty)
-
-let dump_constraint ((loc, n), _, _) sec ty =
-  match n with
-    | Names.Name id -> dump_definition (loc, id) sec ty
-    | Names.Anonymous -> ()
+  let filepath = Names.DirPath.to_string (Lib.library_dp ()) in
+  dump_ref loc filepath modpath ident ty
 
 let dump_modref loc mp ty =
-  if dump () then
-    let (dp, l) = Lib.split_modpath mp in
-    let l = if List.is_empty l then l else List.drop_last l in
-    let fp = Names.DirPath.to_string dp in
-    let mp = Names.DirPath.to_string (Names.DirPath.make l) in
-    let bl,el = interval loc in
-      dump_string (Printf.sprintf "R%d:%d %s %s %s %s\n"
-		      bl el fp mp "<>" ty)
-
-let dump_moddef loc mp ty =
-  if dump () then
-    let bl,el = interval loc in
-    let (dp, l) = Lib.split_modpath mp in
-    let mp = Names.DirPath.to_string (Names.DirPath.make l) in
-      dump_string (Printf.sprintf "%s %d:%d %s %s\n" ty bl el "<>" mp)
+  let (dp, l) = Lib.split_modpath mp in
+  let filepath = Names.DirPath.to_string dp in
+  let l = if List.is_empty l then l else List.drop_last l in
+  let modpath = Names.DirPath.to_string (Names.DirPath.make l) in
+  let ident = "<>" in
+  dump_ref loc filepath modpath ident ty
 
 let dump_libref loc dp ty =
-  let bl,el = interval loc in
-  dump_string (Printf.sprintf "R%d:%d %s <> <> %s\n"
-		  bl el (Names.DirPath.to_string dp) ty)
+  dump_ref loc (Names.DirPath.to_string dp) "<>" "<>" ty
 
 let cook_notation df sc =
   (* We encode notations so that they are space-free and still human-readable *)
@@ -233,16 +189,67 @@ let cook_notation df sc =
   let df = String.sub ntn 0 !j in
   match sc with Some sc -> ":" ^ sc ^ ":" ^ df | _ -> "::" ^ df
 
-let dump_notation (loc,(df,_)) sc sec =
-  (* We dump the location of the opening '"' *)
-  dump_string (Printf.sprintf "not %d %s %s\n" (fst (Loc.unloc loc))
-    (Names.DirPath.to_string (Lib.current_dirpath sec)) (cook_notation df sc))
-
 let dump_notation_location posl df (((path,secpath),_),sc) =
   if dump () then
     let path = Names.DirPath.to_string path in
     let secpath = Names.DirPath.to_string secpath in
     let df = cook_notation df sc in
-    List.iter (fun (bl,el) ->
-      dump_string(Printf.sprintf "R%d:%d %s %s %s not\n" bl el path secpath df))
+    List.iter (fun l ->
+      dump_ref (Loc.make_loc l) path secpath df "not")
       posl
+
+let add_glob_gen loc sp lib_dp ty =
+  if dump () then
+    let mod_dp,id = Libnames.repr_path sp in
+    let mod_dp = remove_sections mod_dp in
+    let mod_dp_trunc = Libnames.drop_dirpath_prefix lib_dp mod_dp in
+    let filepath = Names.DirPath.to_string lib_dp in
+    let modpath = Names.DirPath.to_string mod_dp_trunc in
+    let ident = Names.Id.to_string id in
+      dump_ref loc filepath modpath ident ty
+
+let add_glob loc ref =
+  if dump () && not (Loc.is_ghost loc) then
+    let sp = Nametab.path_of_global ref in
+    let lib_dp = Lib.library_part ref in
+    let ty = type_of_global_ref ref in
+      add_glob_gen loc sp lib_dp ty
+
+let mp_of_kn kn =
+  let mp,sec,l = Names.repr_kn kn in
+    Names.MPdot (mp,l)
+
+let add_glob_kn loc kn =
+  if dump () && not (Loc.is_ghost loc) then
+    let sp = Nametab.path_of_syndef kn in
+    let lib_dp = Lib.dp_of_mp (mp_of_kn kn) in
+      add_glob_gen loc sp lib_dp "syndef"
+
+let dump_binding loc id = ()
+
+let dump_def ty loc secpath id =
+  if !glob_output = Feedback then
+    Pp.feedback (Interface.GlobDef (loc, id, secpath, ty))
+  else
+    let bl,el = interval loc in
+    dump_string (Printf.sprintf "%s %d:%d %s %s\n" ty bl el secpath id)
+
+let dump_definition (loc, id) sec s =
+  dump_def s loc (Names.DirPath.to_string (Lib.current_dirpath sec)) (Names.Id.to_string id)
+
+let dump_constraint ((loc, n), _, _) sec ty =
+  match n with
+    | Names.Name id -> dump_definition (loc, id) sec ty
+    | Names.Anonymous -> ()
+
+let dump_moddef loc mp ty =
+  let (dp, l) = Lib.split_modpath mp in
+  let mp = Names.DirPath.to_string (Names.DirPath.make l) in
+  dump_def ty loc "<>" mp
+
+let dump_notation (loc,(df,_)) sc sec =
+  (* We dump the location of the opening '"' *)
+  let i = fst (Loc.unloc loc) in
+  let location = (Loc.make_loc (i, i+1)) in
+  dump_def "not" location (Names.DirPath.to_string (Lib.current_dirpath sec)) (cook_notation df sc)
+

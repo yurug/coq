@@ -31,6 +31,10 @@ let _ = Detyping.set_detype_anonymous (fun _ _ -> raise Not_found)
 (* std_ppcmds *)
 let pppp x = pp x
 
+(** Future printer *)
+
+let ppfuture kx = pp (Future.print (fun _ -> str "_") kx)
+
 (* name printers *)
 let ppid id = pp (pr_id id)
 let pplab l = pp (pr_lab l)
@@ -88,6 +92,14 @@ let ppevarsubst = ppidmap (fun id0 -> prset (fun (c,copt,id) ->
    (if id = id0 then mt ()
     else spc () ++ str "<canonical: " ++ pr_id id ++ str ">"))))
 
+let ppconstrunderbindersidmap l = ppidmap (fun id (l,c) ->
+  Id.print id ++ str "->" ++ hov 1 (str"[" ++  prlist Id.print l ++ str"]")
+  ++ str "," ++ spc () ++ Termops.print_constr c)
+
+let ppunbound_ltac_var_map l = ppidmap (fun id arg ->
+  Id.print id ++ str "->" ++
+  str"<genarg:" ++ pr_argument_type(genarg_tag arg) ++ str">")
+
 let pP s = pp (hov 0 s)
 
 let safe_pr_global = function
@@ -127,6 +139,9 @@ let pr_existentialset evars =
   prlist_with_sep spc pr_evar (Evar.Set.elements evars)
 let ppexistentialset evars =
   pp (pr_existentialset evars)
+let ppexistentialfilter filter = match Evd.Filter.repr filter with
+| None -> pp (Pp.str "ø")
+| Some f -> pp (prlist_with_sep spc bool f)
 let ppclenv clenv = pp(pr_clenv clenv)
 let ppgoalgoal gl = pp(Goal.pr_goal gl)
 let ppgoal g = pp(Printer.pr_goal g)

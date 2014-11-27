@@ -346,7 +346,10 @@ let dump_universes_gen g s =
     Univ.dump_universes output_constraint g;
     close ();
     msg_info (str ("Universes written to file \""^s^"\"."))
-  with reraise -> close (); raise reraise
+  with reraise ->
+    let reraise = Errors.push reraise in
+    close ();
+    raise reraise
 
 let dump_universes sorted s =
   let g = Global.universes () in
@@ -492,12 +495,11 @@ let vernac_start_proof kind l lettop =
   start_proof_and_print (Global, Proof kind) l no_hook
 
 let qed_display_script = ref true
-let show_script = ref (fun ?proof () -> ())
 
 let vernac_end_proof ?proof = function
   | Admitted -> save_proof ?proof Admitted
   | Proved (_,_) as e ->
-    if is_verbose () && !qed_display_script then !show_script ?proof ();
+    if is_verbose () && !qed_display_script then Stm.show_script ?proof ();
     save_proof ?proof e
 
   (* A stupid macro that should be replaced by ``Exact c. Save.'' all along
@@ -857,7 +859,7 @@ let vernac_add_loadpath isrec pdir ldiropt =
   let pdir = expand pdir in
   let alias = Option.default Nameops.default_root_prefix ldiropt in
   (if isrec then Mltop.add_rec_path else Mltop.add_path)
-    ~unix_path:pdir ~coq_root:alias
+    ~unix_path:pdir ~coq_root:alias ~implicit:true
 
 let vernac_remove_loadpath path =
   Loadpath.remove_load_path (expand path)
@@ -1591,7 +1593,7 @@ let vernac_show = function
       Constrextern.with_implicits msg_notice (pr_nth_open_subgoal n)
   | ShowProof -> show_proof ()
   | ShowNode -> show_node ()
-  | ShowScript -> !show_script ()
+  | ShowScript -> Stm.show_script ()
   | ShowExistentials -> show_top_evars ()
   | ShowTree -> show_prooftree ()
   | ShowProofNames ->
@@ -1953,3 +1955,5 @@ let interp ?(verbosely=true) ?proof (loc,c) =
     if verbosely then Flags.verbosely (aux false) c
     else aux false c
 
+let () = Hook.set Stm.interp_hook interp
+let () = Hook.set Stm.process_error_hook Cerrors.process_vernac_interp_error

@@ -167,11 +167,12 @@ let transactify f x =
 
 let purify_future f x = if is_over x then f x else purify f x
 let compute x = purify_future (compute ~pure:false) x
-let force x = purify_future (force ~pure:false) x
+let force ~pure x = purify_future (force ~pure) x
 let chain ?(greedy=true) ~pure x f =
   let y = chain ~pure x f in
-  if is_over x && greedy then ignore(force y);
+  if is_over x && greedy then ignore(force ~pure y);
   y
+let force x = force ~pure:false x
 
 let join kx =
   let v = force kx in
@@ -191,3 +192,17 @@ let map2 ?greedy f x l =
         with Failure _ | Invalid_argument _ ->
           Errors.anomaly (Pp.str "Future.map2 length mismatch")) in
     f xi y) 0 l
+
+let print f kx =
+  let open Pp in
+  let (uid, _, x) = get kx in
+  let uid =
+    if UUID.equal uid UUID.invalid then str "[#]"
+    else str "[" ++ int uid ++ str "]"
+  in
+  match !x with
+  | Delegated _ -> str "Delegated" ++ uid
+  | Closure _ -> str "Closure" ++ uid
+  | Val (x, None) -> str "PureVal" ++ uid ++ spc () ++ hov 0 (f x)
+  | Val (x, Some _) -> str "StateVal" ++ uid ++ spc () ++ hov 0 (f x)
+  | Exn e -> str "Exn"  ++ uid ++ spc () ++ hov 0 (str (Printexc.to_string e))

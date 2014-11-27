@@ -657,42 +657,21 @@ let get_Constrs (env, sigma) t =
     match Term.kind_of_term t_type with
     | Term.Ind (mind, ind_i) -> 
       let mbody = Environ.lookup_mind mind env in
-      Pp.pperr (Pp.str "lookup OK\n");
-      Pp.flush_all ();
       let ind = Array.get (mbody.mind_packets) ind_i in
-      Pp.pperr (Pp.str "packets OK\n");
-      Pp.flush_all ();
       let dyn = MtacNames.mkConstr "dyn" in
       let mkDyn = MtacNames.mkConstr "Dyn" in
-      Pp.pperr (Pp.str "defs OK\n");
-      Pp.flush_all ();
       let l = Array.fold_left 
           (fun l i ->
               let constr = Names.ith_constructor_of_inductive (mind, ind_i) i in
-              Pp.pperr (Pp.str "ith constr OK\n");
-              Pp.pperr (Pp.int i);
-              Pp.pperr (Pp.str "\n");
-              Pp.flush_all ();
               let coq_constr = Term.applist (mkDyn, [CoqList.makeNil dyn]) in
               let coq_constr = Term.mkConstruct constr in
               let dyn_constr = Term.applist (mkDyn, [coq_constr]) in
-              Pp.pperr (Pp.str "applist OK\n");
-              Pp.flush_all ();
               CoqList.makeCons dyn dyn_constr l 
           )
-              (let x = 
-          CoqList.makeNil dyn in
-             Pp.pperr (Pp.str "nil OK\n");
-              Pp.flush_all (); x )  
+              (CoqList.makeNil dyn )  
           (* this is just a dirty hack to get the indices of constructors *)
-          (let x = Array.mapi (fun i t -> i+1) ind.mind_consnames in 
-              Pp.pperr (Pp.str "mapi OK\n");
-              Pp.flush_all (); x
-          )
-
+          (Array.mapi (fun i t -> i+1) ind.mind_consnames)
       in  
-      Pp.pperr (Pp.str "everything OK\n");
-              Pp.flush_all () ;
       (sigma, l)
   else
     Exceptions.block "The argument of Mconstrs is not an inductive type"

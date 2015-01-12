@@ -6,6 +6,17 @@ Inductive Exception : Type := exception : Exception.
 
 Parameter LazyList : Type -> Type.
 
+Inductive dyn := Dyn { dynt : Type; elem : dynt }.
+
+Record Case :=
+    mkCase {
+        case_ind : Type;
+        case_val : case_ind;
+        case_type : Type;
+        case_return : dyn;
+        case_branches : list dyn
+        }.
+
 Inductive goal : Type := opaque : forall {A : Type}, goal.
 
 (* Assumption: when one has [Named patt name], [name] comes from a [Mtele] (see
@@ -54,6 +65,9 @@ Inductive Mtac2 : Type -> Prop :=
 | Mgmatch : forall {A} (g:goal), list (Mpatt goal (fun g => A) g) -> Mtac2 A
 | Mnext : forall {A:Type}, LazyList A -> Mtac2 (option (A * LazyList A))
 | Mshow : goal -> Mtac2 unit
+| Mdestcase : forall {A} (a : A), Mtac2 (Case)
+| Mconstrs : forall {A : Type} (a : A), Mtac2 (list dyn)
+| Mmakecase : forall (C : Case), Mtac2 dyn
 
 with Mpatt : forall A (B : A -> Type) (t : A), Type := 
 | Mbase : forall {A B t} (x:A) (b : t = x -> Mtac2 (B x)), Mpatt A B t

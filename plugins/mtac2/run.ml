@@ -1,3 +1,5 @@
+open Declarations
+
 module TOps = Termops
 module ROps = Reductionops
 
@@ -640,7 +642,7 @@ let make_Case (env, sigma) case =
     match Term.kind_of_term t_type with
     | Term.Ind (mind, ind_i) -> 
       let mbody = Environ.lookup_mind mind env in
-      let ind = Array.get (mbody.mind_packets) ind_i in
+      let ind = Array.get mbody.mind_packets ind_i in
       let case_info = Inductiveops.make_case_info env (mind, ind_i)
       Term.LetPatternStyle in
       let match_term = Term.mkCase (case_info, repr_return_red, repr_val_red,

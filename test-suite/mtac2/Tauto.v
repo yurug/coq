@@ -86,3 +86,75 @@ Proof.
   refine (eval (WithList.tauto _)).
 Qed.
 
+Ltac my_tauto :=
+  repeat match goal with
+           | [ H : ?P |- ?P ] => exact H
+
+           | [ |- True ] => constructor
+           | [ |- _ /\ _ ] => constructor
+           | [ |- _ -> _ ] => intro
+
+           | [ H : False |- _ ] => destruct H
+           | [ H : _ /\ _ |- _ ] => destruct H
+           | [ H : _ \/ _ |- _ ] => destruct H
+
+           | [ H1 : ?P -> ?Q, H2 : ?P |- _ ] => specialize (H1 H2)
+         end.
+
+Definition iter {A B : Type} (f : A -> M B) :=
+  mfix1 y (lst : list A) : M unit :=
+    match lst with
+    | nil => ret tt
+    | cons x xs =>
+      _ <- f x ;
+      y xs
+    end.
+
+Notation "f @@ x" := (r <- x; f r) (at level 70).
+
+Require Import Mtactics.
+
+
+Program Definition tauto_goal :=
+  mfix1 f (l : list goal) : M unit :=
+    iter (fun g =>
+      gmatch g with
+      | [ X H ] { H ::: X } X => f @@ Mrefine g H
+      | { } True => f @@ Mrefine g I
+      | [P Q : Prop] { } P /\ Q =>
+        X <- evar P; Y <- evar Q;
+        f @@ Mrefine g (conj X Y)
+(*
+      | [P Q : Prop] { } P \/ Q =>
+        mtry
+          X <- evar P;
+          f @@ Mrefine g (or_introl Q X)
+        with _ =>
+          X <- evar Q;
+          f @@ Mrefine g (or_intror P X)
+        end
+*)
+      | [P Q : Prop] { } P -> Q =>
+        r <- intro g;
+        f [r]
+(*
+      | [H (G : Prop)] { H ::: False } G =>
+        f @@ Mrefine g (match H with end : G)
+      | [P Q H (G : Prop)] { H ::: (P /\ Q) } G =>
+        X <- evar (P -> Q -> G);
+        f @@ Mrefine g (match H with conj x y => X x y end)
+      | [P Q H (G : Prop)] { H ::: (P \/ Q) } G => 
+        X <- evar (P -> G);
+        Y <- evar (Q -> G);
+        f @@ Mrefine g (match H with or_introl x => X x | or_intror y
+        => Y y end)
+                                        
+      | [P Q H1 H2 G] {H1 ::: (P -> Q), H2 ::: P} G =>
+        X <- evar (Q -> G);
+        f @@ Mrefine g ((fun x:Q=>X x) (H1 H2))
+*)
+      end) l.
+
+
+Example tauto1 (P Q R : Prop) : P -> Q -> P /\ Q.
+  run_eff (Mgoals >> tauto_goal).

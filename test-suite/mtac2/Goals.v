@@ -48,22 +48,30 @@ Proof.
   ) as H.
 Admitted.
 
+
+
+
+
+
+
+
+(*
 Goal forall (A B C : Type) (a : A) (b : B) (c : C), B.
 Proof.
   intros.
-  run (
-    Mgoals >>
-    iter (fun g =>
+  set (I := fun g =>
       gmatch g with
-      | [ (Res:Type) l ] { < { U:Type & { _ : U & unit } } >* as l } Res =>
+      | [ (Res:Type) l ] { < { U:Type & { _ : U & unit } } >* as l }
+                         Res =>
         (mfix1 y (lst : LazyList { U : Type & { _ : U & unit } }) : M unit :=
           res <- Mnext lst ;
-          _ <- Mprint res ;
+         _ <- Mprint res ;
           mmatch res with
           | None => Mprint 0
           | [ x l' ] Some (x, l') =>
             mmatch x return M unit with
-            | [ m ] existT (fun T => { _ : T & unit }) Res (existT (fun (_:Res) => unit) m tt) =>
+            | [ m ] (@existT Type (fun U : Type => {_ : U & unit}) m
+      (@existT Type (fun _ : C => unit) C tt)) =>
               _ <- Mrefine g m ;
               ret tt
             | _ =>
@@ -71,8 +79,13 @@ Proof.
             end
           end
         ) l
+      | _ => ret tt
       end
-    )
+    ).
+  Set Printing Implicit.
+  run (
+    Mgoals >>
+    iter I
   ) as H.
   Show Proof.
 Qed.
@@ -248,3 +261,4 @@ Proof.
     iter (fun y => Mrefine y (eq_refl nat)) lst
   ) as t.
 Qed.
+*)

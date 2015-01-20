@@ -7,6 +7,7 @@ Import ListNotations.
 Program
 Definition search {A} (x : A) :=
   mfix1 f (s : list A) : M (In x s) :=
+    print s;;
     mmatch s with
     | [l r] l ++ r =>
       mtry 
@@ -43,3 +44,9 @@ Goal forall s (x y z : nat), In x (s++[z;y;x]).
 intros.
 apply (eval (search _ _)).
 Qed.
+
+Require Import Mtactics.
+
+Example ex s (x y z : nat) : In x (s++[z;y;x]) := $( run_eff (search _ _) )$.
+Proof.
+   run_eff (Mgoals >> get >> fun g => Mrefine g (search _ _)).

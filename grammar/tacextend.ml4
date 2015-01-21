@@ -1,6 +1,6 @@
 (************************************************************************)
 (*  v      *   The Coq Proof Assistant  /  The Coq Development Team     *)
-(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2012     *)
+(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2015     *)
 (*   \VV/  **************************************************************)
 (*    //   *      This file is distributed under the terms of the       *)
 (*         *       GNU Lesser General Public License Version 2.1        *)
@@ -10,6 +10,7 @@
 
 open Util
 open Pp
+open Names
 open Genarg
 open Q_util
 open Q_coqast
@@ -17,6 +18,10 @@ open Argextend
 open Pcoq
 open Egramml
 open Compat
+
+let dloc = <:expr< Loc.ghost >>
+
+let plugin_name = <:expr< __coq_plugin_name >>
 
 let rec make_patt = function
   | [] -> <:patt< [] >>
@@ -53,6 +58,8 @@ let rec extract_signature = function
   | [] -> []
   | GramNonTerminal (_,t,_,_) :: l -> t :: extract_signature l
   | _::l -> extract_signature l
+
+
 
 let check_unicity s l =
   let l' = List.map (fun (l,_,_) -> extract_signature l) l in
@@ -157,32 +164,79 @@ let possibly_atomic loc prods =
   in
   possibly_empty_subentries loc (List.factorize_left String.equal l)
 
-let declare_tactic loc s c cl =
-  let se = mlexpr_of_string s in
+(** Special treatment of constr entries *)
+let is_constr_gram = function
+| GramTerminal _ -> false
+| GramNonTerminal (_, _, e, _) ->
+  match e with
+  | Aentry ("constr", "constr") -> true
+  | _ -> false
+
+let make_vars len =
+  (** We choose names unlikely to be written by a human, even though that
+      does not matter at all. *)
+  List.init len (fun i -> Some (Id.of_string (Printf.sprintf "_%i" i)))
+
+let declare_tactic loc s c cl = match cl with
+| [(GramTerminal name) :: rem, _, tac] when List.for_all is_constr_gram rem ->
+  (** The extension is only made of a name followed by constr entries: we do not
+      add any grammar nor printing rule and add it as a true Ltac definition. *)
+  let patt = make_patt rem in
+  let vars = make_vars (List.length rem) in
+  let vars = mlexpr_of_list (mlexpr_of_option mlexpr_of_ident) vars in
+  let entry = mlexpr_of_string s in
+  let se = <:expr< { Tacexpr.mltac_tactic = $entry$; Tacexpr.mltac_plugin = $plugin_name$ } >> in
+  let ml = <:expr< { Tacexpr.mltac_name = $se$; Tacexpr.mltac_index = 0 } >> in
+  let name = mlexpr_of_string name in
+  let tac =
+    (** Special handling of tactics without arguments: such tactics do not do
+        a Proofview.Goal.nf_enter to compute their arguments. It matters for some
+        whole-prof tactics like [shelve_unifiable]. *)
+    if List.is_empty rem then
+      <:expr< fun _ $lid:"ist"$ -> $tac$ >>
+    else
+      let f = Compat.make_fun loc [patt, vala None, <:expr< fun $lid:"ist"$ -> $tac$ >>] in
+      <:expr< Tacinterp.lift_constr_tac_to_ml_tac $vars$ $f$ >>
+  in
+  (** Arguments are not passed directly to the ML tactic in the TacML node,
+      the ML tactic retrieves its arguments in the [ist] environment instead.
+      This is the rôle of the [lift_constr_tac_to_ml_tac] function. *)
+  let body = <:expr< Tacexpr.TacFun ($vars$, Tacexpr.TacML ($dloc$, $ml$, [])) >> in
+  let name = <:expr< Names.Id.of_string $name$ >> in
+  declare_str_items loc
+    [ <:str_item< do {
+      let obj () = Tacenv.register_ltac True False $name$ $body$ in
+      try do {
+        Tacenv.register_ml_tactic $se$ $tac$;
+        Mltop.declare_cache_obj obj $plugin_name$; }
+      with [ e when Errors.noncritical e ->
+        Pp.msg_warning
+          (Pp.app
+            (Pp.str ("Exception in tactic extend " ^ $entry$ ^": "))
+            (Errors.print e)) ]; } >>
+    ]
+| _ ->
+  (** Otherwise we add parsing and printing rules to generate a call to a
+      TacML tactic. *)
+  let entry = mlexpr_of_string s in
+  let se = <:expr< { Tacexpr.mltac_tactic = $entry$; Tacexpr.mltac_plugin = $plugin_name$ } >> in
   let pp = make_printing_rule se cl in
   let gl = mlexpr_of_clause cl in
-  let atomic_tactics =
+  let atom =
     mlexpr_of_list (mlexpr_of_pair mlexpr_of_string (fun x -> x))
       (possibly_atomic loc cl) in
+  let obj = <:expr< fun () -> Metasyntax.add_ml_tactic_notation $se$ $gl$ $atom$ >> in
   declare_str_items loc
     [ <:str_item< do {
       try do {
         Tacenv.register_ml_tactic $se$ $make_fun_clauses loc s cl$;
-        List.iter
-          (fun (s,l) -> match l with
-           [ Some l ->
-              Tacenv.register_atomic_ltac (Names.Id.of_string s)
-              (Tacexpr.TacAtom($default_loc$,
-                 Tacexpr.TacExtend($default_loc$,$se$,l)))
-           | None -> () ])
-          $atomic_tactics$ }
+        Mltop.declare_cache_obj $obj$ $plugin_name$;
+        List.iter (fun (s, r) -> Pptactic.declare_ml_tactic_pprule s r) $pp$; }
       with [ e when Errors.noncritical e ->
-	Pp.msg_warning
-	  (Pp.app
-	     (Pp.str ("Exception in tactic extend " ^ $se$ ^": "))
-	     (Errors.print e)) ];
-      Egramml.extend_tactic_grammar $se$ $gl$;
-      List.iter (fun (s, r) -> Pptactic.declare_ml_tactic_pprule s r) $pp$; } >>
+        Pp.msg_warning
+          (Pp.app
+            (Pp.str ("Exception in tactic extend " ^ $entry$ ^": "))
+            (Errors.print e)) ]; } >>
     ]
 
 open Pcaml

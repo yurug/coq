@@ -1,6 +1,6 @@
 (************************************************************************)
 (*  v      *   The Coq Proof Assistant  /  The Coq Development Team     *)
-(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2012     *)
+(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2015     *)
 (*   \VV/  **************************************************************)
 (*    //   *      This file is distributed under the terms of the       *)
 (*         *       GNU Lesser General Public License Version 2.1        *)
@@ -21,9 +21,11 @@ type t =
      * bool (** Force inference *)
   | BinderType of Name.t
   | QuestionMark of obligation_definition_status
-  | CasesType
+  | CasesType of bool (* true = a subterm of the type *)
   | InternalHole
   | TomatchTypeParameter of inductive * int
   | GoalEvar
   | ImpossibleCase
   | MatchingVar of bool * Id.t
+  | VarInstance of Id.t
+  | SubEvar of Constr.existential_key

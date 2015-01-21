@@ -1,6 +1,6 @@
 (************************************************************************)
 (*  v      *   The Coq Proof Assistant  /  The Coq Development Team     *)
-(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2012     *)
+(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2015     *)
 (*   \VV/  **************************************************************)
 (*    //   *      This file is distributed under the terms of the       *)
 (*         *       GNU Lesser General Public License Version 2.1        *)
@@ -55,9 +55,10 @@ let find_rectype_a env c =
 
 (* Instantiate inductives and parameters in constructor type *)
 
-let type_constructor mind mib typ params =
-  let s = ind_subst mind mib in
+let type_constructor mind mib u typ params =
+  let s = ind_subst mind mib u in
   let ctyp = substl s typ in
+  let ctyp = subst_instance_constr u ctyp in
   let nparams = Array.length params in
   if Int.equal nparams 0 then ctyp
   else
@@ -67,11 +68,11 @@ let type_constructor mind mib typ params =
 
 
 let construct_of_constr const env tag typ =
-  let (mind,_ as ind), allargs = find_rectype_a env typ in
+  let ((mind,_ as ind), u) as indu, allargs = find_rectype_a env typ in
   (* spiwack : here be a branch for specific decompilation handled by retroknowledge *)
   try
     if const then
-      ((retroknowledge Retroknowledge.get_vm_decompile_constant_info env (mkInd ind) tag),
+      ((retroknowledge Retroknowledge.get_vm_decompile_constant_info env (mkIndU indu) tag),
        typ) (*spiwack: this may need to be changed in case there are parameters in the
 	               type which may cause a constant value to have an arity.
 	               (type_constructor seems to be all about parameters actually)
@@ -84,8 +85,8 @@ let construct_of_constr const env tag typ =
     let nparams = mib.mind_nparams in
     let i = invert_tag const tag mip.mind_reloc_tbl in
     let params = Array.sub allargs 0 nparams in
-    let ctyp = type_constructor mind mib (mip.mind_nf_lc.(i-1)) params in
-      (mkApp(mkConstruct(ind,i), params), ctyp)
+    let ctyp = type_constructor mind mib u (mip.mind_nf_lc.(i-1)) params in
+      (mkApp(mkConstructUi(indu,i), params), ctyp)
 
 let construct_of_constr_const env tag typ =
   fst (construct_of_constr true env tag typ)
@@ -95,7 +96,8 @@ let construct_of_constr_block = construct_of_constr false
 let constr_type_of_idkey env idkey =
   match idkey with
   | ConstKey cst ->
-      mkConst cst, Typeops.type_of_constant env cst
+    let const_type = Typeops.type_of_constant_in env cst in
+      mkConstU cst, const_type
   | VarKey id ->
       let (_,_,ty) = lookup_named id env in
       mkVar id, ty
@@ -104,30 +106,33 @@ let constr_type_of_idkey env idkey =
       let (_,_,ty) = lookup_rel n env in
       mkRel n, lift n ty
 
-let type_of_ind env ind =
-  type_of_inductive env (Inductive.lookup_mind_specif env ind)
+let type_of_ind env (ind, u) =
+  type_of_inductive env (Inductive.lookup_mind_specif env ind, u)
 
-let build_branches_type env (mind,_ as _ind) mib mip params dep p =
+let build_branches_type env (mind,_ as _ind) mib mip u params dep p =
   let rtbl = mip.mind_reloc_tbl in
   (* [build_one_branch i cty] construit le type de la ieme branche (commence
      a 0) et les lambda correspondant aux realargs *)
   let build_one_branch i cty =
-    let typi = type_constructor mind mib cty params in
-    let decl,indapp = decompose_prod_assum typi in
-    let ind,cargs = find_rectype_a env indapp in
+    let typi = type_constructor mind mib u cty params in
+    let decl,indapp = Reductionops.splay_prod env Evd.empty typi in
+    let decl_with_letin,_ = decompose_prod_assum typi in
+    let ((ind,u),cargs) = find_rectype_a env indapp in
     let nparams = Array.length params in
     let carity = snd (rtbl.(i)) in
     let crealargs = Array.sub cargs nparams (Array.length cargs - nparams) in
     let codom =
-      let papp = mkApp(lift (List.length decl) p,crealargs) in
+      let ndecl = List.length decl in
+      let papp = mkApp(lift ndecl p,crealargs) in
       if dep then
 	let cstr = ith_constructor_of_inductive ind (i+1) in
         let relargs = Array.init carity (fun i -> mkRel (carity-i)) in
-	let dep_cstr = mkApp(mkApp(mkConstruct cstr,params),relargs) in
+	let params = Array.map (lift ndecl) params in
+	let dep_cstr = mkApp(mkApp(mkConstructU (cstr,u),params),relargs) in
 	mkApp(papp,[|dep_cstr|])
       else papp
     in
-    decl, codom
+    decl, decl_with_letin, codom
   in Array.mapi build_one_branch mip.mind_nf_lc
 
 let build_case_type dep p realargs c =
@@ -170,7 +175,7 @@ and nf_whd env whd typ =
   | Vatom_stk(Aiddef(idkey,v), stk) ->
       nf_whd env (whd_stack v stk) typ
   | Vatom_stk(Aind ind, stk) ->
-      nf_stk env (mkInd ind) (type_of_ind env ind) stk
+      nf_stk env (mkIndU ind) (type_of_ind env ind) stk
 
 and nf_stk env c t stk  =
   match stk with
@@ -180,25 +185,25 @@ and nf_stk env c t stk  =
       nf_stk env (mkApp(c,args)) t stk
   | Zfix (f,vargs) :: stk ->
       let fa, typ = nf_fix_app env f vargs in
-      let _,_,codom = try decompose_prod env typ with DestKO -> exit 120 in
+      let _,_,codom = decompose_prod env typ in
       nf_stk env (mkApp(fa,[|c|])) (subst1 c codom) stk
   | Zswitch sw :: stk ->
-      let (mind,_ as ind),allargs = find_rectype_a env t in
+      let ((mind,_ as ind), u), allargs = find_rectype_a env t in
       let (mib,mip) = Inductive.lookup_mind_specif env ind in
       let nparams = mib.mind_nparams in
       let params,realargs = Util.Array.chop nparams allargs in
       let pT =
-	hnf_prod_applist env (type_of_ind env ind) (Array.to_list params) in
+	hnf_prod_applist env (type_of_ind env (ind,u)) (Array.to_list params) in
       let pT = whd_betadeltaiota env pT in
-      let dep, p = nf_predicate env ind mip params (type_of_switch sw) pT in
+      let dep, p = nf_predicate env (ind,u) mip params (type_of_switch sw) pT in
       (* Calcul du type des branches *)
-      let btypes = build_branches_type env ind mib mip params dep p in
+      let btypes = build_branches_type env ind mib mip u params dep p in
       (* calcul des branches *)
       let bsw = branch_of_switch (nb_rel env) sw in
       let mkbranch i (n,v) =
-	let decl,codom = btypes.(i) in
-	let b = nf_val (push_rel_context decl env) v codom in
-	it_mkLambda_or_LetIn b decl
+	let decl,decl_with_letin,codom = btypes.(i) in
+	let b = nf_val (Termops.push_rels_assum decl env) v codom in
+        Termops.it_mkLambda_or_LetIn_from_no_LetIn b decl_with_letin
       in
       let branchs = Array.mapi mkbranch bsw in
       let tcase = build_case_type dep p realargs c in
@@ -210,7 +215,7 @@ and nf_predicate env ind mip params v pT =
   | Vfun f, Prod _ ->
       let k = nb_rel env in
       let vb = body_of_vfun k f in
-      let name,dom,codom = try decompose_prod env pT with DestKO -> exit 121 in
+      let name,dom,codom = decompose_prod env pT in
       let dep,body =
 	nf_predicate (push_rel (name,None,dom) env) ind mip params vb codom in
       dep, mkLambda(name,dom,body)
@@ -221,7 +226,7 @@ and nf_predicate env ind mip params v pT =
       let n = mip.mind_nrealargs in
       let rargs = Array.init n (fun i -> mkRel (n-i)) in
       let params = if Int.equal n 0 then params else Array.map (lift n) params in
-      let dom = mkApp(mkInd ind,Array.append params rargs) in
+      let dom = mkApp(mkIndU ind,Array.append params rargs) in
       let body = nf_vtype (push_rel (name,None,dom) env) vb in
       true, mkLambda(name,dom,body)
   | _, _ -> false, nf_val env v crazy_type
@@ -232,7 +237,7 @@ and nf_args env vargs t =
   let args =
     Array.init len
       (fun i ->
-	let _,dom,codom = try decompose_prod env !t with DestKO -> exit 123 in
+	let _,dom,codom = decompose_prod env !t in
 	let c = nf_val env (arg vargs i) dom in
 	t := subst1 c codom; c) in
   !t,args
@@ -243,7 +248,7 @@ and nf_bargs env b t =
   let args =
     Array.init len
       (fun i ->
-	let _,dom,codom = try decompose_prod env !t with DestKO -> exit 124 in
+	let _,dom,codom = decompose_prod env !t in
 	let c = nf_val env (bfield b i) dom in
 	t := subst1 c codom; c) in
   args
@@ -269,8 +274,12 @@ and nf_fix env f =
   let ndef = Array.length vt in
   let ft = Array.map (fun v -> nf_val env v crazy_type) vt in
   let name = Array.init ndef (fun _ -> (Name (Id.of_string "Ffix"))) in
+  (* Third argument of the tuple is ignored by push_rec_types *)
   let env = push_rec_types (name,ft,ft) env in
-  let fb = Util.Array.map2 (fun v t -> nf_fun env v t) vb ft in
+  (* We lift here because the types of arguments (in tt) will be evaluated
+     in an environment where the fixpoints have been pushed *)
+  let norm_vb v t = nf_fun env v (lift ndef t) in
+  let fb = Util.Array.map2 norm_vb vb ft in
   mkFix ((rec_args,init),(name,ft,fb))
 
 and nf_fix_app env f vargs =

@@ -1,6 +1,6 @@
 (************************************************************************)
 (*  v      *   The Coq Proof Assistant  /  The Coq Development Team     *)
-(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2013     *)
+(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2015     *)
 (*   \VV/  **************************************************************)
 (*    //   *      This file is distributed under the terms of the       *)
 (*         *       GNU Lesser General Public License Version 2.1        *)
@@ -28,22 +28,23 @@ and lambda =
   | Llam          of name array * lambda  
   | Llet          of name * lambda * lambda
   | Lapp          of lambda * lambda array
-  | Lconst        of prefix * constant
+  | Lconst        of prefix * pconstant
+  | Lproj         of prefix * constant (* prefix, projection name *)
   | Lprim         of prefix * constant * Primitives.t * lambda array
   | Lcase         of annot_sw * lambda * lambda * lam_branches 
                   (* annotations, term being matched, accu, branches *)
   | Lif           of lambda * lambda * lambda
   | Lfix          of (int array * int) * fix_decl 
   | Lcofix        of int * fix_decl 
-  | Lmakeblock    of prefix * constructor * int * lambda array
+  | Lmakeblock    of prefix * pconstructor * int * lambda array
                   (* prefix, constructor name, constructor tag, arguments *)
 	(* A fully applied constructor *)
-  | Lconstruct    of prefix * constructor
+  | Lconstruct    of prefix * pconstructor
 	(* A partially applied constructor *)
   | Luint         of uint
   | Lval          of Nativevalues.t
   | Lsort         of sorts
-  | Lind          of prefix * inductive
+  | Lind          of prefix * pinductive
   | Llazy
   | Lforce
 

@@ -1,6 +1,6 @@
 (************************************************************************)
 (*  v      *   The Coq Proof Assistant  /  The Coq Development Team     *)
-(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2012     *)
+(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2015     *)
 (*   \VV/  **************************************************************)
 (*    //   *      This file is distributed under the terms of the       *)
 (*         *       GNU Lesser General Public License Version 2.1        *)
@@ -46,6 +46,8 @@ exception NoCurrentProof
 val give_me_the_proof : unit -> Proof.proof
 (** @raise NoCurrentProof when outside proof mode. *)
 
+val compact_the_proof : unit -> unit
+
 (** When a proof is closed, it is reified into a [proof_object], where
     [id] is the name of the proof, [entries] the list of the proof terms
     (in a form suitable for definitions). Together with the [terminator]
@@ -53,10 +55,14 @@ val give_me_the_proof : unit -> Proof.proof
     (i.e. an proof ending command) and registers the appropriate
     values. *)
 type lemma_possible_guards = int list list
+type proof_universes = Evd.evar_universe_context
 type proof_object = {
   id : Names.Id.t;
   entries : Entries.definition_entry list;
   persistence : Decl_kinds.goal_kind;
+  universes: proof_universes;
+  (* constraints : Univ.constraints; *)
+  (** guards : lemma_possible_guards; *)
 }
 
 type proof_ending =
@@ -74,7 +80,7 @@ type closed_proof = proof_object * proof_terminator
     closing commands and the xml plugin); [terminator] is used at the
     end of the proof to close the proof. *)
 val start_proof :
-  Names.Id.t -> Decl_kinds.goal_kind -> (Environ.env * Term.types) list  ->
+  Evd.evar_map -> Names.Id.t -> Decl_kinds.goal_kind -> (Environ.env * Term.types) list  ->
     proof_terminator -> unit
 
 (** Like [start_proof] except that there may be dependencies between
@@ -85,14 +91,17 @@ val start_dependent_proof :
 
 (* Takes a function to add to the exceptions data relative to the
    state in which the proof was built *)
-val close_proof : (exn -> exn) -> closed_proof
+val close_proof : keep_body_ucst_sepatate:bool -> Future.fix_exn -> closed_proof
 
 (* Intermediate step necessary to delegate the future.
  * Both access the current proof state. The formes is supposed to be
  * chained with a computation that completed the proof *)
-val return_proof : unit -> Entries.proof_output list
+
+type closed_proof_output = (Term.constr * Declareops.side_effects) list * Evd.evar_universe_context
+
+val return_proof : unit -> closed_proof_output
 val close_future_proof : feedback_id:Stateid.t ->
-  Entries.proof_output list Future.computation -> closed_proof
+  closed_proof_output Future.computation -> closed_proof
 
 (** Gets the current terminator without checking that the proof has
     been completed. Useful for the likes of [Admitted]. *)
@@ -107,7 +116,7 @@ val get_open_goals : unit -> int
     no current proof.
     The return boolean is set to [false] if an unsafe tactic has been used. *)
 val with_current_proof :
-  (unit Proofview.tactic -> Proof.proof -> Proof.proof*bool) -> bool
+  (unit Proofview.tactic -> Proof.proof -> Proof.proof*'a) -> 'a
 val simple_with_current_proof :
   (unit Proofview.tactic -> Proof.proof -> Proof.proof) -> unit
 
@@ -117,8 +126,9 @@ val set_interp_tac :
   (Tacexpr.raw_tactic_expr -> unit Proofview.tactic)
     -> unit
 
-(** Sets the section variables assumed by the proof *)
-val set_used_variables : Names.Id.t list -> unit
+(** Sets the section variables assumed by the proof, returns its closure
+ * (w.r.t. type dependencies *)
+val set_used_variables : Names.Id.t list -> Context.section_context
 val get_used_variables : unit -> Context.section_context option
 
 (**********************************************************)
@@ -141,11 +151,13 @@ module Bullet : sig
   type t = Vernacexpr.bullet
 
   (** A [behavior] is the data of a put function which
-      is called when a bullet prefixes a tactic, together
-      with a name to identify it. *)
+      is called when a bullet prefixes a tactic, a suggest function
+      suggesting the right bullet to use on a given proof, together
+      with a name to identify the behavior. *)
   type behavior = {
     name : string;
-    put : Proof.proof -> t -> Proof.proof
+    put : Proof.proof -> t -> Proof.proof;
+    suggest: Proof.proof -> string option
   }
 
   (** A registered behavior can then be accessed in Coq
@@ -162,6 +174,7 @@ module Bullet : sig
   (** Handles focusing/defocusing with bullets:
        *)
   val put : Proof.proof -> t -> Proof.proof
+  val suggest : Proof.proof -> string option
 end
 
 
@@ -181,3 +194,4 @@ end
 type state
 val freeze : marshallable:[`Yes | `No | `Shallow] -> state
 val unfreeze : state -> unit
+val proof_of_state : state -> Proof.proof

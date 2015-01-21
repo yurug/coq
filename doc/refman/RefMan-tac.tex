@@ -106,7 +106,7 @@ different forms:
 \end{itemize}
 
 \subsection{Occurrences sets and occurrences clauses}
-\label{Occurrences clauses}
+\label{Occurrences_clauses}
 \index{Occurrences clauses}
 
 An occurrences clause is a modifier to some tactics that obeys the
@@ -443,7 +443,7 @@ apply (Rtrans _ m).
 Undo.
 \end{coq_eval}
 
-More elegantly, {\tt apply Rtrans with (y:=m)} allows to only mention
+More elegantly, {\tt apply Rtrans with (y:=m)} allows only mentioning
 the unknown {\tt m}:
 
 \begin{coq_example*}
@@ -538,16 +538,14 @@ This works as {\tt apply \nelist{{\term} with {\bindinglist}}{,} in
 {\ident}} but turns unresolved bindings into existential variables, if
 any, instead of failing.
 
-\item {\tt apply \nelist{{\term} with {\bindinglist}}{,} in {\ident} as {\disjconjintropattern}}
+\item {\tt apply \nelist{{\term} with {\bindinglist}}{,} in {\ident} as {\intropattern}}
 
 This works as {\tt apply \nelist{{\term} with {\bindinglist}}{,} in
-{\ident}} then destructs the hypothesis {\ident} along
-{\disjconjintropattern} as {\tt destruct {\ident} as
-{\disjconjintropattern}} would.
+{\ident}} then applies the {\intropattern} to the hypothesis {\ident}.
 
-\item {\tt eapply \nelist{{\term} with {\bindinglist}}{,} in {\ident} as {\disjconjintropattern}}
+\item {\tt eapply \nelist{{\term} with {\bindinglist}}{,} in {\ident} as {\intropattern}}
 
-This works as {\tt apply \nelist{{\term} with {\bindinglist}}{,} in {\ident} as {\disjconjintropattern}} but using {\tt eapply}.
+This works as {\tt apply \nelist{{\term} with {\bindinglist}}{,} in {\ident} as {\intropattern}} but using {\tt eapply}.
 
 \item {\tt simple apply {\term} in {\ident}}
 \tacindex{simple apply \dots\ in}
@@ -562,8 +560,8 @@ conversion of {\tt id ?1234} and {\tt O} where {\tt ?1234} is a variable to
 instantiate.  Tactic {\tt simple apply {\term} in {\ident}} does not
 either traverse tuples as {\tt apply {\term} in {\ident}} does.
 
-\item {\tt \zeroone{simple} apply \nelist{{\term} \zeroone{with {\bindinglist}}}{,} in {\ident} \zeroone{as {\disjconjintropattern}}}\\
-{\tt \zeroone{simple} eapply \nelist{{\term} \zeroone{with {\bindinglist}}}{,} in {\ident} \zeroone{as {\disjconjintropattern}}}
+\item {\tt \zeroone{simple} apply \nelist{{\term} \zeroone{with {\bindinglist}}}{,} in {\ident} \zeroone{as {\intropattern}}}\\
+{\tt \zeroone{simple} eapply \nelist{{\term} \zeroone{with {\bindinglist}}}{,} in {\ident} \zeroone{as {\intropattern}}}
 
 This summarizes the different syntactic variants of {\tt apply {\term}
   in {\ident}} and {\tt eapply {\term} in {\ident}}.
@@ -785,6 +783,9 @@ the tactic {\tt intro} applies the tactic {\tt hnf} until the tactic
 \index{Introduction patterns}
 \index{Naming introduction patterns}
 \index{Disjunctive/conjunctive introduction patterns}
+\index{Disjunctive/conjunctive introduction patterns}
+\index{Equality introduction patterns}
+
 
 This extension of the tactic {\tt intros} combines introduction of
 variables or hypotheses and case analysis. An {\em introduction pattern} is
@@ -796,18 +797,29 @@ either:
   \item the pattern \texttt{?\ident}
   \item an identifier
   \end{itemize}
-\item a {\em composite introduction pattern}, i.e. either one of:
+\item a {\em destructing introduction pattern} which itself classifies into:
   \begin{itemize}
-  \item a disjunction of lists of patterns:
-  {\tt [$p_{11}$ \dots\ $p_{1m_1}$ | \dots\ | $p_{11}$ \dots\ $p_{nm_n}$]}
-  \item a conjunction of patterns: {\tt ($p_1$ , \dots\ , $p_n$)}
-  \item a pattern for decomposing an equality: {\tt [= $p_1$ \dots\ $p_n$]}
-  \item a list of patterns {\tt ($p_1$ \&\ \dots\ \&\ $p_n$)}
-   for sequence of right-associative binary constructs
+  \item a {\em disjunctive/conjunctive introduction pattern}, i.e. either one of:
+    \begin{itemize}
+    \item a disjunction of lists of patterns:
+      {\tt [$p_{11}$ \dots\ $p_{1m_1}$ | \dots\ | $p_{11}$ \dots\ $p_{nm_n}$]}
+    \item a conjunction of patterns: {\tt ($p_1$ , \dots\ , $p_n$)}
+    \item a list of patterns {\tt ($p_1$ \&\ \dots\ \&\ $p_n$)}
+      for sequence of right-associative binary constructs
+    \end{itemize}
+  \item an {\em equality introduction pattern}, i.e. either one of:
+    \begin{itemize}
+    \item a pattern for decomposing an equality: {\tt [= $p_1$ \dots\ $p_n$]}
+    \item the rewriting orientations: {\tt ->} or {\tt <-}
+    \end{itemize}
+  \item the on-the-fly application of a lemma: $p${\tt /{\term}}
   \end{itemize}
 \item the wildcard: {\tt \_}
-\item the rewriting orientations: {\tt ->} or {\tt <-}
 \end{itemize}
+
+Introduction patterns can be combined into lists. An {\em introduction
+  pattern list} is a list of introduction patterns possibly containing
+the filling introduction patterns {\tt *} and {\tt **}.
 
 Assuming a goal of type $Q \to P$ (non-dependent product), or
 of type $\forall x:T,~P$ (dependent product), the behavior of
@@ -843,6 +855,13 @@ introduction pattern~$p$:
   of the constructor of $I$ (observe that {\tt ($p_1$, {\ldots},
   $p_n$)} is an alternative notation for {\tt [$p_1$ {\ldots}
   $p_n$]});
+\item introduction via {\tt ($p_1$ \& \dots\ \& $p_n$)}
+  is a shortcut for introduction via
+  {\tt ($p_1$,(\ldots,(\dots,$p_n$)\ldots))}; it expects the
+  hypothesis to be a sequence of right-associative binary inductive
+  constructors such as {\tt conj} or {\tt ex\_intro}; for instance, an
+  hypothesis with type {\tt A\verb|/\|exists x, B\verb|/\|C\verb|/\|D} can be
+  introduced via pattern {\tt (a \& x \& b \& c \& d)};
 \item if the product is over an equality type, then a pattern of the
   form {\tt [=$p_{1}$ \dots\ $p_n$]} applies either {\tt injection}
   (see Section~\ref{injection}) or {\tt discriminate} (see
@@ -854,13 +873,17 @@ introduction pattern~$p$:
   %TODO!
   %if {\tt discriminate} is applicable, the list of patterns $p_{1}$
   %\dots\ $p_n$ is supposed to be empty;
-\item introduction via {\tt ($p_1$ \& \dots\ \& $p_n$)}
-  is a shortcut for introduction via
-  {\tt ($p_1$,(\ldots,(\dots,$p_n$)\ldots))}; it expects the
-  hypothesis to be a sequence of right-associative binary inductive
-  constructors such as {\tt conj} or {\tt ex\_intro}; for instance, an
-  hypothesis with type {\tt A\verb|/\|exists x, B\verb|/\|C\verb|/\|D} can be
-  introduced via pattern {\tt (a \& x \& b \& c \& d)};
+\item introduction over {\tt ->} (respectively {\tt <-}) expects the
+  hypothesis to be an equality and the right-hand-side (respectively
+  the left-hand-side) is replaced by the left-hand-side (respectively
+  the right-hand-side) in the conclusion of the goal; the hypothesis
+  itself is erased; if the term to substitute is a variable, it is
+  substituted also in the context of goal and the variable is removed
+  too;
+\item introduction over a pattern $p${\tt /{\term}} first applies
+  {\term} on the hypothesis to be introduced (as in {\tt apply
+  }{\term} {\tt in}), prior to the application of the introduction
+  pattern $p$;
 \item introduction on the wildcard depends on whether the product is
   dependent or not: in the non-dependent case, it erases the
   corresponding hypothesis (i.e. it behaves as an {\tt intro} followed
@@ -868,26 +891,37 @@ introduction pattern~$p$:
   case, it succeeds and erases the variable only if the wildcard is
   part of a more complex list of introduction patterns that also
   erases the hypotheses depending on this variable;
-\item introduction over {\tt ->} (respectively {\tt <-}) expects the
-  hypothesis to be an equality and the right-hand-side (respectively
-  the left-hand-side) is replaced by the left-hand-side (respectively
-  the right-hand-side) in both the conclusion and the context of the goal;
-  if moreover the term to substitute is a variable, the hypothesis is
-  removed.
+\item introduction over {\tt *} introduces all forthcoming quantified
+  variables appearing in a row; introduction over {\tt **} introduces
+  all forthcoming quantified variables or hypotheses until the goal is
+  not any more a quantification or an implication.
+\end{itemize}
+
+Then, if $p_1$ ... $p_n$ is a list of introduction patterns possibly
+containing {\tt *} or {\tt **}, {\tt intros $p_1$ ... $p_n$}
+\begin{itemize}
+\item introduction over {\tt *} introduces all forthcoming quantified
+  variables appearing in a row;
+\item introduction over {\tt **} introduces all forthcoming quantified
+  variables or hypotheses until the goal is not any more a
+  quantification or an implication;
+\item introduction over an introduction pattern $p$ introduces the
+  forthcoming quantified variables or premisse of the goal and applies
+  the introduction pattern $p$ to it.
 \end{itemize}
 
 \Example
 
 \begin{coq_example}
 Goal forall A B C:Prop, A \/ B /\ C -> (A -> C) -> C.
-intros A B C [a| [_ c]] f.
+intros * [a | (_,c)] f.
 apply (f a).
 exact c.
 Qed.
 \end{coq_example}
 
-\Rem {\tt intros $p_1~\ldots~p_n$} is not equivalent to \texttt{intros
-  $p_1$;\ldots; intros $p_n$} for the following reasons:
+\Rem {\tt intros $p_1~\ldots~p_n$} is not fully equivalent to
+\texttt{intros $p_1$;\ldots; intros $p_n$} for the following reasons:
 \begin{itemize}
 \item A wildcard pattern never succeeds when applied isolated on a
   dependent product, while it succeeds as part of a list of
@@ -1034,7 +1068,10 @@ unchanged.
 \item {\tt rename {\ident$_1$} into {\ident$_2$}, \ldots,
     {\ident$_{2k-1}$} into {\ident$_{2k}$}}
 
-This is equivalent to the sequence of the corresponding atomic {\tt rename}.
+This renames the variables {\ident$_1$} \ldots {\ident$_2k-1$} into respectively
+{\ident$_2$} \ldots {\ident$_2k$} in parallel. In particular, the target
+identifiers may contain identifiers that exist in the source context, as long
+as the latter are also renamed by the same tactic.
 
 \end{Variants}
 
@@ -1063,10 +1100,10 @@ matching the pattern.
 
 \item {\tt set ( {\ident} := {\term} ) in {\occgoalset}}
 
-This notation allows to specify which occurrences of {\term} have to
+This notation allows specifying which occurrences of {\term} have to
 be substituted in the context. The {\tt in {\occgoalset}} clause is an
 occurrence clause whose syntax and behavior are described in
-Section~\ref{Occurrences clauses}.
+Section~\ref{Occurrences_clauses}.
 
 \item {\tt set ( {\ident} \nelistnosep{\binder} := {\term} )}
 
@@ -1121,7 +1158,7 @@ Section~\ref{Occurrences clauses}.
 \label{decompose}
 \tacindex{decompose}
 
-This tactic allows to recursively decompose a
+This tactic recursively decomposes a
 complex proposition in order to obtain atomic ones.
 
 \Example
@@ -1179,22 +1216,6 @@ in the list of subgoals remaining to prove.
   This behaves as {\tt assert ( {\ident} :\ {\form} )} but
   {\ident} is generated by {\Coq}.
 
-\item{\tt assert ( {\ident} := {\term} )}
-
-  This behaves as {\tt assert ({\ident} :\ {\type});[exact
-    {\term}|idtac]} where {\type} is the type of {\term}.
-
-  \ErrMsg \errindex{Variable {\ident} is already declared}
-
-\item {\tt cut {\form}}\tacindex{cut}
-
-  This tactic applies to any goal. It implements the non-dependent
-  case of the ``App''\index{Typing rules!App} rule given in
-  Section~\ref{Typed-terms}. (This is Modus Ponens inference rule.)
-  {\tt cut U} transforms the current goal \texttt{T} into the two
-  following subgoals: {\tt U -> T} and \texttt{U}.  The subgoal {\tt U
-    -> T} comes first in the list of remaining subgoal to prove.
-
 \item \texttt{assert {\form} by {\tac}}\tacindex{assert by}
 
   This tactic behaves like \texttt{assert} but applies {\tac}
@@ -1209,13 +1230,30 @@ in the list of subgoals remaining to prove.
   introduction pattern (in particular, if {\intropattern} is {\ident},
   the tactic behaves like \texttt{assert ({\ident} :\ {\form})}).
 
-  If {\intropattern} is a disjunctive/conjunctive introduction
-  pattern, the tactic behaves like \texttt{assert {\form}} then destructing the
-  resulting hypothesis using the given introduction pattern.
+  If {\intropattern} is a disjunctive/conjunctive 
+  introduction pattern, the tactic behaves like \texttt{assert
+    {\form}} followed by a {\tt destruct} using this introduction pattern.
+
+  If {\intropattern} is a rewriting intropattern pattern, the tactic
+  behaves like \texttt{assert {\form}} followed by a call to {\tt
+    subst} on the resulting hypothesis, if applicable, or to {\tt
+    rewrite} otherwise.
+
+  If {\intropattern} is an injection intropattern pattern, the tactic
+  behaves like \texttt{assert {\form}} followed by {\tt injection}
+  using this introduction pattern.
 
 \item \texttt{assert {\form} as {\intropattern} by {\tac}}
 
   This combines the two previous variants of {\tt assert}.
+
+\item{\tt assert ( {\ident} := {\term} )}
+
+  This behaves as {\tt assert ({\ident} :\ {\type});[exact
+      {\term}|idtac]} where {\type} is the type of {\term}. This is
+  deprecated in favor of {\tt pose proof}.
+
+  \ErrMsg \errindex{Variable {\ident} is already declared}
 
 \item \texttt{pose proof {\term} as {\intropattern}\tacindex{pose proof}}
 
@@ -1223,9 +1261,44 @@ in the list of subgoals remaining to prove.
   exact {\term}} where \texttt{T} is the type of {\term}.
 
   In particular, \texttt{pose proof {\term} as {\ident}} behaves as
-  \texttt{assert ({\ident} := {\term})} and \texttt{pose proof {\term} as
-  {\disjconjintropattern}\tacindex{pose proof}} behaves
-  like \texttt{destruct {\term} as {\disjconjintropattern}}.
+  \texttt{assert ({\ident} := {\term})} and \texttt{pose proof {\term}
+    as {\intropattern}\tacindex{pose proof}} is the same as applying
+  the {\intropattern} to {\term}.
+
+\item \texttt{enough ({\ident} :\ {\form})}\tacindex{enough}
+
+  This adds a new hypothesis of name {\ident} asserting {\form} to the
+  goal the tactic \texttt{enough} is applied to. A new subgoal stating
+  \texttt{\form} is inserted after the initial goal rather than before
+  it as \texttt{assert} would do.
+
+\item \texttt{enough {\form}}\tacindex{enough}
+
+  This behaves like \texttt{enough ({\ident} :\ {\form})} with the name
+  {\ident} of the hypothesis generated by {\Coq}.
+
+\item \texttt{enough {\form} as {\intropattern}\tacindex{enough as}}
+
+  This behaves like \texttt{enough} {\form} using {\intropattern} to
+  name or destruct the new hypothesis.
+
+\item \texttt{enough ({\ident} :\ {\form}) by {\tac}}\tacindex{enough by}\\
+ \texttt{enough {\form} by {\tac}}\tacindex{enough by}\\
+ \texttt{enough {\form} as {\intropattern} by {\tac}}
+
+  This behaves as above but with {\tac} expected to solve the initial
+  goal after the extra assumption {\form} is added and possibly
+  destructed. If the \texttt{as} {\intropattern} clause generates more
+  than one subgoal, {\tac} is applied to all of them.
+
+\item {\tt cut {\form}}\tacindex{cut}
+
+  This tactic applies to any goal. It implements the non-dependent
+  case of the ``App''\index{Typing rules!App} rule given in
+  Section~\ref{Typed-terms}. (This is Modus Ponens inference rule.)
+  {\tt cut U} transforms the current goal \texttt{T} into the two
+  following subgoals: {\tt U -> T} and \texttt{U}.  The subgoal {\tt U
+    -> T} comes first in the list of remaining subgoal to prove.
 
 \item {\tt specialize ({\ident} \term$_1$ \dots\ \term$_n$)\tacindex{specialize}} \\
       {\tt specialize {\ident} with \bindinglist}
@@ -1334,12 +1407,17 @@ existential variable.
 \tacindex{instantiate}
 \label{instantiate}
 
-The {\tt instantiate} tactic allows to refine (see Section~\ref{refine})
+The {\tt instantiate} tactic refines (see Section~\ref{refine})
 an existential variable
 with the term \term. The \num\  argument is the position of the
 existential variable from right to left in the conclusion. This cannot be
 the number of the existential variable since this number is different
 in every session.
+
+When you are referring to hypotheses which you did not name
+explicitely, be aware that Coq may make a different decision on how to
+name the variable in the current goal and in the context of the
+existential variable. This can lead to surprising behaviors.
 
 \begin{Variants}
   \item {\tt instantiate ( {\num} := {\term} ) in \ident}
@@ -1367,7 +1445,7 @@ a hypothesis or in the body or the type of a local definition.
 \label{admit}
 
 The {\tt admit} tactic ``solves'' the current subgoal by an
-axiom. This typically allows to temporarily skip a subgoal so as to
+axiom. This typically allows temporarily skiping a subgoal so as to
 progress further in the rest of the proof. To know if some proof still
 relies on unproved subgoals, one can use the command {\tt Print
 Assumptions} (see Section~\ref{PrintAssumptions}). Admitted subgoals
@@ -1410,7 +1488,7 @@ The proof of {\tt False} is searched in the hypothesis named \ident.
 \label{contradict}
 \tacindex{contradict}
 
-This tactic allows to manipulate negated hypothesis and goals. The
+This tactic allows manipulating negated hypothesis and goals. The
 name \ident\ should correspond to a hypothesis. With
 {\tt contradict H}, the current goal and context is transformed in
 the following way:
@@ -1482,15 +1560,15 @@ syntax {\tt destruct ({\num})} (not very interesting anyway).
   This behaves as {\tt destruct {\term}} but uses the names in
   {\intropattern} to name the variables introduced in the context.
   The {\intropattern} must have the form {\tt [} $p_{11}$ \ldots
-  $p_{1n_1}$ {\tt |} {\ldots} {\tt |} $p_{m1}$ \ldots $p_{mn_m}$ {\tt
-    ]} with $m$ being the number of constructors of the type of
+    $p_{1n_1}$ {\tt |} {\ldots} {\tt |} $p_{m1}$ \ldots $p_{mn_m}$
+    {\tt ]} with $m$ being the number of constructors of the type of
   {\term}. Each variable introduced by {\tt destruct} in the context
   of the $i^{th}$ goal gets its name from the list $p_{i1}$ \ldots
   $p_{in_i}$ in order. If there are not enough names, {\tt destruct}
   invents names for the remaining variables to introduce. More
-  generally, the $p_{ij}$ can be any disjunctive/conjunctive
-  introduction pattern (see Section~\ref{intros-pattern}). This
-  provides a concise notation for nested destruction.
+  generally, the $p_{ij}$ can be any introduction pattern (see
+  Section~\ref{intros-pattern}). This provides a concise notation for
+  chaining destruction of an hypothesis.
 
 %  It is recommended to use this variant of {\tt destruct} for
 %  robust proof scripts.
@@ -1528,7 +1606,7 @@ syntax {\tt destruct ({\num})} (not very interesting anyway).
   This syntax is used for selecting which occurrences of {\term} the
   case analysis has to be done on. The {\tt in {\occgoalset}} clause is an
   occurrence clause whose syntax and behavior is described in
-  Section~\ref{Occurrences clauses}.
+  Section~\ref{Occurrences_clauses}.
 
 \item{\tt destruct {\term$_1$} with {\bindinglist$_1$}
         as {\disjconjintropattern} eqn:{\namingintropattern}
@@ -1540,6 +1618,14 @@ syntax {\tt destruct ({\num})} (not very interesting anyway).
   These are the general forms of {\tt destruct} and {\tt edestruct}.
   They combine the effects of the {\tt with}, {\tt as}, {\tt eqn:}, {\tt using},
   and {\tt in} clauses.
+
+\item{\tt destruct !{\ident}}
+
+  This is a case when the destructed term is an hypothesis of the
+  context. The ``!'' modifier tells to keep the hypothesis in the
+  context after destruction.
+
+  This applies also to the other form of {\tt destruct} and {\tt edestruct}.
 
 \item{\tt case \term}\label{case}\tacindex{case}
 
@@ -1657,17 +1743,17 @@ induction n.
   {\tt (}$p_{1}$ {\tt ,} {\ldots} {\tt ,} $p_{n}${\tt )} can be used instead of
   {\tt [} $p_{1}$ {\ldots} $p_{n}$ {\tt ]}.
 
-\item{\tt induction {\term} eqn:{\namingintropattern}}
+%% \item{\tt induction {\term} eqn:{\namingintropattern}}
 
-  This behaves as {\tt induction {\term}} but adds an equation between
-  {\term} and the value that {\term} takes in each of the induction
-  case.  The name of the equation is built according to
-  {\namingintropattern} which can be an identifier, a ``?'', etc, as
-  indicated in Section~\ref{intros-pattern}.
+%%   This behaves as {\tt induction {\term}} but adds an equation between
+%%   {\term} and the value that {\term} takes in each of the induction
+%%   case.  The name of the equation is built according to
+%%   {\namingintropattern} which can be an identifier, a ``?'', etc, as
+%%   indicated in Section~\ref{intros-pattern}.
 
-\item{\tt induction {\term} as {\disjconjintropattern} eqn:{\namingintropattern}}
+%% \item{\tt induction {\term} as {\disjconjintropattern} eqn:{\namingintropattern}}
 
-  This combines the two previous forms.
+%%   This combines the two previous forms.
 
 \item{\tt induction {\term} with \bindinglist}
 
@@ -1705,18 +1791,27 @@ induction n.
   This syntax is used for selecting which occurrences of {\term} the
   induction has to be carried on. The {\tt in \occgoalset} clause is an
   occurrence clause whose syntax and behavior is described in
-  Section~\ref{Occurrences clauses}.
+  Section~\ref{Occurrences_clauses}.
 
 \item {\tt induction {\term$_1$} with {\bindinglist$_1$}
-       as {\disjconjintropattern} eqn:{\namingintropattern}
+       as {\disjconjintropattern} %% eqn:{\namingintropattern}
        using {\term$_2$} with {\bindinglist$_2$} in {\occgoalset}}\\
      {\tt einduction {\term$_1$} with {\bindinglist$_1$}
-       as {\disjconjintropattern} eqn:{\namingintropattern}
+       as {\disjconjintropattern} %% eqn:{\namingintropattern}
        using {\term$_2$} with {\bindinglist$_2$} in {\occgoalset}}
 
   These are the most general forms of {\tt induction} and {\tt
-  einduction}.  It combines the effects of the {\tt with}, {\tt as},
-  {\tt eqn:}, {\tt using}, and {\tt in} clauses.
+  einduction}.  It combines the effects of the {\tt with}, {\tt as}, %%{\tt eqn:},
+  {\tt using}, and {\tt in} clauses.
+
+\item{\tt induction !{\ident}}
+
+  This is a case when the term on which to apply induction is an
+  hypothesis of the context. The ``!'' modifier tells to keep the
+  hypothesis in the context after induction.
+
+  This applies also to the other form of {\tt induction} and {\tt
+    einduction}.
 
 \item {\tt elim \term}\label{elim}
 
@@ -1754,8 +1849,8 @@ induction n.
 
 Allows the user to give explicitly an elimination predicate
 {\term$_2$} that is not the standard one for the underlying inductive
-type of {\term$_1$}. The {\bindinglist} clause allows to
-instantiate premises of the type of {\term$_2$}.
+type of {\term$_1$}. The {\bindinglist} clause allows
+instantiating premises of the type of {\term$_2$}.
 
 \item{\tt elim {\term$_1$} with {\bindinglist$_1$} using {\term$_2$} with {\bindinglist$_2$}}\\
      {\tt eelim {\term$_1$} with {\bindinglist$_1$} using {\term$_2$} with {\bindinglist$_2$}}
@@ -1928,6 +2023,7 @@ makes use of a principle generated by \texttt{Function}
 
 \begin{coq_eval}
 Reset Initial.
+Import Nat.
 \end{coq_eval}
 \begin{coq_example}
 Functional Scheme minus_ind := Induction for minus Sort Prop.
@@ -1947,7 +2043,7 @@ you want to write implicit arguments explicitly.
 \Rem Parentheses over \qualid \dots \term$_n$ are mandatory.
 
 \Rem \texttt{functional induction (f x1 x2 x3)} is actually a wrapper
-for \texttt{induction x1 x2 x3 (f x1 x2 x3) using \qualid} followed by
+for \texttt{induction x1, x2, x3, (f x1 x2 x3) using \qualid} followed by
 a cleaning phase, where {\qualid} is the induction principle
 registered for $f$ (by the \texttt{Function} (see Section~\ref{Function})
 or \texttt{Functional Scheme} (see Section~\ref{FunScheme}) command)
@@ -1975,7 +2071,7 @@ details.
   as {\disjconjintropattern} using \term$_{m+1}$ with \bindinglist}
 
  Similarly to \texttt{Induction} and \texttt{elim}
- (see Section~\ref{Tac-induction}), this allows to give explicitly the
+ (see Section~\ref{Tac-induction}), this allows giving explicitly the
  name of the introduced variables, the
  induction principle, and the values of dependent premises of the
  elimination scheme, including \emph{predicates} for mutual induction
@@ -2096,14 +2192,13 @@ injection H0.
 Abort.
 \end{coq_eval}
 
-Beware that \texttt{injection} yields always an equality in a sigma type
-whenever the injected object has a dependent type.
-
-\Rem There is a special case for dependent pairs. If we have a decidable
-equality over the type of the first argument, then it is safe to do
-the projection on the second one, and so {\tt injection} will work fine.
-To define such an equality, you have to use the {\tt Scheme} command
-(see \ref{Scheme}).
+Beware that \texttt{injection} yields an equality in a sigma type
+whenever the injected object has a dependent type $P$ with its two
+instances in different types $(P~t_1~...~t_n)$ and
+$(P~u_1~...~u_n)$. If $t_1$ and $u_1$ are the same and have for type
+an inductive type for which a decidable equality has been declared
+using the command {\tt Scheme Equality} (see \ref{Scheme}), the use of
+a sigma type is avoided.
 
 \Rem If some quantified hypothesis of the goal is named {\ident}, then
 {\tt injection {\ident}} first introduces the hypothesis in the local
@@ -2193,7 +2288,7 @@ several times. See Section~\ref{Derive-Inversion}.
 
 \item \tacindex{inversion \dots\ as} \texttt{inversion {\ident} as \intropattern}
 
-  This behaves as \texttt{inversion} but using names in
+  This generally behaves as \texttt{inversion} but using names in
   {\intropattern} for naming hypotheses. The {\intropattern} must have
   the form {\tt [} $p_{11} \ldots p_{1n_1}$ {\tt |} {\ldots} {\tt |}
   $p_{m1} \ldots p_{mn_m}$ {\tt ]} with $m$ being the number of
@@ -2206,7 +2301,7 @@ several times. See Section~\ref{Derive-Inversion}.
   equalities that {\tt inversion} introduces in the context of the
   goal corresponding to the $i^{th}$ constructor, if it exists, get
   their names from the list $p_{i1}$ \ldots $p_{in_i}$ in order. If
-  there are not enough names, {\tt induction} invents names for the
+  there are not enough names, {\tt inversion} invents names for the
   remaining variables to introduce. In case an equation splits into
   several equations (because {\tt inversion} applies {\tt injection}
   on the equalities it generates), the corresponding name $p_{ij}$ in
@@ -2214,6 +2309,13 @@ several times. See Section~\ref{Derive-Inversion}.
   \mbox{\dots} $p_{ijq}$]} (or, equivalently, {\tt ($p_{ij1}$,
   \dots, $p_{ijq}$)}) where $q$ is the number of subequalities
   obtained from splitting the original equation. Here is an example.
+
+  The \texttt{inversion \dots\ as} variant of \texttt{inversion}
+  generally behaves in a slightly more expectable way than
+  \texttt{inversion} (no artificial duplication of some hypotheses
+  referring to other hypotheses) To take benefit of these
+  improvements, it is enough to use \texttt{inversion \dots\ as []},
+  letting the names being finally chosen by {\Coq}.
 
 \begin{coq_eval}
 Require Import List.
@@ -2233,14 +2335,17 @@ Abort.
 
 \item \texttt{inversion {\num} as \intropattern}
 
-  This allows to name the hypotheses introduced by
+  This allows naming the hypotheses introduced by
   \texttt{inversion \num} in the context.
 
 \item \tacindex{inversion\_clear \dots\ as} \texttt{inversion\_clear
   {\ident} as \intropattern}
 
-  This allows to name the hypotheses introduced by
-  \texttt{inversion\_clear} in the context.
+  This allows naming the hypotheses introduced by
+  \texttt{inversion\_clear} in the context. Notice that hypothesis
+  names can be provided as if \texttt{inversion} were called, even
+  though the \texttt{inversion\_clear} will eventually erase the
+  hypotheses.
 
 \item \tacindex{inversion \dots\ in} \texttt{inversion {\ident}
   in \ident$_1$ \dots\ \ident$_n$}
@@ -2253,7 +2358,7 @@ Abort.
   {\ident} as {\intropattern} in \ident$_1$ \dots\
   \ident$_n$}
 
-  This allows to name the hypotheses introduced in the context by
+  This allows naming the hypotheses introduced in the context by
   \texttt{inversion {\ident} in \ident$_1$ \dots\ \ident$_n$}.
 
 \item \tacindex{inversion\_clear \dots\ in} \texttt{inversion\_clear
@@ -2267,7 +2372,7 @@ Abort.
   \texttt{inversion\_clear {\ident} as {\intropattern}
   in \ident$_1$ \dots\ \ident$_n$}
 
-  This allows to name the hypotheses introduced in the context by
+  This allows naming the hypotheses introduced in the context by
   \texttt{inversion\_clear {\ident} in \ident$_1$ \dots\ \ident$_n$}.
 
 \item \tacindex{dependent inversion} \texttt{dependent inversion \ident}
@@ -2279,7 +2384,7 @@ Abort.
 \item \tacindex{dependent inversion \dots\ as } \texttt{dependent
     inversion {\ident} as \intropattern}
 
-  This allows to name the hypotheses introduced in the context by
+  This allows naming the hypotheses introduced in the context by
   \texttt{dependent inversion} {\ident}.
 
 \item \tacindex{dependent inversion\_clear} \texttt{dependent
@@ -2291,7 +2396,7 @@ Abort.
 \item \tacindex{dependent inversion\_clear \dots\ as}
   \texttt{dependent inversion\_clear {\ident} as \intropattern}
 
-  This allows to name the hypotheses introduced in the context by
+  This allows naming the hypotheses introduced in the context by
   \texttt{dependent inversion\_clear} {\ident}.
 
 \item \tacindex{dependent inversion \dots\ with} \texttt{dependent
@@ -2308,7 +2413,7 @@ Abort.
   \texttt{dependent inversion {\ident} as {\intropattern}
   with \term}
 
-  This allows to name the hypotheses introduced in the context by
+  This allows naming the hypotheses introduced in the context by
   \texttt{dependent inversion {\ident} with \term}.
 
 \item \tacindex{dependent inversion\_clear \dots\ with}
@@ -2321,7 +2426,7 @@ Abort.
   \texttt{dependent inversion\_clear {\ident} as
   {\intropattern} with \term}
 
-  This allows to name the hypotheses introduced in the context by
+  This allows naming the hypotheses introduced in the context by
   \texttt{dependent inversion\_clear {\ident} with \term}.
 
 \item \tacindex{simple inversion} \texttt{simple inversion \ident}
@@ -2333,7 +2438,7 @@ Abort.
 \item \tacindex{simple inversion \dots\ as} \texttt{simple inversion
   {\ident} as \intropattern}
 
-  This allows to name the hypotheses introduced in the context by
+  This allows naming the hypotheses introduced in the context by
   \texttt{simple inversion}.
 
 \item \tacindex{inversion \dots\ using} \texttt{inversion {\ident}
@@ -2632,14 +2737,6 @@ the same variants as {\tt rewrite} has.
 
 \end{Variants}
 
-
-\subsection{\tt cutrewrite -> \term$_1$ = \term$_2$}
-\label{cutrewrite}
-\tacindex{cutrewrite}
-
-This tactic acts like {\tt replace {\term$_1$} with {\term$_2$}}
-(see below).
-
 \subsection{\tt replace \term$_1$ with \term$_2$}
 \label{tactic:replace}
 \tacindex{replace \dots\ with}
@@ -2689,6 +2786,21 @@ n}| assumption || symmetry; try assumption]}.
     \nterm{clause}~(see Section~\ref{Conversion-tactics}) and not only
     in the conclusion of the goal.
     The \nterm{clause} argument must not contain any \texttt{type of} nor \texttt{value of}.
+
+\item {\tt cutrewrite <- (\term$_1$ = \term$_2$)}
+%\label{cutrewrite}
+\tacindex{cutrewrite}
+
+This tactic is deprecated. It acts like {\tt replace {\term$_2$} with
+  {\term$_1$}}, or, equivalently as {\tt enough} (\term$_1$ =
+\term$_2$) {\tt as <-}.
+
+\item {\tt cutrewrite -> (\term$_1$ = \term$_2$)}
+%\label{cutrewrite}
+\tacindex{cutrewrite}
+
+This tactic is deprecated. It can be replaced by {\tt enough}
+(\term$_1$ = \term$_2$) {\tt as ->}.
 
 \end{Variants}
 
@@ -2848,6 +2960,7 @@ performs the conversion in hypotheses {\ident}$_1$\ldots {\ident}$_n$.
 \tacindex{lazy}
 \tacindex{compute}
 \tacindex{vm\_compute}\label{vmcompute}
+\tacindex{native\_compute}\label{nativecompute}
 
 These parameterized reduction tactics apply to any goal and perform
 the normalization of the goal according to the specified flags. In
@@ -2916,12 +3029,20 @@ computational expressions (i.e. with few dead code).
 
 \item {\tt vm\_compute} \tacindex{vm\_compute}
 
-  This tactic evaluates the goal using the optimized call-by-value
-  evaluation bytecode-based virtual machine. This algorithm is
-  dramatically more efficient than the algorithm used for the {\tt
-  cbv} tactic, but it cannot be fine-tuned. It is specially
-  interesting for full evaluation of algebraic objects. This includes
-  the case of reflexion-based tactics.
+  This tactic evaluates the goal using the optimized call-by-value evaluation
+  bytecode-based virtual machine described in
+  \cite{CompiledStrongReduction}. This algorithm is dramatically more efficient
+  than the algorithm used for the {\tt cbv} tactic, but it cannot be
+  fine-tuned. It is specially interesting for full evaluation of algebraic
+  objects. This includes the case of reflexion-based tactics.
+
+\item {\tt native\_compute} \tacindex{native\_compute}
+
+  This tactic evaluates the goal by compilation to \ocaml{} as described in
+  \cite{FullReduction}. If \Coq{} is running in native code, it can be typically
+  two to five times faster than {\tt vm\_compute}. Note however that the
+  compilation cost is higher, so it is worth using only for intensive
+  computations.
 
 \end{Variants}
 
@@ -2963,32 +3084,37 @@ The term \verb+forall n:nat, (plus (S n) (S n))+ is not reduced by {\tt hnf}.
 \Rem The $\delta$ rule only applies to transparent constants
 (see Section~\ref{Opaque} on transparency and opacity).
 
-\subsection{\tt simpl}
-\tacindex{simpl}
+\subsection{\texorpdfstring{\texttt{cbn}}{cbn} and \texorpdfstring{\texttt{simpl}}{simpl}}
+\tacindex{cbn} \tacindex{simpl}
 
-This tactic applies to any goal. The tactic {\tt simpl} first applies
-$\beta\iota$-reduction rule.  Then it expands transparent constants
-and tries to reduce {\tt T'} according, once more, to $\beta\iota$
-rules. But when the $\iota$ rule is not applicable then possible
-$\delta$-reductions are not applied.  For instance trying to use {\tt
-simpl} on {\tt (plus n O)=n} changes nothing.  Notice that only
-transparent constants whose name can be reused as such in the
-recursive calls are possibly unfolded. For instance a constant defined
-by {\tt plus' := plus} is possibly unfolded and reused in the
-recursive calls, but a constant such as {\tt succ := plus (S O)} is
-never unfolded.
+These tactics apply to any goal. They try to reduce a term to
+something still readable instead of fully normalizing it. They perform
+a sort of strong normalization with two key differences:
+\begin{itemize}
+\item They unfold a constant if and only if it leads to a
+  $\iota$-reduction, i.e. reducing a match or unfolding a fixpoint.
+\item While reducing a constant unfolding to (co)fixpoints, 
+  the tactics use the name of the
+  constant the (co)fixpoint comes from instead of the (co)fixpoint
+  definition in recursive calls.
+\end{itemize}
 
-The behavior of {\tt simpl} can be tuned using the {\tt Arguments} vernacular
-command as follows:
-\comindex{Arguments}
+The \texttt{cbn} tactic is claimed to be a more principled, faster and more
+predictable replacement for \texttt{simpl}.
+
+The \texttt{cbn} tactic accepts the same flags as \texttt{cbv} and
+\texttt{lazy}.  The behavior of both \texttt{simpl} and \texttt{cbn}
+can be tuned using the \texttt{Arguments} vernacular command as
+follows: \comindex{Arguments}
 \begin{itemize}
 \item
-A constant can be marked to be never unfolded by {\tt simpl}:
+A constant can be marked to be never unfolded by \texttt{cbn} or
+\texttt{simpl}:
 \begin{coq_example*}
 Arguments minus x y : simpl never.
 \end{coq_example*}
-After that command an expression like {\tt (minus (S x) y)} is left untouched by
-the {\tt simpl} tactic.
+After that command an expression like \texttt{(minus (S x) y)} is left
+untouched by the tactics \texttt{cbn} and \texttt{simpl}.
 \item
 A constant can be marked to be unfolded only if applied to enough arguments.
 The number of arguments required can be specified using
@@ -3002,7 +3128,7 @@ Arguments fcomp {A B C} f g x /.
 After that command the expression {\tt (f \verb+\+o g)} is left untouched by
 {\tt simpl} while {\tt ((f \verb+\+o g) t)} is reduced to {\tt (f (g t))}.
 The same mechanism can be used to make a constant volatile, i.e. always
-unfolded by {\tt simpl}.
+unfolded.
 \begin{coq_example*}
 Definition volatile := fun x : nat => x.
 Arguments volatile / x.
@@ -3028,29 +3154,57 @@ expression {\tt (minus (S (S x)) (S y))} is simplified to
 {\tt (minus (S x) y)} even if an extra simplification is possible.
 \end{itemize}
 
+In detail, the tactic \texttt{simpl} first applies
+$\beta\iota$-reduction.  Then, it expands transparent constants and
+tries to reduce further using $\beta\iota$-reduction. But, when no
+$\iota$ rule is applied after unfolding then $\delta$-reductions are
+not applied. For instance trying to use \texttt{simpl} on
+\texttt{(plus n O)=n} changes nothing.
+
+Notice that only transparent constants whose name can be reused in the
+recursive calls are possibly unfolded by \texttt{simpl}. For instance
+a constant defined by \texttt{plus' := plus} is possibly unfolded and
+reused in the recursive calls, but a constant such as \texttt{succ :=
+  plus (S O)} is never unfolded. This is the main difference between
+\texttt{simpl} and \texttt{cbn}. The tactic \texttt{cbn} reduces
+whenever it will be able to reuse it or not: \texttt{succ t} is
+reduced to \texttt{S t}.
+
 \tacindex{simpl \dots\ in}
 \begin{Variants}
-\item {\tt simpl {\term}}
+\item {\tt cbn [\qualid$_1$\ldots\qualid$_k$]}\\
+      {\tt cbn -[\qualid$_1$\ldots\qualid$_k$]}
 
-  This applies {\tt simpl} only to the occurrences of {\term} in the
+  These are respectively synonyms of {\tt cbn beta delta
+  [\qualid$_1$\ldots\qualid$_k$] iota zeta} and {\tt cbn beta delta
+  -[\qualid$_1$\ldots\qualid$_k$] iota zeta} (see \ref{vmcompute}).
+
+\item {\tt simpl {\pattern}}
+
+  This applies {\tt simpl} only to the subterms matching {\pattern} in the
   current goal.
 
-\item {\tt simpl {\term} at \num$_1$ \dots\ \num$_i$}
+\item {\tt simpl {\pattern} at \num$_1$ \dots\ \num$_i$}
 
   This applies {\tt simpl} only to the \num$_1$, \dots, \num$_i$
-  occurrences of {\term} in the current goal.
+  occurrences of the subterms matching {\pattern} in the current goal.
 
   \ErrMsg {\tt Too few occurrences}
 
-\item {\tt simpl {\ident}}
+\item {\tt simpl {\qualid}}\\
+  {\tt simpl {\qstring}}
 
   This applies {\tt simpl} only to the applicative subterms whose head
-  occurrence is {\ident}.
+  occurrence is the unfoldable constant {\qualid} (the constant can be
+  referred to by its notation using {\qstring} if such a notation
+  exists).
 
-\item {\tt simpl {\ident} at \num$_1$ \dots\ \num$_i$}
+\item {\tt simpl {\qualid} at \num$_1$ \dots\ \num$_i$}\\
+  {\tt simpl {\qstring} at \num$_1$ \dots\ \num$_i$}\\
 
   This applies {\tt simpl} only to the \num$_1$, \dots, \num$_i$
-applicative subterms whose head occurrence is {\ident}.
+  applicative subterms whose head occurrence is {\qualid} (or
+  {\qstring}).
 
 \end{Variants}
 
@@ -4314,11 +4468,11 @@ defined using \texttt{Function} (see Section~\ref{Function}).
 \item {\tt functional inversion \ident\ \qualid}\\
   {\tt functional inversion \num\ \qualid}
 
-  In case the hypothesis {\ident} (or {\num}) has a type of the form
+  If the hypothesis {\ident} (or {\num}) has a type of the form
   \texttt{\qualid$_1$\ \term$_1$\dots\term$_n$\ =\ \qualid$_2$\
     \term$_{n+1}$\dots\term$_{n+m}$} where \qualid$_1$ and \qualid$_2$
-  are valid candidates to functional inversion, this variant allows to
-  choose which must be inverted.
+  are valid candidates to functional inversion, this variant allows
+  choosing which {\qualid} is inverted.
 \end{Variants}
 
 
@@ -4622,6 +4776,67 @@ Reset Initial.
 \end{coq_eval}
 
 \section{Non-logical tactics}
+
+\subsection[\tt cycle \num]{\tt cycle \num\tacindex{cycle}}
+
+This tactic puts the {\num} first goals at the end of the list of
+goals. If {\num} is negative, it will put the last $\left|\num\right|$ goals at
+the begining of the list.
+
+\Example
+\begin{coq_example*}
+Parameter P : nat -> Prop.
+Goal P 1 /\ P 2 /\ P 3 /\ P 4 /\ P 5.
+\end{coq_example*}
+\begin{coq_example}
+repeat split.
+all: cycle 2.
+all: cycle -3.
+\end{coq_example}
+
+\begin{coq_eval}
+Reset Initial.
+\end{coq_eval}
+
+\subsection[\tt swap \num$_1$ \num$_2$]{\tt swap \num$_1$ \num$_2$\tacindex{swap}}
+
+This tactic switches the position of the goals of indices $\num_1$ and $\num_2$. If either $\num_1$ or $\num_2$ is negative then goals are counted from the end of the focused goal list. Goals are indexed from $1$, there is no goal with position $0$. 
+
+\Example
+\begin{coq_example*}
+Parameter P : nat -> Prop.
+Goal P 1 /\ P 2 /\ P 3 /\ P 4 /\ P 5.
+\end{coq_example*}
+\begin{coq_example}
+repeat split.
+all: swap 1 3.
+all: swap 1 -1.
+\end{coq_example}
+
+\begin{coq_eval}
+Reset Initial.
+\end{coq_eval}
+
+\subsection[\tt revgoals]{\tt revgoals\tacindex{revgoals}}
+
+This tactics reverses the list of the focused goals.
+
+\Example
+\begin{coq_example*}
+Parameter P : nat -> Prop.
+Goal P 1 /\ P 2 /\ P 3 /\ P 4 /\ P 5.
+\end{coq_example*}
+\begin{coq_example}
+repeat split.
+all: revgoals.
+\end{coq_example}
+
+\begin{coq_eval}
+Reset Initial.
+\end{coq_eval}
+
+
+
 \subsection[\tt shelve]{\tt shelve\tacindex{shelve}\label{shelve}}
 
 This tactic moves all goals under focus to a shelf. While on the shelf, goals

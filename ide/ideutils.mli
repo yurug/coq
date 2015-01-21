@@ -1,6 +1,6 @@
 (************************************************************************)
 (*  v      *   The Coq Proof Assistant  /  The Coq Development Team     *)
-(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2012     *)
+(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2015     *)
 (*   \VV/  **************************************************************)
 (*    //   *      This file is distributed under the terms of the       *)
 (*         *       GNU Lesser General Public License Version 2.1        *)
@@ -29,8 +29,6 @@ val find_tag_limits : GText.tag -> GText.iter -> GText.iter * GText.iter
 val find_tag_start : GText.tag -> GText.iter -> GText.iter
 val find_tag_stop : GText.tag -> GText.iter -> GText.iter
 
-val print_id : 'a -> unit
-
 val select_file_for_open : title:string -> unit -> string option
 val select_file_for_save :
   title:string -> ?filename:string -> unit -> string option
@@ -39,9 +37,6 @@ val try_export : string -> string -> bool
 val stock_to_widget :
   ?size:[`CUSTOM of int * int | Gtk.Tags.icon_size] ->
     GtkStock.id -> GObj.widget
-
-open Format
-val print_list : (formatter -> 'a -> unit) -> formatter -> 'a list -> unit
 
 val custom_coqtop : string option ref
 (* @return command to call coqtop
@@ -69,9 +64,9 @@ val requote : string -> string
 val textview_width : #GText.view_skel -> int
 (** Returns an approximate value of the character width of a textview *)
 
-type logger = Interface.message_level -> string -> unit
+type logger = Pp.message_level -> string -> unit
 
-val default_logger : Interface.message_level -> string -> unit
+val default_logger : Pp.message_level -> string -> unit
 (** Default logger. It logs messages that the casual user should not see. *)
 
 (** {6 I/O operations} *)

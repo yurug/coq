@@ -1,6 +1,6 @@
 (************************************************************************)
 (*  v      *   The Coq Proof Assistant  /  The Coq Development Team     *)
-(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2012     *)
+(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2015     *)
 (*   \VV/  **************************************************************)
 (*    //   *      This file is distributed under the terms of the       *)
 (*         *       GNU Lesser General Public License Version 2.1        *)
@@ -14,9 +14,10 @@ open Reductionops
 open Pattern
 open Globnames
 open Locus
+open Univ
 
 type reduction_tactic_error =
-    InvalidAbstraction of env * constr * (env * Type_errors.type_error)
+    InvalidAbstraction of env * evar_map * constr * (env * Type_errors.type_error)
 
 exception ReductionTacticError of reduction_tactic_error
 
@@ -60,7 +61,8 @@ val unfoldn :
 val fold_commands : constr list ->  reduction_function
 
 (** Pattern *)
-val pattern_occs : (occurrences * constr) list ->  reduction_function
+val pattern_occs : (occurrences * constr) list -> env -> evar_map -> constr -> 
+   evar_map * constr
 
 (** Rem: Lazy strategies are defined in Reduction *)
 
@@ -74,12 +76,12 @@ val cbv_norm_flags : Closure.RedFlags.reds ->  reduction_function
 (** [reduce_to_atomic_ind env sigma t] puts [t] in the form [t'=(I args)]
    with [I] an inductive definition;
    returns [I] and [t'] or fails with a user error *)
-val reduce_to_atomic_ind : env ->  evar_map -> types -> inductive * types
+val reduce_to_atomic_ind : env ->  evar_map -> types -> pinductive * types
 
 (** [reduce_to_quantified_ind env sigma t] puts [t] in the form
    [t'=(x1:A1)..(xn:An)(I args)] with [I] an inductive definition;
    returns [I] and [t'] or fails with a user error *)
-val reduce_to_quantified_ind : env ->  evar_map -> types -> inductive * types
+val reduce_to_quantified_ind : env ->  evar_map -> types -> pinductive * types
 
 (** [reduce_to_quantified_ref env sigma ref t] try to put [t] in the form
    [t'=(x1:A1)..(xn:An)(ref args)] and fails with user error if not possible *)
@@ -90,7 +92,18 @@ val reduce_to_atomic_ref :
   env ->  evar_map -> global_reference -> types -> types
 
 val find_hnf_rectype : 
-  env ->  evar_map -> types -> inductive * constr list
+  env ->  evar_map -> types -> pinductive * constr list
 
 val contextually : bool -> occurrences * constr_pattern ->
   (patvar_map -> reduction_function) -> reduction_function
+
+val e_contextually : bool -> occurrences * constr_pattern ->
+  (patvar_map -> e_reduction_function) -> e_reduction_function
+
+(** Returns the same inductive if it is allowed for pattern-matching
+    raises an error otherwise. **)
+val check_privacy : env -> inductive puniverses -> inductive puniverses
+
+(** Returns the same inductive if it is not a primitive record
+    raises an error otherwise. **)
+val check_not_primitive_record : env -> inductive puniverses -> inductive puniverses

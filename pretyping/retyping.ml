@@ -1,6 +1,6 @@
 (************************************************************************)
 (*  v      *   The Coq Proof Assistant  /  The Coq Development Team     *)
-(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2012     *)
+(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2015     *)
 (*   \VV/  **************************************************************)
 (*    //   *      This file is distributed under the terms of the       *)
 (*         *       GNU Lesser General Public License Version 2.1        *)
@@ -16,8 +16,8 @@ open Inductiveops
 open Names
 open Reductionops
 open Environ
-open Declarations
 open Termops
+open Arguments_renaming
 
 type retype_error =
   | NotASort
@@ -69,25 +69,21 @@ let rec subst_type env sigma typ = function
 (* [sort_of_atomic_type] computes ft[args] which has to be a sort *)
 
 let sort_of_atomic_type env sigma ft args =
-  let rec concl_of_arity env ar args =
+  let rec concl_of_arity env n ar args =
     match kind_of_term (whd_betadeltaiota env sigma ar), args with
-    | Prod (na, t, b), h::l -> concl_of_arity (push_rel (na,Some h,t) env) b l
+    | Prod (na, t, b), h::l -> concl_of_arity (push_rel (na,Some (lift n h),t) env) (n + 1) b l
     | Sort s, [] -> s
     | _ -> retype_error NotASort
-  in concl_of_arity env ft (Array.to_list args)
-
-let decomp_sort env sigma t =
-  match kind_of_term (whd_betadeltaiota env sigma t) with
-  | Sort s -> s
-  | _ -> retype_error NotASort
+  in concl_of_arity env 0 ft (Array.to_list args)
 
 let type_of_var env id =
   try let (_,_,ty) = lookup_named id env in ty
   with Not_found -> retype_error (BadVariable id)
 
-let is_impredicative_set env = match Environ.engagement env with
-| Some ImpredicativeSet -> true
-| _ -> false
+let decomp_sort env sigma t =
+  match kind_of_term (whd_betadeltaiota env sigma t) with
+  | Sort s -> s
+  | _ -> retype_error NotASort
 
 let retype ?(polyprop=true) sigma =
   let rec type_of env cstr=
@@ -99,10 +95,10 @@ let retype ?(polyprop=true) sigma =
         let (_,_,ty) = lookup_rel n env in
         lift n ty
     | Var id -> type_of_var env id
-    | Const cst -> Typeops.type_of_constant env cst
+    | Const cst -> rename_type_of_constant env cst
     | Evar ev -> Evd.existential_type sigma ev
-    | Ind ind -> type_of_inductive env ind
-    | Construct cstr -> type_of_constructor env cstr
+    | Ind ind -> rename_type_of_inductive env ind
+    | Construct cstr -> rename_type_of_constructor env cstr
     | Case (_,p,c,lf) ->
         let Inductiveops.IndType(_,realargs) =
           let t = type_of env c in
@@ -123,12 +119,20 @@ let retype ?(polyprop=true) sigma =
          subst1 b (type_of (push_rel (name,Some b,c1) env) c2)
     | Fix ((_,i),(_,tys,_)) -> tys.(i)
     | CoFix (i,(_,tys,_)) -> tys.(i)
-    | App(f,args) when isGlobalRef f ->
+    | App(f,args) when is_template_polymorphic env f ->
 	let t = type_of_global_reference_knowing_parameters env f args in
         strip_outer_cast (subst_type env sigma t (Array.to_list args))
     | App(f,args) ->
         strip_outer_cast
           (subst_type env sigma (type_of env f) (Array.to_list args))
+    | Proj (p,c) -> 
+       let Inductiveops.IndType(pars,realargs) =
+	 let ty = type_of env c in
+           try Inductiveops.find_rectype env sigma ty
+           with Not_found -> retype_error BadRecursiveType
+       in
+       let (_,u), pars = dest_ind_family pars in
+	 substl (c :: List.rev pars) (Typeops.type_of_projection env (p,u))
     | Cast (c,_, t) -> t
     | Sort _ | Prod _ -> mkSort (sort_of env cstr)
 
@@ -142,14 +146,12 @@ let retype ?(polyprop=true) sigma =
 	  | _, (Prop Null as s) -> s
           | Prop _, (Prop Pos as s) -> s
           | Type _, (Prop Pos as s) when is_impredicative_set env -> s
-	  | (Type _, _) | (_, Type _) -> new_Type_sort ()
-(*
           | Type u1, Prop Pos -> Type (Univ.sup u1 Univ.type0_univ)
 	  | Prop Pos, (Type u2) -> Type (Univ.sup Univ.type0_univ u2)
 	  | Prop Null, (Type _ as s) -> s
-	  | Type u1, Type u2 -> Type (Univ.sup u1 u2)*))
-    | App(f,args) when isGlobalRef f ->
-	let t = type_of_global_reference_knowing_parameters env f args in
+	  | Type u1, Type u2 -> Type (Univ.sup u1 u2))
+    | App(f,args) when is_template_polymorphic env f ->
+      let t = type_of_global_reference_knowing_parameters env f args in
         sort_of_atomic_type env sigma t args
     | App(f,args) -> sort_of_atomic_type env sigma (type_of env f) args
     | Lambda _ | Fix _ | Construct _ -> retype_error NotAType
@@ -164,7 +166,7 @@ let retype ?(polyprop=true) sigma =
 	let s2 = sort_family_of (push_rel (name,None,t) env) c2 in
 	if not (is_impredicative_set env) &&
 	   s2 == InSet && sort_family_of env t == InType then InType else s2
-    | App(f,args) when isGlobalRef f ->
+    | App(f,args) when is_template_polymorphic env f ->
 	let t = type_of_global_reference_knowing_parameters env f args in
         family_of_sort (sort_of_atomic_type env sigma t args)
     | App(f,args) ->
@@ -178,13 +180,12 @@ let retype ?(polyprop=true) sigma =
       Array.map (fun c -> lazy (nf_evar sigma (type_of env c))) args in
     match kind_of_term c with
     | Ind ind ->
-      let (_,mip) = lookup_mind_specif env ind in
+      let mip = lookup_mind_specif env (fst ind) in
 	(try Inductive.type_of_inductive_knowing_parameters
-	       ~polyprop env mip argtyps
+	       ~polyprop env (mip,snd ind) argtyps
 	 with Reduction.NotArity -> retype_error NotAnArity)
     | Const cst ->
-      let t = constant_type env cst in
-	(try Typeops.type_of_constant_knowing_parameters env t argtyps
+	(try Typeops.type_of_constant_knowing_parameters_in env cst argtyps
 	 with Reduction.NotArity -> retype_error NotAnArity)
     | Var id -> type_of_var env id
     | Construct cstr -> type_of_constructor env cstr
@@ -203,24 +204,50 @@ let type_of_global_reference_knowing_parameters env sigma c args =
 let type_of_global_reference_knowing_conclusion env sigma c conclty =
   let conclty = nf_evar sigma conclty in
   match kind_of_term c with
-    | Ind ind ->
-        let (_,mip) = Inductive.lookup_mind_specif env ind in
-        type_of_inductive_knowing_conclusion env mip conclty
+    | Ind (ind,u) ->
+        let spec = Inductive.lookup_mind_specif env ind in
+          type_of_inductive_knowing_conclusion env sigma (spec,u) conclty
     | Const cst ->
-        let t = constant_type env cst in
+        let t = constant_type_in env cst in
         (* TODO *)
-        Typeops.type_of_constant_knowing_parameters env t [||]
-    | Var id -> type_of_var env id
-    | Construct cstr -> type_of_constructor env cstr
+          sigma, Typeops.type_of_constant_type_knowing_parameters env t [||]
+    | Var id -> sigma, type_of_var env id
+    | Construct cstr -> sigma, type_of_constructor env cstr
     | _ -> assert false
 
-(* We are outside the kernel: we take fresh universes *)
-(* to avoid tactics and co to refresh universes themselves *)
-let get_type_of ?(polyprop=true) ?(refresh=true) ?(lax=false) env sigma c =
+(* Profiling *)
+(* let get_type_of polyprop lax env sigma c = *)
+(*   let f,_,_,_ = retype ~polyprop sigma in *)
+(*     if lax then f env c else anomaly_on_error (f env) c  *)
+
+(* let get_type_of_key = Profile.declare_profile "get_type_of" *)
+(* let get_type_of = Profile.profile5 get_type_of_key get_type_of *)
+
+(* let get_type_of ?(polyprop=true) ?(lax=false) env sigma c = *)
+(*   get_type_of polyprop lax env sigma c *)
+
+let get_type_of ?(polyprop=true) ?(lax=false) env sigma c =
   let f,_,_,_ = retype ~polyprop sigma in
-  let t = if lax then f env c else anomaly_on_error (f env) c in
-  if refresh then refresh_universes t else t
+    if lax then f env c else anomaly_on_error (f env) c
 
 (* Makes an unsafe judgment from a constr *)
 let get_judgment_of env evc c = { uj_val = c; uj_type = get_type_of env evc c }
 
+(* Returns sorts of a context *)
+let sorts_of_context env evc ctxt =
+  let rec aux = function
+  | [] -> env,[]
+  | (_,_,t as d)::ctxt ->
+      let env,sorts = aux ctxt in
+      let s = get_sort_of env evc t in
+      (push_rel d env,s::sorts) in
+  snd (aux ctxt)
+
+let expand_projection env sigma pr c args =
+  let ty = get_type_of ~lax:true env sigma c in
+  let (i,u), ind_args = 
+    try Inductiveops.find_mrectype env sigma ty 
+    with Not_found -> retype_error BadRecursiveType
+  in
+    mkApp (mkConstU (Projection.constant pr,u), 
+	   Array.of_list (ind_args @ (c :: args)))

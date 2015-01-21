@@ -1,6 +1,6 @@
 (************************************************************************)
 (*  v      *   The Coq Proof Assistant  /  The Coq Development Team     *)
-(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2012     *)
+(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2015     *)
 (*   \VV/  **************************************************************)
 (*    //   *      This file is distributed under the terms of the       *)
 (*         *       GNU Lesser General Public License Version 2.1        *)
@@ -37,20 +37,20 @@ let mk_cast = function
     let loc = Loc.merge (constr_loc c) (constr_loc ty)
     in CCast(loc, c, CastConv ty)
 
+let binder_of_name expl (loc,na) =
+  LocalRawAssum ([loc, na], Default expl,
+    CHole (loc, Some (Evar_kinds.BinderType na), IntroAnonymous, None))
+
 let binders_of_names l =
-  List.map (fun (loc, na) ->
-    LocalRawAssum ([loc, na], Default Explicit,
-		   CHole (loc, Some (Evar_kinds.BinderType na), None))) l
+  List.map (binder_of_name Explicit) l
 
 let binders_of_lidents l =
-  List.map (fun (loc, id) ->
-    LocalRawAssum ([loc, Name id], Default Explicit,
-		  CHole (loc, Some (Evar_kinds.BinderType (Name id)), None))) l
+  List.map (fun (loc, id) -> binder_of_name Explicit (loc, Name id)) l
 
 let mk_fixb (id,bl,ann,body,(loc,tyc)) =
   let ty = match tyc with
       Some ty -> ty
-    | None -> CHole (loc, None, None) in
+    | None -> CHole (loc, None, IntroAnonymous, None) in
   (id,ann,bl,ty,body)
 
 let mk_cofixb (id,bl,ann,body,(loc,tyc)) =
@@ -60,7 +60,7 @@ let mk_cofixb (id,bl,ann,body,(loc,tyc)) =
        Pp.str"Annotation forbidden in cofix expression.")) (fst ann) in
   let ty = match tyc with
       Some ty -> ty
-    | None -> CHole (loc, None, None) in
+    | None -> CHole (loc, None, IntroAnonymous, None) in
   (id,bl,ty,body)
 
 let mk_fix(loc,kw,id,dcls) =
@@ -152,14 +152,21 @@ GEXTEND Gram
   sort:
     [ [ "Set"  -> GSet
       | "Prop" -> GProp
-      | "Type" -> GType None ] ]
+      | "Type" -> GType []
+      | "Type"; "@{"; u = universe; "}" -> GType (List.map Id.to_string u)
+      ] ]
+  ;
+  universe:
+    [ [ "max("; ids = LIST1 ident SEP ","; ")" -> ids
+      | id = ident -> [id]
+      ] ]
   ;
   lconstr:
     [ [ c = operconstr LEVEL "200" -> c ] ]
   ;
   constr:
     [ [ c = operconstr LEVEL "8" -> c
-      | "@"; f=global -> CAppExpl(!@loc,(None,f),[]) ] ]
+      | "@"; f=global; i = instance -> CAppExpl(!@loc,(None,f,i),[]) ] ]
   ;
   operconstr:
     [ "200" RIGHTA
@@ -183,20 +190,20 @@ GEXTEND Gram
     | "90" RIGHTA [ ]
     | "10" LEFTA
       [ f=operconstr; args=LIST1 appl_arg -> CApp(!@loc,(None,f),args)
-      | "@"; f=global; args=LIST0 NEXT -> CAppExpl(!@loc,(None,f),args)
+      | "@"; f=global; i = instance; args=LIST0 NEXT -> CAppExpl(!@loc,(None,f,i),args)
       | "@"; (locid,id) = pattern_identref; args=LIST1 identref ->
-          let args = List.map (fun x -> CRef (Ident x), None) args in
-          CApp(!@loc,(None,CPatVar(locid,(true,id))),args) ]
+          let args = List.map (fun x -> CRef (Ident x,None), None) args in
+          CApp(!@loc,(None,CPatVar(locid,id)),args) ]
     | "9"
         [ ".."; c = operconstr LEVEL "0"; ".." ->
-          CAppExpl (!@loc,(None,Ident (!@loc,ldots_var)),[c]) ]
+          CAppExpl (!@loc,(None,Ident (!@loc,ldots_var),None),[c]) ]
     | "8" [ ]
     | "1" LEFTA
       [ c=operconstr; ".("; f=global; args=LIST0 appl_arg; ")" ->
-	CApp(!@loc,(Some (List.length args+1),CRef f),args@[c,None])
+	CApp(!@loc,(Some (List.length args+1),CRef (f,None)),args@[c,None])
       | c=operconstr; ".("; "@"; f=global;
         args=LIST0 (operconstr LEVEL "9"); ")" ->
-        CAppExpl(!@loc,(Some (List.length args+1),f),args@[c])
+        CAppExpl(!@loc,(Some (List.length args+1),f,None),args@[c])
       | c=operconstr; "%"; key=IDENT -> CDelimiters (!@loc,key,c) ]
     | "0"
       [ c=atomic_constr -> c
@@ -213,7 +220,7 @@ GEXTEND Gram
 	  CGeneralization (!@loc, Explicit, None, c)
       | "$("; tac = Tactic.tactic; ")$" ->
           let arg = Genarg.in_gen (Genarg.rawwit Constrarg.wit_tactic) tac in
-          CHole (!@loc, None, Some arg)
+          CHole (!@loc, None, IntroAnonymous, Some arg)
       ] ]
   ;
   forall:
@@ -277,12 +284,32 @@ GEXTEND Gram
       | c=operconstr LEVEL "9" -> (c,None) ] ]
   ;
   atomic_constr:
-    [ [ g=global -> CRef g
+    [ [ g=global; i=instance -> CRef (g,i)
       | s=sort -> CSort (!@loc,s)
       | n=INT -> CPrim (!@loc, Numeral (Bigint.of_string n))
       | s=string -> CPrim (!@loc, String s)
-      | "_" -> CHole (!@loc, None, None)
-      | id=pattern_ident -> CPatVar(!@loc,(false,id)) ] ]
+      | "_" -> CHole (!@loc, None, IntroAnonymous, None)
+      | "?"; "["; id=ident; "]"  -> CHole (!@loc, None, IntroIdentifier id, None)
+      | "?"; "["; id=pattern_ident; "]"  -> CHole (!@loc, None, IntroFresh id, None)
+      | id=pattern_ident; inst = evar_instance -> CEvar(!@loc,id,inst) ] ]
+  ;
+  inst:
+    [ [ id = ident; ":="; c = lconstr -> (id,c) ] ]
+  ;
+  evar_instance:
+    [ [ "@{"; l = LIST1 inst SEP ";"; "}" -> l
+      | -> [] ] ]
+  ;
+  instance:
+    [ [ "@{"; l = LIST1 level; "}" -> Some l
+      | -> None ] ]
+  ;
+  level:
+    [ [ "Set" -> GSet
+      | "Prop" -> GProp
+      | "Type" -> GType None
+      | id = ident -> GType (Some (Id.to_string id))
+      ] ]
   ;
   fix_constr:
     [ [ fx1=single_fix -> mk_single_fix fx1
@@ -372,13 +399,13 @@ GEXTEND Gram
       | s = string -> CPatPrim (!@loc, String s) ] ]
   ;
   impl_ident_tail:
-    [ [ "}" -> fun id -> LocalRawAssum([id], Default Implicit, CHole(!@loc, None, None))
-    | idl=LIST1 name; ":"; c=lconstr; "}" ->
-        (fun id -> LocalRawAssum (id::idl,Default Implicit,c))
-    | idl=LIST1 name; "}" ->
-        (fun id -> LocalRawAssum (id::idl,Default Implicit,CHole (!@loc, None, None)))
+    [ [ "}" -> binder_of_name Implicit
+    | nal=LIST1 name; ":"; c=lconstr; "}" ->
+        (fun na -> LocalRawAssum (na::nal,Default Implicit,c))
+    | nal=LIST1 name; "}" ->
+        (fun na -> LocalRawAssum (na::nal,Default Implicit,CHole (Loc.join_loc (fst na) !@loc, Some (Evar_kinds.BinderType (snd na)), IntroAnonymous, None)))
     | ":"; c=lconstr; "}" ->
-	(fun id -> LocalRawAssum ([id],Default Implicit,c))
+	(fun na -> LocalRawAssum ([na],Default Implicit,c))
     ] ]
   ;
   fixannot:
@@ -388,9 +415,12 @@ GEXTEND Gram
 	rel=OPT constr; "}" -> (id, CMeasureRec (m,rel))
     ] ]
   ;
+  impl_name_head:
+    [ [ id = impl_ident_head -> (!@loc,Name id) ] ]
+  ;
   binders_fixannot:
-    [ [ id = impl_ident_head; assum = impl_ident_tail; bl = binders_fixannot ->
-          (assum (!@loc, Name id) :: fst bl), snd bl
+    [ [ na = impl_name_head; assum = impl_ident_tail; bl = binders_fixannot ->
+          (assum na :: fst bl), snd bl
       | f = fixannot -> [], f
       | b = binder; bl = binders_fixannot -> b @ fst bl, snd bl
       | -> [], (None, CStructRec)
@@ -407,7 +437,7 @@ GEXTEND Gram
           binders_of_names (id::idl) @ bl
       | id1 = name; ".."; id2 = name ->
           [LocalRawAssum ([id1;(!@loc,Name ldots_var);id2],
-	                  Default Explicit,CHole (!@loc, None, None))]
+	                  Default Explicit,CHole (!@loc, None, IntroAnonymous, None))]
       | bl = closed_binder; bl' = binders ->
 	  bl@bl'
     ] ]
@@ -416,7 +446,7 @@ GEXTEND Gram
     [ [ l = LIST0 binder -> List.flatten l ] ]
   ;
   binder:
-    [ [ id = name -> [LocalRawAssum ([id],Default Explicit,CHole (!@loc, None, None))]
+    [ [ id = name -> [LocalRawAssum ([id],Default Explicit,CHole (!@loc, None, IntroAnonymous, None))]
       | bl = closed_binder -> bl ] ]
   ;
   closed_binder:
@@ -429,13 +459,13 @@ GEXTEND Gram
       | "("; id=name; ":"; t=lconstr; ":="; c=lconstr; ")" ->
           [LocalRawDef (id,CCast (Loc.merge (constr_loc t) (!@loc),c, CastConv t))]
       | "{"; id=name; "}" ->
-          [LocalRawAssum ([id],Default Implicit,CHole (!@loc, None, None))]
+          [LocalRawAssum ([id],Default Implicit,CHole (!@loc, None, IntroAnonymous, None))]
       | "{"; id=name; idl=LIST1 name; ":"; c=lconstr; "}" ->
           [LocalRawAssum (id::idl,Default Implicit,c)]
       | "{"; id=name; ":"; c=lconstr; "}" ->
           [LocalRawAssum ([id],Default Implicit,c)]
       | "{"; id=name; idl=LIST1 name; "}" ->
-          List.map (fun id -> LocalRawAssum ([id],Default Implicit,CHole (!@loc, None, None))) (id::idl)
+          List.map (fun id -> LocalRawAssum ([id],Default Implicit,CHole (!@loc, None, IntroAnonymous, None))) (id::idl)
       | "`("; tc = LIST1 typeclass_constraint SEP "," ; ")" ->
 	  List.map (fun (n, b, t) -> LocalRawAssum ([n], Generalized (Implicit, Explicit, b), t)) tc
       | "`{"; tc = LIST1 typeclass_constraint SEP "," ; "}" ->

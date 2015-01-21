@@ -1,6 +1,6 @@
 (************************************************************************)
 (*  v      *   The Coq Proof Assistant  /  The Coq Development Team     *)
-(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2012     *)
+(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2015     *)
 (*   \VV/  **************************************************************)
 (*    //   *      This file is distributed under the terms of the       *)
 (*         *       GNU Lesser General Public License Version 2.1        *)
@@ -489,16 +489,16 @@ Lemma pow_Rabs : forall (x:R) (n:nat), x ^ n <= Rabs x ^ n.
 Proof.
   intros; induction  n as [| n Hrecn].
   right; reflexivity.
-  simpl; case (Rcase_abs x); intro.
+  simpl; destruct (Rcase_abs x) as [Hlt|Hle].
   apply Rle_trans with (Rabs (x * x ^ n)).
   apply RRle_abs.
   rewrite Rabs_mult.
   apply Rmult_le_compat_l.
   apply Rabs_pos.
-  right; symmetry ; apply RPow_abs.
-  pattern (Rabs x) at 1; rewrite (Rabs_right x r);
+  right; symmetry; apply RPow_abs.
+  pattern (Rabs x) at 1; rewrite (Rabs_right x Hle);
     apply Rmult_le_compat_l.
-  apply Rge_le; exact r.
+  apply Rge_le; exact Hle.
   apply Hrecn.
 Qed.
 
@@ -519,6 +519,12 @@ Proof.
   apply Hrecn.
   apply Rle_trans with (Rabs y); [ apply Rabs_pos | exact H ].
 Qed.
+
+Lemma Rsqr_pow2 : forall x, Rsqr x = x ^ 2.
+Proof.
+intros; unfold Rsqr; simpl; rewrite Rmult_1_r; reflexivity.
+Qed.
+
 
 (*******************************)
 (** *       PowerRZ            *)
@@ -741,10 +747,10 @@ Qed.
 Lemma R_dist_sym : forall x y:R, R_dist x y = R_dist y x.
 Proof.
   unfold R_dist; intros; split_Rabs; try ring.
-  generalize (Ropp_gt_lt_0_contravar (y - x) r); intro;
-    rewrite (Ropp_minus_distr y x) in H; generalize (Rlt_asym (x - y) 0 r0);
+  generalize (Ropp_gt_lt_0_contravar (y - x) Hlt0); intro;
+    rewrite (Ropp_minus_distr y x) in H; generalize (Rlt_asym (x - y) 0 Hlt);
       intro; unfold Rgt in H; exfalso; auto.
-  generalize (minus_Rge y x r); intro; generalize (minus_Rge x y r0); intro;
+  generalize (minus_Rge y x Hge0); intro; generalize (minus_Rge x y Hge); intro;
     generalize (Rge_antisym x y H0 H); intro; rewrite H1;
       ring.
 Qed.
@@ -781,6 +787,13 @@ Proof.
     replace (a + c - (b + d)) with (a - b + (c - d)).
   exact (Rabs_triang (a - b) (c - d)).
   ring.
+Qed.
+
+Lemma R_dist_mult_l : forall a b c,
+  R_dist (a * b) (a * c) = Rabs a * R_dist b c.
+Proof.
+unfold R_dist. 
+intros a b c; rewrite <- Rmult_minus_distr_l, Rabs_mult; reflexivity.
 Qed.
 
 (*******************************)

@@ -104,3 +104,12 @@ val context : 'a document -> (id * 'a) list * (id * 'a) list
 val print :
   'a document -> (bool -> id option -> 'a ->  Pp.std_ppcmds) -> Pp.std_ppcmds
 
+(** Callbacks on documents *)
+
+class type ['a] signals =
+  object
+    method popped : callback:('a -> unit) -> unit
+    method pushed : callback:('a -> unit) -> unit
+  end
+
+val connect : 'a document -> 'a signals

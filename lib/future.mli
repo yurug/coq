@@ -1,6 +1,6 @@
 (************************************************************************)
 (*  v      *   The Coq Proof Assistant  /  The Coq Development Team     *)
-(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2013     *)
+(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2015     *)
 (*   \VV/  **************************************************************)
 (*    //   *      This file is distributed under the terms of the       *)
 (*         *       GNU Lesser General Public License Version 2.1        *)
@@ -37,7 +37,7 @@
  * If you compare this with lazy_t, you see that the value returned is *false*,
  * that is counter intuitive and error prone.
  *
- * Still not all computations are impure and acess/alter the system state.
+ * Still not all computations are impure and access/alter the system state.
  * This class can be optimized by using ~pure:true, but there is no way to
  * statically check if this flag is misused, hence use it with care.
  *
@@ -60,11 +60,14 @@ module UUID : sig
   val equal : t -> t -> bool
 end
 
+module UUIDMap : Map.S with type key = UUID.t
+module UUIDSet : Set.S with type elt = UUID.t
+
 exception NotReady
 
 type 'a computation
-type 'a value = [ `Val of 'a | `Exn of exn ]
-type fix_exn = exn -> exn
+type 'a value = [ `Val of 'a | `Exn of Exninfo.iexn ]
+type fix_exn = Exninfo.iexn -> Exninfo.iexn
 
 (* Build a computation, no snapshot of the global state is taken.  If you need
    to grab a copy of the state start with from_here () and then chain.
@@ -84,13 +87,20 @@ val from_val : ?fix_exn:fix_exn -> 'a -> 'a computation
    the value is not just the 'a but also the global system state *)
 val from_here : ?fix_exn:fix_exn -> 'a -> 'a computation
 
-(* Run remotely, returns the function to assign.  Optionally tekes a function
-   that is called when forced.  The default one is to raise NotReady.
-   The assignement function does not change the uuid. *)
-type 'a assignement = [ `Val of 'a | `Exn of exn | `Comp of 'a computation]
+(* To get the fix_exn of a computation and build a Tacexpr.declaration_hook.
+ * When a future enters the environment a corresponding hook is run to perform
+ * some work.  If this fails, then its failure has to be annotated with the
+ * same state id that corresponds to the future computation end.  I.e. Qed
+ * is split into two parts, the lazy one (the future) and the eagher one
+ * (the hook), both performing some computations for the same state id. *)
+val fix_exn_of : 'a computation -> fix_exn
+
+(* Run remotely, returns the function to assign.
+   If not blocking (the default) it raises NotReady if forced before the
+   delage assigns it. *)
+type 'a assignement = [ `Val of 'a | `Exn of Exninfo.iexn | `Comp of 'a computation]
 val create_delegate :
-  ?force:(unit -> 'a assignement) ->
-  fix_exn -> 'a computation * ('a assignement -> unit)
+  ?blocking:bool -> fix_exn -> 'a computation * ('a assignement -> unit)
 
 (* Given a computation that is_exn, replace it by another one *)
 val replace : 'a computation -> 'a computation -> unit

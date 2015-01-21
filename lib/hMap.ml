@@ -1,6 +1,6 @@
 (************************************************************************)
 (*  v      *   The Coq Proof Assistant  /  The Coq Development Team     *)
-(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2012     *)
+(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2015     *)
 (*   \VV/  **************************************************************)
 (*    //   *      This file is distributed under the terms of the       *)
 (*         *       GNU Lesser General Public License Version 2.1        *)
@@ -79,7 +79,7 @@ struct
   let inter s1 s2 =
     let fu _ m1 m2 = match m1, m2 with
     | None, None -> None
-    | (Some _ as m), None | None, (Some _ as m) -> m
+    | Some _, None | None, Some _ -> None
     | Some m1, Some m2 ->
       let m = Set.inter m1 m2 in
       if Set.is_empty m then None else Some m
@@ -89,7 +89,8 @@ struct
   let diff s1 s2 =
     let fu _ m1 m2 = match m1, m2 with
     | None, None -> None
-    | (Some _ as m), None | None, (Some _ as m) -> m
+    | (Some _ as m), None -> m
+    | None, Some _ -> None
     | Some m1, Some m2 ->
       let m = Set.diff m1 m2 in
       if Set.is_empty m then None else Some m
@@ -128,7 +129,14 @@ struct
     let s = Int.Map.map ff s in
     Int.Map.filter (fun _ m -> not (Set.is_empty m)) s
 
-  let partition f s = assert false (** TODO *)
+  let partition f s =
+    let fold h m (sl, sr) =
+      let (ml, mr) = Set.partition f m in
+      let sl = if Set.is_empty ml then sl else Int.Map.add h ml sl in
+      let sr = if Set.is_empty mr then sr else Int.Map.add h mr sr in
+      (sl, sr)
+    in
+    Int.Map.fold fold s (Int.Map.empty, Int.Map.empty)
 
   let cardinal s =
     let fold _ m accu = accu + Set.cardinal m in
@@ -146,7 +154,7 @@ struct
     let (_, m) = Int.Map.choose s in
     Set.choose m
 
-  let split s x = assert false
+  let split s x = assert false (** Cannot be implemented efficiently *)
 
 end
 
@@ -244,7 +252,14 @@ struct
     let s = Int.Map.map ff s in
     Int.Map.filter (fun _ m -> not (Map.is_empty m)) s
 
-  let partition f s = assert false (** TODO *)
+  let partition f s =
+    let fold h m (sl, sr) =
+      let (ml, mr) = Map.partition f m in
+      let sl = if Map.is_empty ml then sl else Int.Map.add h ml sl in
+      let sr = if Map.is_empty mr then sr else Int.Map.add h mr sr in
+      (sl, sr)
+    in
+    Int.Map.fold fold s (Int.Map.empty, Int.Map.empty)
 
   let cardinal s =
     let fold _ m accu = accu + Map.cardinal m in
@@ -271,7 +286,7 @@ struct
     let m = Int.Map.find h s in
     Map.find k m
 
-  let split k s = assert false (** TODO *)
+  let split k s = assert false (** Cannot be implemented efficiently *)
 
   let map f s =
     let fs m = Map.map f m in

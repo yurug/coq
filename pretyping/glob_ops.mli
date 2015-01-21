@@ -1,6 +1,6 @@
 (************************************************************************)
 (*  v      *   The Coq Proof Assistant  /  The Coq Development Team     *)
-(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2012     *)
+(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2015     *)
 (*   \VV/  **************************************************************)
 (*    //   *      This file is distributed under the terms of the       *)
 (*         *       GNU Lesser General Public License Version 2.1        *)
@@ -36,6 +36,21 @@ val iter_glob_constr : (glob_constr -> unit) -> glob_constr -> unit
 val occur_glob_constr : Id.t -> glob_constr -> bool
 val free_glob_vars : glob_constr -> Id.t list
 val loc_of_glob_constr : glob_constr -> Loc.t
+
+(** [map_pattern_binders f m c] applies [f] to all the binding names
+    in a pattern-matching expression ({!Glob_term.GCases}) represented
+    here by its relevant components [m] and [c]. It is used to
+    interpret Ltac-bound names both in pretyping and printing of
+    terms. *)
+val map_pattern_binders : (name -> name) ->
+  tomatch_tuples -> cases_clauses -> (tomatch_tuples*cases_clauses)
+
+(** [map_pattern f m c] applies [f] to the return predicate and the
+    right-hand side of a pattern-matching expression
+    ({!Glob_term.GCases}) represented here by its relevant components
+    [m] and [c]. *)
+val map_pattern : (glob_constr -> glob_constr) ->
+  tomatch_tuples -> cases_clauses -> (tomatch_tuples*cases_clauses)
 
 (** Conversion from glob_constr to cases pattern, if possible
 

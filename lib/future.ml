@@ -1,6 +1,6 @@
 (************************************************************************)
 (*  v      *   The Coq Proof Assistant  /  The Coq Development Team     *)
-(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2013     *)
+(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2015     *)
 (*   \VV/  **************************************************************)
 (*    //   *      This file is distributed under the terms of the       *)
 (*         *       GNU Lesser General Public License Version 2.1        *)
@@ -26,8 +26,8 @@ let _ = Errors.register_handler (function
                 "asynchronous script processing.")
   | _ -> raise Errors.Unhandled)
 
-type fix_exn = exn -> exn
-let id x = prerr_endline "no fix_exn"; x
+type fix_exn = Exninfo.iexn -> Exninfo.iexn
+let id x = prerr_endline "Future: no fix_exn.\nYou have probably created a Future.computation from a value without passing the ~fix_exn argument.  You probably want to chain with an already existing future instead."; x
 
 module UUID = struct
   type t = int
@@ -40,17 +40,18 @@ module UUID = struct
   let equal = (==)
 end
 
-type 'a assignement = [ `Val of 'a | `Exn of exn | `Comp of 'a computation]
+module UUIDMap = Map.Make(UUID)
+module UUIDSet = Set.Make(UUID)
+
+type 'a assignement = [ `Val of 'a | `Exn of Exninfo.iexn | `Comp of 'a computation]
 
 (* Val is not necessarily a final state, so the
    computation restarts from the state stocked into Val *)
 and 'a comp =
-  | Delegated of (unit -> 'a assignement)
-      (* TODO in some cases one would like to block, sock here
-         a mutex and a condition to make this possible *)
+  | Delegated of (unit -> unit)
   | Closure of (unit -> 'a)
   | Val of 'a * Dyn.t option
-  | Exn of exn (* Invariant: this exception is always "fixed" as in fix_exn *)
+  | Exn of Exninfo.iexn  (* Invariant: this exception is always "fixed" as in fix_exn *)
 
 and 'a comput =
   | Ongoing of (UUID.t * fix_exn * 'a comp ref) Ephemeron.key
@@ -65,9 +66,10 @@ let get x =
   | Finished v -> UUID.invalid, id, ref (Val (v,None))
   | Ongoing x ->
       try Ephemeron.get x
-      with Ephemeron.InvalidKey -> UUID.invalid, id, ref (Exn NotHere)
+      with Ephemeron.InvalidKey ->
+        UUID.invalid, id, ref (Exn (NotHere, Exninfo.null))
 
-type 'a value = [ `Val of 'a | `Exn of exn ]
+type 'a value = [ `Val of 'a | `Exn of Exninfo.iexn  ]
 
 let is_over kx = let _, _, x = get kx in match !x with
   | Val _ | Exn _ -> true
@@ -90,25 +92,33 @@ let uuid kx = let id, _, _ = get kx in id
 let from_val ?(fix_exn=id) v = create fix_exn (Val (v, None))
 let from_here ?(fix_exn=id) v = create fix_exn (Val (v, Some (!freeze ())))
 
-let default_force () = raise NotReady
-let assignement ck = fun v ->
-  let _, fix_exn, c = get ck in
-  assert (match !c with Delegated _ -> true | _ -> false);
-  match v with
-  | `Val v -> c := Val (v, None)
-  | `Exn e -> c := Exn (fix_exn e)
-  | `Comp f -> let _, _, comp = get f in c := !comp
-let create_delegate ?(force=default_force) fix_exn =
-  let ck = create fix_exn (Delegated force) in
-  ck, assignement ck
+let fix_exn_of ck = let _, fix_exn, _ = get ck in fix_exn
+
+let create_delegate ?(blocking=true) fix_exn =
+  let assignement signal ck = fun v ->
+    let _, fix_exn, c = get ck in
+    assert (match !c with Delegated _ -> true | _ -> false);
+    begin match v with
+    | `Val v -> c := Val (v, None)
+    | `Exn e -> c := Exn (fix_exn e)
+    | `Comp f -> let _, _, comp = get f in c := !comp end;
+    signal () in
+  let wait, signal =
+    if not blocking then (fun () -> raise NotReady), ignore else
+    let lock = Mutex.create () in
+    let cond = Condition.create () in
+    (fun () -> Mutex.lock lock; Condition.wait cond lock; Mutex.unlock lock),
+    (fun () -> Mutex.lock lock; Condition.broadcast cond; Mutex.unlock lock) in
+  let ck = create fix_exn (Delegated wait) in
+  ck, assignement signal ck
 
 (* TODO: get rid of try/catch to be stackless *)
 let rec compute ~pure ck : 'a value =
   let _, fix_exn, c = get ck in
   match !c with
   | Val (x, _) -> `Val x
-  | Exn e -> `Exn e
-  | Delegated f -> assignement ck (f ()); compute ~pure ck
+  | Exn (e, info) -> `Exn (e, info)
+  | Delegated wait -> wait (); compute ~pure ck
   | Closure f ->
       try
         let data = f () in
@@ -118,12 +128,12 @@ let rec compute ~pure ck : 'a value =
         let e = Errors.push e in
         let e = fix_exn e in
         match e with
-        | NotReady -> `Exn e
+        | (NotReady, _) -> `Exn e
         | _ -> c := Exn e; `Exn e
 
 let force ~pure x = match compute ~pure x with
   | `Val v -> v
-  | `Exn e -> raise e
+  | `Exn e -> Exninfo.iraise e
 
 let chain ~pure ck f =
   let uuid, fix_exn, c = get ck in
@@ -158,12 +168,14 @@ let purify f x =
     let v = f x in
     !unfreeze state;
     v
-  with e -> let e = Errors.push e in !unfreeze state; raise e
+  with e ->
+    let e = Errors.push e in !unfreeze state; Exninfo.iraise e
 
 let transactify f x =
   let state = !freeze () in
   try f x
-  with e -> let e = Errors.push e in !unfreeze state; raise e
+  with e ->
+    let e = Errors.push e in !unfreeze state; Exninfo.iraise e
 
 let purify_future f x = if is_over x then f x else purify f x
 let compute x = purify_future (compute ~pure:false) x
@@ -205,4 +217,4 @@ let print f kx =
   | Closure _ -> str "Closure" ++ uid
   | Val (x, None) -> str "PureVal" ++ uid ++ spc () ++ hov 0 (f x)
   | Val (x, Some _) -> str "StateVal" ++ uid ++ spc () ++ hov 0 (f x)
-  | Exn e -> str "Exn"  ++ uid ++ spc () ++ hov 0 (str (Printexc.to_string e))
+  | Exn (e, _) -> str "Exn"  ++ uid ++ spc () ++ hov 0 (str (Printexc.to_string e))

@@ -1,7 +1,7 @@
 (* -*- coding: utf-8 -*- *)
 (************************************************************************)
 (*  v      *   The Coq Proof Assistant  /  The Coq Development Team     *)
-(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2012     *)
+(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2015     *)
 (*   \VV/  **************************************************************)
 (*    //   *      This file is distributed under the terms of the       *)
 (*         *       GNU Lesser General Public License Version 2.1        *)
@@ -649,7 +649,7 @@ Theorem sub_mask_carry_spec p q :
   sub_mask_carry p q = pred_mask (sub_mask p q).
 Proof.
   revert q. induction p as [p IHp|p IHp| ]; destruct q; simpl;
-   try reflexivity; try rewrite IHp;
+   try reflexivity; rewrite ?IHp;
    destruct (sub_mask p q) as [|[r|r| ]|] || destruct p; auto.
 Qed.
 

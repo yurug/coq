@@ -52,3 +52,7 @@ val destArity : constr -> arity
 val isArity : constr -> bool
 val compare_constr : (constr -> constr -> bool) -> constr -> constr -> bool
 val eq_constr : constr -> constr -> bool
+
+(** Instance substitution for polymorphism. *)
+val subst_instance_constr : Univ.universe_instance -> constr -> constr
+val subst_instance_context : Univ.universe_instance -> rel_context -> rel_context

@@ -1,6 +1,6 @@
 (************************************************************************)
 (*  v      *   The Coq Proof Assistant  /  The Coq Development Team     *)
-(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2012     *)
+(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2015     *)
 (*   \VV/  **************************************************************)
 (*    //   *      This file is distributed under the terms of the       *)
 (*         *       GNU Lesser General Public License Version 2.1        *)
@@ -23,7 +23,7 @@ open Declarations
 open Tactics
 open Tacticals.New
 open Auto
-open ConstrMatching
+open Constr_matching
 open Hipattern
 open Tacmach.New
 open Coqlib
@@ -80,8 +80,11 @@ let solveNoteqBranch side =
 
 (* Constructs the type {c1=c2}+{~c1=c2} *)
 
+let make_eq () =
+(*FIXME*) Universes.constr_of_global (Coqlib.build_coq_eq ())
+
 let mkDecideEqGoal eqonleft op rectype c1 c2 =
-  let equality    = mkApp(build_coq_eq(), [|rectype; c1; c2|]) in
+  let equality    = mkApp(make_eq(), [|rectype; c1; c2|]) in
   let disequality = mkApp(build_coq_not (), [|equality|]) in
   if eqonleft then mkApp(op, [|equality; disequality |])
   else mkApp(op, [|disequality; equality |])
@@ -114,7 +117,7 @@ let diseqCase eqonleft =
   (tclTHEN (choose_noteq eqonleft)
   (tclTHEN  (Proofview.V82.tactic red_in_concl)
   (tclTHEN  (intro_using absurd)
-  (tclTHEN  (Proofview.V82.tactic (Simple.apply (mkVar diseq)))
+  (tclTHEN  (Simple.apply (mkVar diseq))
   (tclTHEN  (Extratactics.injHyp absurd)
             (full_trivial [])))))))
 
@@ -129,19 +132,19 @@ let match_eqdec c =
 (* /spiwack *)
 
 let solveArg eqonleft op a1 a2 tac =
-  Proofview.Goal.raw_enter begin fun gl ->
+  Proofview.Goal.enter begin fun gl ->
   let rectype = pf_type_of gl a1 in
   let decide = mkDecideEqGoal eqonleft op rectype a1 a2 in
   let subtacs =
     if eqonleft then [eqCase tac;diseqCase eqonleft;default_auto]
     else [diseqCase eqonleft;eqCase tac;default_auto] in
-  (tclTHENS (Proofview.V82.tactic (elim_type decide)) subtacs)
+  (tclTHENS (elim_type decide) subtacs)
   end
 
 let solveEqBranch rectype =
   Proofview.tclORELSE
     begin
-      Proofview.Goal.raw_enter begin fun gl ->
+      Proofview.Goal.enter begin fun gl ->
         let concl = pf_nf_concl gl in
         match_eqdec concl >>= fun (eqonleft,op,lhs,rhs,_) ->
           let (mib,mip) = Global.lookup_inductive rectype in
@@ -154,9 +157,9 @@ let solveEqBranch rectype =
             (tclTHEN (choose_eq eqonleft) intros_reflexivity)
       end
     end
-    begin function
+    begin function (e, info) -> match e with
       | PatternMatchingFailure -> Proofview.tclZERO (UserError ("",Pp.str"Unexpected conclusion!"))
-      | e -> Proofview.tclZERO e
+      | e -> Proofview.tclZERO ~info e
     end
 
 (* The tactic Decide Equality *)
@@ -168,12 +171,12 @@ let hd_app c = match kind_of_term c with
 let decideGralEquality =
   Proofview.tclORELSE
     begin
-      Proofview.Goal.raw_enter begin fun gl ->
+      Proofview.Goal.enter begin fun gl ->
         let concl = pf_nf_concl gl in
         match_eqdec concl >>= fun (eqonleft,_,c1,c2,typ) ->
         let headtyp = hd_app (pf_compute gl typ) in
         begin match kind_of_term headtyp with
-        | Ind mi -> Proofview.tclUNIT mi
+        | Ind (mi,_) -> Proofview.tclUNIT mi
         | _ -> tclZEROMSG (Pp.str"This decision procedure only works for inductive objects.")
         end >>= fun rectype ->
           (tclTHEN
@@ -181,16 +184,16 @@ let decideGralEquality =
              (tclORELSE (solveNoteqBranch eqonleft) (solveEqBranch rectype)))
       end
     end
-    begin function
+    begin function (e, info) -> match e with
       | PatternMatchingFailure ->
           Proofview.tclZERO (UserError ("", Pp.str"The goal must be of the form {x<>y}+{x=y} or {x=y}+{x<>y}."))
-      | e -> Proofview.tclZERO e
+      | e -> Proofview.tclZERO ~info e
     end
 
 let decideEqualityGoal = tclTHEN intros decideGralEquality
 
 let decideEquality rectype =
-  Proofview.Goal.raw_enter begin fun gl ->
+  Proofview.Goal.enter begin fun gl ->
   let decide = mkGenDecideEqGoal rectype gl in
   (tclTHENS (cut decide) [default_auto;decideEqualityGoal])
   end
@@ -199,7 +202,7 @@ let decideEquality rectype =
 (* The tactic Compare *)
 
 let compare c1 c2 =
-  Proofview.Goal.raw_enter begin fun gl ->
+  Proofview.Goal.enter begin fun gl ->
   let rectype = pf_type_of gl c1 in
   let decide = mkDecideEqGoal true (build_coq_sumbool ()) rectype c1 c2 in
   (tclTHENS (cut decide)

@@ -1,12 +1,13 @@
 (************************************************************************)
 (*  v      *   The Coq Proof Assistant  /  The Coq Development Team     *)
-(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2012     *)
+(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2015     *)
 (*   \VV/  **************************************************************)
 (*    //   *      This file is distributed under the terms of the       *)
 (*         *       GNU Lesser General Public License Version 2.1        *)
 (************************************************************************)
 
 open Errors
+open Pp
 open Util
 open Names
 open Term
@@ -24,6 +25,27 @@ open Retyping
 open Coercion
 open Recordops
 open Locus
+open Locusops
+open Find_subterm
+
+let keyed_unification = ref (false)
+let _ = Goptions.declare_bool_option {
+  Goptions.optsync = true; Goptions.optdepr = false;
+  Goptions.optname = "Unification is keyed";
+  Goptions.optkey = ["Keyed";"Unification"];
+  Goptions.optread = (fun () -> !keyed_unification);
+  Goptions.optwrite = (fun a -> keyed_unification:=a);
+}
+
+let debug_unification = ref (false)
+let _ = Goptions.declare_bool_option {
+  Goptions.optsync = true; Goptions.optdepr = false;
+  Goptions.optname =
+    "Print states sent to tactic unification";
+  Goptions.optkey = ["Debug";"Tactic";"Unification"];
+  Goptions.optread = (fun () -> !debug_unification);
+  Goptions.optwrite = (fun a -> debug_unification:=a);
+}
 
 let occur_meta_or_undefined_evar evd c =
   let rec occrec c = match kind_of_term c with
@@ -33,7 +55,6 @@ let occur_meta_or_undefined_evar evd c =
         | Evar_defined c ->
             occrec c; Array.iter occrec args
         | Evar_empty -> raise Occur)
-    | Sort s when is_sort_variable evd s -> raise Occur
     | _ -> iter_constr occrec c
   in try occrec c; false with Occur | Not_found -> true
 
@@ -49,16 +70,19 @@ let occur_meta_evd sigma mv c =
 (* if lname_typ is [xn,An;..;x1,A1] and l is a list of terms,
    gives [x1:A1]..[xn:An]c' such that c converts to ([x1:A1]..[xn:An]c' l) *)
 
-let abstract_scheme env c l lname_typ =
+let abstract_scheme env evd c l lname_typ =
   List.fold_left2
-    (fun t (locc,a) (na,_,ta) ->
+    (fun (t,evd) (locc,a) (na,_,ta) ->
        let na = match kind_of_term a with Var id -> Name id | _ -> na in
 (* [occur_meta ta] test removed for support of eelim/ecase but consequences
    are unclear...
        if occur_meta ta then error "cannot find a type for the generalisation"
-       else *) if occur_meta a then mkLambda_name env (na,ta,t)
-       else mkLambda_name env (na,ta,subst_closed_term_occ locc a t))
-    c
+       else *) 
+       if occur_meta a then mkLambda_name env (na,ta,t), evd
+       else
+	 let t', evd' = Find_subterm.subst_closed_term_occ env evd locc a t in
+	   mkLambda_name env (na,ta,t'), evd')
+    (c,evd)
     (List.rev l)
     lname_typ
 
@@ -66,29 +90,33 @@ let abstract_scheme env c l lname_typ =
 
 let abstract_list_all env evd typ c l =
   let ctxt,_ = splay_prod_n env evd (List.length l) typ in
-  let l_with_all_occs = List.map (function a -> (AllOccurrences,a)) l in
-  let p = abstract_scheme env c l_with_all_occs ctxt in
-  let typp =
-    try Typing.type_of env evd p
+  let l_with_all_occs = List.map (function a -> (LikeFirst,a)) l in
+  let p,evd = abstract_scheme env evd c l_with_all_occs ctxt in
+  let evd,typp =
+    try Typing.e_type_of env evd p
     with
     | UserError _ ->
         error_cannot_find_well_typed_abstraction env evd p l None
     | Type_errors.TypeError (env',x) ->
         error_cannot_find_well_typed_abstraction env evd p l (Some (env',x)) in
-  (p,typp)
+  evd,(p,typp)
 
 let set_occurrences_of_last_arg args =
   Some AllOccurrences :: List.tl (Array.map_to_list (fun _ -> None) args)
 
 let abstract_list_all_with_dependencies env evd typ c l =
-  let evd,ev = new_evar evd env typ in
+  let evd,ev = new_evar env evd typ in
   let evd,ev' = evar_absorb_arguments env evd (destEvar ev) l in
-  let argoccs = set_occurrences_of_last_arg (snd ev') in
+  let n = List.length l in
+  let argoccs = set_occurrences_of_last_arg (Array.sub (snd ev') 0 n) in
   let evd,b =
     Evarconv.second_order_matching empty_transparent_state
       env evd ev' argoccs c in
-  let p = nf_evar evd (existential_value evd (destEvar ev)) in
-  if b then p else error_cannot_find_well_typed_abstraction env evd p l None
+  if b then
+    let p = nf_evar evd (existential_value evd (destEvar ev)) in
+      evd, p
+  else error_cannot_find_well_typed_abstraction env evd 
+    (nf_evar evd c) l None
 
 (**)
 
@@ -115,6 +143,8 @@ let rec subst_meta_instances bl c =
       (try pi2 (List.find select bl) with Not_found -> c)
     | _ -> map_constr (subst_meta_instances bl) c
 
+(** [env] should be the context in which the metas live *)
+
 let pose_all_metas_as_evars env evd t =
   let evdref = ref evd in
   let rec aux t = match kind_of_term t with
@@ -124,7 +154,8 @@ let pose_all_metas_as_evars env evd t =
        | None ->
         let {rebus=ty;freemetas=mvs} = Evd.meta_ftype evd mv in
         let ty = if Evd.Metaset.is_empty mvs then ty else aux ty in
-        let ev = Evarutil.e_new_evar evdref env ~src:(Loc.ghost,Evar_kinds.GoalEvar) ty in
+        let src = Evd.evar_source_of_meta mv !evdref in
+        let ev = Evarutil.e_new_evar env evdref ~src ty in
         evdref := meta_assign mv (ev,(Conv,TypeNotProcessed)) !evdref;
         ev)
   | _ ->
@@ -136,14 +167,18 @@ let pose_all_metas_as_evars env evd t =
 let solve_pattern_eqn_array (env,nb) f l c (sigma,metasubst,evarsubst) =
   match kind_of_term f with
     | Meta k ->
-	let sigma,c = pose_all_metas_as_evars env sigma c in
+	(* We enforce that the Meta does not depend on the [nb]
+	   extra assumptions added by unification to the context *)
+        let env' = pop_rel_context nb env in
+	let sigma,c = pose_all_metas_as_evars env' sigma c in
 	let c = solve_pattern_eqn env l c in
 	let pb = (Conv,TypeNotProcessed) in
 	  if noccur_between 1 nb c then
             sigma,(k,lift (-nb) c,pb)::metasubst,evarsubst
 	  else error_cannot_unify_local env sigma (applist (f, l),c,c)
     | Evar ev ->
-	let sigma,c = pose_all_metas_as_evars env sigma c in
+        let env' = pop_rel_context nb env in
+	let sigma,c = pose_all_metas_as_evars env' sigma c in
 	sigma,metasubst,(env,ev,solve_pattern_eqn env l c)::evarsubst
     | _ -> assert false
 
@@ -169,18 +204,23 @@ let unify_r2l x = x
 let sort_eqns = unify_r2l
 *)
 
-(* Option introduced and activated in Coq 8.3 *)
-let global_evars_pattern_unification_flag = ref true
+let global_pattern_unification_flag = ref true
+
+(* Compatibility option introduced and activated in Coq 8.3 whose
+   syntax is now deprecated. *)
 
 open Goptions
 let _ =
   declare_bool_option
     { optsync  = true;
-      optdepr  = false;
+      optdepr  = true;
       optname  = "pattern-unification for existential variables in tactics";
       optkey   = ["Tactic";"Evars";"Pattern";"Unification"];
-      optread  = (fun () -> !global_evars_pattern_unification_flag);
-      optwrite = (:=) global_evars_pattern_unification_flag }
+      optread  = (fun () -> !global_pattern_unification_flag);
+      optwrite = (:=) global_pattern_unification_flag }
+
+(* Compatibility option superseding the previous one, introduced and
+   activated in Coq 8.4 *)
 
 let _ =
   declare_bool_option
@@ -188,10 +228,10 @@ let _ =
       optdepr  = false;
       optname  = "pattern-unification for existential variables in tactics";
       optkey   = ["Tactic";"Pattern";"Unification"];
-      optread  = (fun () -> !global_evars_pattern_unification_flag);
-      optwrite = (:=) global_evars_pattern_unification_flag }
+      optread  = (fun () -> !global_pattern_unification_flag);
+      optwrite = (:=) global_pattern_unification_flag }
 
-type unify_flags = {
+type core_unify_flags = {
   modulo_conv_on_closed_terms : Names.transparent_state option;
     (* What this flag controls was activated with all constants transparent, *)
     (* even for auto, since Coq V5.10 *)
@@ -200,35 +240,31 @@ type unify_flags = {
     (* This refinement of the conversion on closed terms is activable *)
     (* (and activated for apply, rewrite but not auto since Feb 2008 for 8.2) *)
 
+  use_evars_eagerly_in_conv_on_closed_terms : bool;
+
   modulo_delta : Names.transparent_state;
     (* This controls which constants are unfoldable; this is on for apply *)
     (* (but not simple apply) since Feb 2008 for 8.2 *)
 
   modulo_delta_types : Names.transparent_state;
 
-  modulo_delta_in_merge : Names.transparent_state option;
-    (* This controls whether unfoldability is different when trying to unify *)
-    (* several instances of the same metavariable *)
-    (* Typical situation is when we give a pattern to be matched *)
-    (* syntactically against a subterm but we want the metas of the *)
-    (* pattern to be modulo convertibility *)
-
   check_applied_meta_types : bool;
     (* This controls whether meta's applied to arguments have their *)
     (* type unified with the type of their instance *)
 
-  resolve_evars : bool;
-    (* This says if type classes instances resolution must be used to infer *)
-    (* the remaining evars *)
-
   use_pattern_unification : bool;
-    (* This says if type classes instances resolution must be used to infer *)
-    (* the remaining evars *)
+    (* This solves pattern "?n x1 ... xn = t" when the xi are distinct rels *)
+    (* This says if pattern unification is tried; can be overwritten with *)
+    (* option "Set Tactic Pattern Unification" *)
 
   use_meta_bound_pattern_unification : bool;
-    (* This solves pattern "?n x1 ... xn = t" when the xi are distinct rels *)
-    (* This allows for instance to unify "forall x:A, B(x)" with "A' -> B'" *)
+    (* This is implied by use_pattern_unification (though deactivated *)
+    (* by unsetting Tactic Pattern Unification); has no particular *)
+    (* reasons to be set differently than use_pattern_unification *)
+    (* except for compatibility of "auto". *)
     (* This was on for all tactics, including auto, since Sep 2006 for 8.1 *)
+    (* This allowed for instance to unify "forall x:?A, ?B x" with "A' -> B'" *)
+    (* when ?B is a Meta. *)
 
   frozen_evars : Evar.Set.t;
     (* Evars of this set are considered axioms and never instantiated *)
@@ -243,48 +279,100 @@ type unify_flags = {
 
   modulo_eta : bool;
     (* Support eta in the reduction *)
+}
 
-  allow_K_in_toplevel_higher_order_unification : bool
-    (* This is used only in second/higher order unification when looking for *)
-    (* subterms (rewrite and elim) *)
+type unify_flags = {
+  core_unify_flags : core_unify_flags;
+    (* Governs unification of problems of the form "t(?x) = u(?x)" in apply *)
+
+  merge_unify_flags : core_unify_flags;
+    (* These are the flags to be used when trying to unify *)
+    (* several instances of the same metavariable *)
+    (* Typical situation is when we give a pattern to be matched *)
+    (* syntactically against a subterm but we want the metas of the *)
+    (* pattern to be modulo convertibility *)
+
+  subterm_unify_flags : core_unify_flags;
+    (* Governs unification of problems of the form "?X a1..an = u" in apply, *)
+    (* hence in rewrite and elim *)
+
+  allow_K_in_toplevel_higher_order_unification : bool;
+    (* Tells in second-order abstraction over subterms which have not *)
+    (* been found in term are allowed (used for rewrite, elim, or *)
+    (* apply with a lemma whose type has the form "?X a1 ... an") *)
+
+  resolve_evars : bool
+    (* This says if type classes instances resolution must be used to infer *)
+    (* the remaining evars *)
 }
 
 (* Default flag for unifying a type against a type (e.g. apply) *)
 (* We set all conversion flags (no flag should be modified anymore) *)
-let default_unify_flags = {
-  modulo_conv_on_closed_terms = Some full_transparent_state;
+let default_core_unify_flags () =
+  let ts = Names.full_transparent_state in {
+  modulo_conv_on_closed_terms = Some ts;
   use_metas_eagerly_in_conv_on_closed_terms = true;
-  modulo_delta = full_transparent_state;
-  modulo_delta_types = full_transparent_state;
-  modulo_delta_in_merge = None;
+  use_evars_eagerly_in_conv_on_closed_terms = false;
+  modulo_delta = ts;
+  modulo_delta_types = ts;
   check_applied_meta_types = true;
-  resolve_evars = false;
   use_pattern_unification = true;
   use_meta_bound_pattern_unification = true;
   frozen_evars = Evar.Set.empty;
   restrict_conv_on_strict_subterms = false;
   modulo_betaiota = true;
   modulo_eta = true;
-  allow_K_in_toplevel_higher_order_unification = false
-      (* in fact useless when not used in w_unify_to_subterm_list *)
+ }
+
+(* Default flag for first-order or second-order unification of a type *)
+(* against another type (e.g. apply)                                  *)
+(* We set all conversion flags (no flag should be modified anymore)   *)
+let default_unify_flags () =
+  let flags = default_core_unify_flags () in {
+  core_unify_flags = flags;
+  merge_unify_flags = flags;
+  subterm_unify_flags = { flags with modulo_delta = var_full_transparent_state };
+  allow_K_in_toplevel_higher_order_unification = false; (* Why not? *)
+  resolve_evars = false
 }
 
-let set_merge_flags flags =
-  match flags.modulo_delta_in_merge with
-  | None -> flags
-  | Some ts ->
-    { flags with modulo_delta = ts; modulo_conv_on_closed_terms = Some ts }
+let set_no_delta_core_flags flags = { flags with
+  modulo_conv_on_closed_terms = None;
+  modulo_delta = empty_transparent_state;
+  check_applied_meta_types = false;
+  use_pattern_unification = false;
+  use_meta_bound_pattern_unification = true;
+  modulo_betaiota = false
+}
+
+let set_no_delta_flags flags = {
+  core_unify_flags = set_no_delta_core_flags flags.core_unify_flags;
+  merge_unify_flags = set_no_delta_core_flags flags.merge_unify_flags;
+  subterm_unify_flags = set_no_delta_core_flags flags.subterm_unify_flags;
+  allow_K_in_toplevel_higher_order_unification =
+      flags.allow_K_in_toplevel_higher_order_unification;
+  resolve_evars = flags.resolve_evars
+}
 
 (* Default flag for the "simple apply" version of unification of a *)
 (* type against a type (e.g. apply) *)
-(* We set only the flags available at the time the new "apply" extends *)
+(* We set only the flags available at the time the new "apply" extended *)
 (* out of "simple apply" *)
-let default_no_delta_unify_flags = { default_unify_flags with
+let default_no_delta_core_unify_flags () = { (default_core_unify_flags ()) with
   modulo_delta = empty_transparent_state;
   check_applied_meta_types = false;
   use_pattern_unification = false;
   use_meta_bound_pattern_unification = true;
   modulo_betaiota = false;
+}
+
+let default_no_delta_unify_flags () =
+  let flags = default_no_delta_core_unify_flags () in {
+  core_unify_flags = flags;
+  merge_unify_flags = flags;
+  subterm_unify_flags = flags;
+  allow_K_in_toplevel_higher_order_unification = false;
+  resolve_evars = false
 }
 
 (* Default flags for looking for subterms in elimination tactics *)
@@ -292,48 +380,119 @@ let default_no_delta_unify_flags = { default_unify_flags with
 (* allow_K) because only closed terms are involved in *)
 (* induction/destruct/case/elim and w_unify_to_subterm_list does not *)
 (* call w_unify for induction/destruct/case/elim  (13/6/2011) *)
-let elim_flags = { default_unify_flags with
-  restrict_conv_on_strict_subterms = false; (* ? *)
+let elim_core_flags sigma = { (default_core_unify_flags ()) with
   modulo_betaiota = false;
-  allow_K_in_toplevel_higher_order_unification = true
+  frozen_evars =
+    fold_undefined (fun evk _ evars -> Evar.Set.add evk evars)
+      sigma Evar.Set.empty;
 }
 
-let elim_no_delta_flags = { elim_flags with
+let elim_flags_evars sigma =
+  let flags = elim_core_flags sigma in {
+  core_unify_flags = flags;
+  merge_unify_flags = flags;
+  subterm_unify_flags = { flags with modulo_delta = empty_transparent_state };
+  allow_K_in_toplevel_higher_order_unification = true;
+  resolve_evars = false
+}
+
+let elim_flags () = elim_flags_evars Evd.empty
+
+let elim_no_delta_core_flags () = { (elim_core_flags Evd.empty) with
   modulo_delta = empty_transparent_state;
   check_applied_meta_types = false;
   use_pattern_unification = false;
+  modulo_betaiota = false;
+}
+
+let elim_no_delta_flags () =
+  let flags = elim_no_delta_core_flags () in {
+  core_unify_flags = flags;
+  merge_unify_flags = flags;
+  subterm_unify_flags = flags;
+  allow_K_in_toplevel_higher_order_unification = true;
+  resolve_evars = false
+}
+
+(* On types, we don't restrict unification, but possibly for delta *)
+let set_flags_for_type flags = { flags with
+  modulo_delta = flags.modulo_delta_types;
+  modulo_conv_on_closed_terms = Some flags.modulo_delta_types;
+  use_pattern_unification = true;
+  modulo_betaiota = true;
+  modulo_eta = true;
 }
 
 let use_evars_pattern_unification flags =
-  !global_evars_pattern_unification_flag && flags.use_pattern_unification
+  !global_pattern_unification_flag && flags.use_pattern_unification
   && Flags.version_strictly_greater Flags.V8_2
 
 let use_metas_pattern_unification flags nb l =
-  !global_evars_pattern_unification_flag && flags.use_pattern_unification
+  !global_pattern_unification_flag && flags.use_pattern_unification
   || (Flags.version_less_or_equal Flags.V8_3 || 
       flags.use_meta_bound_pattern_unification) &&
      Array.for_all (fun c -> isRel c && destRel c <= nb) l
 
-let expand_key env = function
-  | Some (ConstKey cst) -> constant_opt_value env cst
-  | Some (VarKey id) -> (try named_body id env with Not_found -> None)
-  | Some (RelKey _) -> None
+type key = 
+  | IsKey of Closure.table_key
+  | IsProj of projection * constr
+
+let expand_table_key env = function
+  | ConstKey cst -> constant_opt_value_in env cst
+  | VarKey id -> (try named_body id env with Not_found -> None)
+  | RelKey _ -> None
+
+let unfold_projection env p stk =
+  (match try Some (lookup_projection p env) with Not_found -> None with
+  | Some pb -> 
+    let s = Stack.Proj (pb.Declarations.proj_npars, pb.Declarations.proj_arg, 
+			p, Cst_stack.empty) in
+      s :: stk
+  | None -> assert false)
+
+let expand_key ts env sigma = function
+  | Some (IsKey k) -> expand_table_key env k
+  | Some (IsProj (p, c)) -> 
+    let red = Stack.zip (fst (whd_betaiota_deltazeta_for_iota_state ts env sigma 
+				Cst_stack.empty (c, unfold_projection env p [])))
+    in if Term.eq_constr (mkProj (p, c)) red then None else Some red
   | None -> None
 
-let subterm_restriction is_subterm flags =
-  not is_subterm && flags.restrict_conv_on_strict_subterms
+  
+type unirec_flags = {
+  at_top: bool;
+  with_types: bool;
+  with_cs : bool;
+}
+
+let subterm_restriction opt flags =
+  not opt.at_top && flags.restrict_conv_on_strict_subterms
 
 let key_of env b flags f =
   if subterm_restriction b flags then None else
   match kind_of_term f with
-  | Const cst when is_transparent env (ConstKey cst) &&
-        Cpred.mem cst (snd flags.modulo_delta) ->
-      Some (ConstKey cst)
-  | Var id when is_transparent env (VarKey id) &&
-        Id.Pred.mem id (fst flags.modulo_delta) ->
-      Some (VarKey id)
+  | Const (cst, u) when is_transparent env (ConstKey cst) &&
+      (Cpred.mem cst (snd flags.modulo_delta)
+       || Environ.is_projection cst env) ->
+      Some (IsKey (ConstKey (cst, u)))
+  | Var id when is_transparent env (VarKey id) && 
+      Id.Pred.mem id (fst flags.modulo_delta) ->
+    Some (IsKey (VarKey id))
+  | Proj (p, c) when Projection.unfolded p
+      || Cpred.mem (Projection.constant p) (snd flags.modulo_delta) ->
+    Some (IsProj (p, c))
   | _ -> None
+  
 
+let translate_key = function
+  | ConstKey (cst,u) -> ConstKey cst
+  | VarKey id -> VarKey id
+  | RelKey n -> RelKey n
+
+let translate_key = function
+  | IsKey k -> translate_key k    
+  | IsProj (c, _) -> ConstKey (Projection.constant c)
+  
 let oracle_order env cf1 cf2 =
   match cf1 with
   | None ->
@@ -344,8 +503,47 @@ let oracle_order env cf1 cf2 =
       match cf2 with
       | None -> Some true
       | Some k2 ->
-          Some (Conv_oracle.oracle_order (Environ.oracle env) false k1 k2)
+	match k1, k2 with
+	| IsProj (p, _), IsKey (ConstKey (p',_)) 
+	  when eq_constant (Projection.constant p) p' -> 
+	  Some (not (Projection.unfolded p))
+	| IsKey (ConstKey (p,_)), IsProj (p', _) 
+	  when eq_constant p (Projection.constant p') -> 
+	  Some (Projection.unfolded p')
+	| _ ->
+          Some (Conv_oracle.oracle_order (fun x -> x)
+		  (Environ.oracle env) false (translate_key k1) (translate_key k2))
 
+let is_rigid_head flags t =
+  match kind_of_term t with
+  | Const (cst,u) -> not (Cpred.mem cst (snd flags.modulo_delta))
+  | Ind (i,u) -> true
+  | Construct _ -> true
+  | Fix _ | CoFix _ -> true
+  | _ -> false
+
+let force_eqs c = 
+  Universes.Constraints.fold
+    (fun ((l,d,r) as c) acc -> 
+      let c' = if d == Universes.ULub then (l,Universes.UEq,r) else c in
+	Universes.Constraints.add c' acc) 
+    c Universes.Constraints.empty
+
+let constr_cmp pb sigma flags t u =
+  let b, cstrs = 
+    if pb == Reduction.CONV then Universes.eq_constr_universes t u
+    else Universes.leq_constr_universes t u
+  in 
+    if b then 
+      try Evd.add_universe_constraints sigma cstrs, b
+      with Univ.UniverseInconsistency _ -> sigma, false
+      | Evd.UniversesDiffer -> 
+	if is_rigid_head flags t then 
+	  try Evd.add_universe_constraints sigma (force_eqs cstrs), b
+	  with Univ.UniverseInconsistency _ -> sigma, false
+	else sigma, false
+    else sigma, b
+    
 let do_reduce ts (env, nb) sigma c =
   Stack.zip (fst (whd_betaiota_deltazeta_for_iota_state ts env sigma Cst_stack.empty (c, Stack.empty)))
 
@@ -356,41 +554,97 @@ let isAllowedEvar flags c = match kind_of_term c with
   | Evar (evk,_) -> not (Evar.Set.mem evk flags.frozen_evars)
   | _ -> false
 
-let check_compatibility env (sigma,metasubst,evarsubst) tyM tyN =
-  match subst_defined_metas metasubst tyM with
-  | None -> ()
+let check_compatibility env pbty flags (sigma,metasubst,evarsubst) tyM tyN =
+  match subst_defined_metas_evars (metasubst,[]) tyM with
+  | None -> sigma
   | Some m ->
-  match subst_defined_metas metasubst tyN with
-  | None -> ()
+  match subst_defined_metas_evars (metasubst,[]) tyN with
+  | None -> sigma
   | Some n ->
-      if not (is_trans_fconv CONV full_transparent_state env sigma m n)
-         && is_ground_term sigma m && is_ground_term sigma n
-      then
-	error_cannot_unify env sigma (m,n)
+    if is_ground_term sigma m && is_ground_term sigma n then
+      let sigma, b = infer_conv ~pb:pbty ~ts:flags.modulo_delta_types env sigma m n in
+	if b then sigma
+	else error_cannot_unify env sigma (m,n)
+    else sigma
 
-let unify_0_with_initial_metas (sigma,ms,es as subst) conv_at_top env cv_pb flags m n =
-  let rec unirec_rec (curenv,nb as curenvnb) pb b wt ((sigma,metasubst,evarsubst) as substn) curm curn =
+
+let rec is_neutral env ts t =
+  let (f, l) = decompose_appvect t in
+    match kind_of_term f with
+    | Const (c, u) ->
+      not (Environ.evaluable_constant c env) ||
+      not (is_transparent env (ConstKey c)) ||
+      not (Cpred.mem c (snd ts))
+    | Var id -> 
+      not (Environ.evaluable_named id env) ||
+      not (is_transparent env (VarKey id)) ||
+      not (Id.Pred.mem id (fst ts))
+    | Rel n -> true
+    | Evar _ | Meta _ -> true
+    | Case (_, p, c, cl) -> is_neutral env ts c
+    | Proj (p, c) -> is_neutral env ts c
+    | _ -> false
+
+let is_eta_constructor_app env ts f l1 term =
+  match kind_of_term f with
+  | Construct (((_, i as ind), j), u) when i == 0 && j == 1 ->
+    let mib = lookup_mind (fst ind) env in
+      (match mib.Declarations.mind_record with
+      | Some (Some (_,exp,projs)) when mib.Declarations.mind_finite <> Decl_kinds.CoFinite &&
+          Array.length projs == Array.length l1 - mib.Declarations.mind_nparams ->
+	(** Check that the other term is neutral *)
+	is_neutral env ts term
+      | _ -> false)
+  | _ -> false
+
+let eta_constructor_app env f l1 term =
+  match kind_of_term f with
+  | Construct (((_, i as ind), j), u) ->
+    let mib = lookup_mind (fst ind) env in
+      (match mib.Declarations.mind_record with
+      | Some (Some (_, projs, _)) ->
+        let npars = mib.Declarations.mind_nparams in
+	let pars, l1' = Array.chop npars l1 in
+	let arg = Array.append pars [|term|] in
+	let l2 = Array.map (fun p -> mkApp (mkConstU (p,u), arg)) projs in
+	  l1', l2
+      | _ -> assert false)
+  | _ -> assert false
+
+let rec unify_0_with_initial_metas (sigma,ms,es as subst) conv_at_top env cv_pb flags m n =
+  let rec unirec_rec (curenv,nb as curenvnb) pb opt ((sigma,metasubst,evarsubst) as substn) curm curn =
     let cM = Evarutil.whd_head_evar sigma curm
     and cN = Evarutil.whd_head_evar sigma curn in
+    let () = 
+      if !debug_unification then
+	msg_debug (Termops.print_constr_env curenv cM ++ str" ~= " ++ Termops.print_constr_env curenv cN)
+    in 
       match (kind_of_term cM,kind_of_term cN) with
 	| Meta k1, Meta k2 ->
             if Int.equal k1 k2 then substn else
 	    let stM,stN = extract_instance_status pb in
-            if wt && flags.check_applied_meta_types then
-              (let tyM = Typing.meta_type sigma k1 in
-               let tyN = Typing.meta_type sigma k2 in
-               check_compatibility curenv substn tyM tyN);
+            let sigma = 
+	      if opt.with_types && flags.check_applied_meta_types then
+		let tyM = Typing.meta_type sigma k1 in
+		let tyN = Typing.meta_type sigma k2 in
+		let l, r = if k2 < k1 then tyN, tyM else tyM, tyN in
+		  check_compatibility curenv CUMUL flags substn l r
+	      else sigma
+	    in
 	    if k2 < k1 then sigma,(k1,cN,stN)::metasubst,evarsubst
 	    else sigma,(k2,cM,stM)::metasubst,evarsubst
 	| Meta k, _
             when not (dependent cM cN) (* helps early trying alternatives *) ->
-            if wt && flags.check_applied_meta_types then
-              (try
-                 let tyM = Typing.meta_type sigma k in
-                 let tyN = get_type_of curenv ~lax:true sigma cN in
-                 check_compatibility curenv substn tyM tyN
-               with RetypeError _ ->
-                 (* Renounce, maybe metas/evars prevents typing *) ());
+            let sigma = 
+	      if opt.with_types && flags.check_applied_meta_types then
+		(try
+                   let tyM = Typing.meta_type sigma k in
+                   let tyN = get_type_of curenv ~lax:true sigma cN in
+                     check_compatibility curenv CUMUL flags substn tyN tyM
+		 with RetypeError _ ->
+                   (* Renounce, maybe metas/evars prevents typing *) sigma)
+	      else sigma
+	    in
 	    (* Here we check that [cN] does not contain any local variables *)
 	    if Int.equal nb 0 then
               sigma,(k,cN,snd (extract_instance_status pb))::metasubst,evarsubst
@@ -401,13 +655,16 @@ let unify_0_with_initial_metas (sigma,ms,es as subst) conv_at_top env cv_pb flag
 	    else error_cannot_unify_local curenv sigma (m,n,cN)
 	| _, Meta k
             when not (dependent cN cM) (* helps early trying alternatives *) ->
-            if wt && flags.check_applied_meta_types then
+          let sigma = 
+	    if opt.with_types && flags.check_applied_meta_types then
               (try
                  let tyM = get_type_of curenv ~lax:true sigma cM in
                  let tyN = Typing.meta_type sigma k in
-                 check_compatibility curenv substn tyM tyN
+                   check_compatibility curenv CUMUL flags substn tyM tyN
                with RetypeError _ ->
-                 (* Renounce, maybe metas/evars prevents typing *) ());
+                 (* Renounce, maybe metas/evars prevents typing *) sigma)
+	    else sigma
+	  in
 	    (* Here we check that [cM] does not contain any local variables *)
 	    if Int.equal nb 0 then
               (sigma,(k,cM,fst (extract_instance_status pb))::metasubst,evarsubst)
@@ -417,13 +674,15 @@ let unify_0_with_initial_metas (sigma,ms,es as subst) conv_at_top env cv_pb flag
               evarsubst)
 	    else error_cannot_unify_local curenv sigma (m,n,cM)
 	| Evar (evk,_ as ev), _
-            when not (Evar.Set.mem evk flags.frozen_evars) ->
+            when not (Evar.Set.mem evk flags.frozen_evars) 
+	      && not (occur_evar evk cN) ->
 	    let cmvars = free_rels cM and cnvars = free_rels cN in
 	      if Int.Set.subset cnvars cmvars then
 		sigma,metasubst,((curenv,ev,cN)::evarsubst)
 	      else error_cannot_unify_local curenv sigma (m,n,cN)
 	| _, Evar (evk,_ as ev)
-            when not (Evar.Set.mem evk flags.frozen_evars) ->
+            when not (Evar.Set.mem evk flags.frozen_evars)
+	      && not (occur_evar evk cM) ->
 	    let cmvars = free_rels cM and cnvars = free_rels cN in
 	      if Int.Set.subset cmvars cnvars then
 		sigma,metasubst,((curenv,ev,cM)::evarsubst)
@@ -431,111 +690,189 @@ let unify_0_with_initial_metas (sigma,ms,es as subst) conv_at_top env cv_pb flag
 	| Sort s1, Sort s2 ->
 	    (try 
 	       let sigma' = 
-		 if cv_pb == CUMUL 
-		 then Evd.set_leq_sort sigma s1 s2 
-		 else Evd.set_eq_sort sigma s1 s2 
+		 if pb == CUMUL
+		 then Evd.set_leq_sort curenv sigma s1 s2 
+		 else Evd.set_eq_sort curenv sigma s1 s2
 	       in (sigma', metasubst, evarsubst)
 	     with e when Errors.noncritical e ->
                error_cannot_unify curenv sigma (m,n))
 
 	| Lambda (na,t1,c1), Lambda (_,t2,c2) ->
-	    unirec_rec (push (na,t1) curenvnb) CONV true wt
-	      (unirec_rec curenvnb CONV true false substn t1 t2) c1 c2
+	    unirec_rec (push (na,t1) curenvnb) CONV {opt with at_top = true}
+	      (unirec_rec curenvnb CONV {opt with at_top = true; with_types = false} substn t1 t2) c1 c2
 	| Prod (na,t1,c1), Prod (_,t2,c2) ->
-	    unirec_rec (push (na,t1) curenvnb) pb true false
-	      (unirec_rec curenvnb CONV true false substn t1 t2) c1 c2
-	| LetIn (_,a,_,c), _ -> unirec_rec curenvnb pb b wt substn (subst1 a c) cN
-	| _, LetIn (_,a,_,c) -> unirec_rec curenvnb pb b wt substn cM (subst1 a c)
+	    unirec_rec (push (na,t1) curenvnb) pb {opt with at_top = true}
+	      (unirec_rec curenvnb CONV {opt with at_top = true; with_types = false} substn t1 t2) c1 c2
+	| LetIn (_,a,_,c), _ -> unirec_rec curenvnb pb opt substn (subst1 a c) cN
+	| _, LetIn (_,a,_,c) -> unirec_rec curenvnb pb opt substn cM (subst1 a c)
+
+	(** Fast path for projections. *)
+	| Proj (p1,c1), Proj (p2,c2) when eq_constant
+	    (Projection.constant p1) (Projection.constant p2) ->
+	  (try unify_same_proj curenvnb cv_pb {opt with at_top = true}
+	       substn c1 c2
+	   with ex when precatchable_exception ex ->
+	     unify_not_same_head curenvnb pb opt substn cM cN)
 
         (* eta-expansion *)
 	| Lambda (na,t1,c1), _ when flags.modulo_eta ->
-	    unirec_rec (push (na,t1) curenvnb) CONV true wt substn
+	    unirec_rec (push (na,t1) curenvnb) CONV {opt with at_top = true} substn
 	      c1 (mkApp (lift 1 cN,[|mkRel 1|]))
 	| _, Lambda (na,t2,c2) when flags.modulo_eta ->
-	    unirec_rec (push (na,t2) curenvnb) CONV true wt substn
+	    unirec_rec (push (na,t2) curenvnb) CONV {opt with at_top = true} substn
 	      (mkApp (lift 1 cM,[|mkRel 1|])) c2
+
+	(* For records *)
+	| App (f1, l1), _ when flags.modulo_eta && 
+	    (* This ensures cN is an evar, meta or irreducible constant/variable
+	       and not a constructor. *)
+	    is_eta_constructor_app curenv flags.modulo_delta f1 l1 cN ->
+	  (try 
+	     let l1', l2' = eta_constructor_app curenv f1 l1 cN in
+	     let opt' = {opt with at_top = true; with_cs = false} in
+	       Array.fold_left2 (unirec_rec curenvnb CONV opt') substn l1' l2'
+	   with ex when precatchable_exception ex ->
+	     match kind_of_term cN with
+	     | App(f2,l2) when
+		 (isMeta f2 && use_metas_pattern_unification flags nb l2
+		  || use_evars_pattern_unification flags && isAllowedEvar flags f2) ->
+	       unify_app_pattern false curenvnb pb opt substn cM f1 l1 cN f2 l2
+	     | _ -> raise ex)
+
+	| _, App (f2, l2) when flags.modulo_eta && 
+	    is_eta_constructor_app curenv flags.modulo_delta f2 l2 cM ->
+	  (try 
+	     let l2', l1' = eta_constructor_app curenv f2 l2 cM in
+	     let opt' = {opt with at_top = true; with_cs = false} in
+	       Array.fold_left2 (unirec_rec curenvnb CONV opt') substn l1' l2'
+	   with ex when precatchable_exception ex ->
+	     match kind_of_term cM with
+	     | App(f1,l1) when 
+		 (isMeta f1 && use_metas_pattern_unification flags nb l1
+		  || use_evars_pattern_unification flags && isAllowedEvar flags f1) ->
+	       unify_app_pattern true curenvnb pb opt substn cM f1 l1 cN f2 l2
+	     | _ -> raise ex)
 
 	| Case (_,p1,c1,cl1), Case (_,p2,c2,cl2) ->
             (try 
-	       Array.fold_left2 (unirec_rec curenvnb CONV true wt)
-		 (unirec_rec curenvnb CONV true false
-		    (unirec_rec curenvnb CONV true false substn p1 p2) c1 c2)
+	     let opt' = {opt with at_top = true; with_types = false} in
+	       Array.fold_left2 (unirec_rec curenvnb CONV {opt with at_top = true})
+	       (unirec_rec curenvnb CONV opt'
+		(unirec_rec curenvnb CONV opt' substn p1 p2) c1 c2)
                  cl1 cl2
 	     with ex when precatchable_exception ex ->
-	       reduce curenvnb pb b wt substn cM cN)
+	       reduce curenvnb pb opt substn cM cN)
 
 	| App (f1,l1), _ when 
 	    (isMeta f1 && use_metas_pattern_unification flags nb l1
             || use_evars_pattern_unification flags && isAllowedEvar flags f1) ->
-            (match
-                is_unification_pattern curenvnb sigma f1 (Array.to_list l1) cN
-             with
-             | None ->
-                 (match kind_of_term cN with
-                 | App (f2,l2) -> unify_app curenvnb pb b substn cM f1 l1 cN f2 l2
-                 | _ -> unify_not_same_head curenvnb pb b wt substn cM cN)
-             | Some l ->
-                 solve_pattern_eqn_array curenvnb f1 l cN substn)
+	  unify_app_pattern true curenvnb pb opt substn cM f1 l1 cN cN [||]
 
 	| _, App (f2,l2) when
 	    (isMeta f2 && use_metas_pattern_unification flags nb l2
             || use_evars_pattern_unification flags && isAllowedEvar flags f2) ->
-            (match
-                is_unification_pattern curenvnb sigma f2 (Array.to_list l2) cM
-             with
-             | None ->
-                 (match kind_of_term cM with
-                 | App (f1,l1) -> unify_app curenvnb pb b substn cM f1 l1 cN f2 l2
-                 | _ -> unify_not_same_head curenvnb pb b wt substn cM cN)
-             | Some l ->
-	         solve_pattern_eqn_array curenvnb f2 l cM substn)
+	  unify_app_pattern false curenvnb pb opt substn cM cM [||] cN f2 l2
 
 	| App (f1,l1), App (f2,l2) ->
-            unify_app curenvnb pb b substn cM f1 l1 cN f2 l2
+	  unify_app curenvnb pb opt substn cM f1 l1 cN f2 l2
+	    
+	| App (f1,l1), Proj(p2,c2) ->
+	  unify_app curenvnb pb opt substn cM f1 l1 cN cN [||]
+
+	| Proj (p1,c1), App(f2,l2) ->
+	  unify_app curenvnb pb opt substn cM cM [||] cN f2 l2
 
 	| _ ->
-            unify_not_same_head curenvnb pb b wt substn cM cN
+          unify_not_same_head curenvnb pb opt substn cM cN
 
-  and unify_app curenvnb pb b substn cM f1 l1 cN f2 l2 =
+  and unify_app_pattern dir curenvnb pb opt substn cM f1 l1 cN f2 l2 =
+    let f, l, t = if dir then f1, l1, cN else f2, l2, cM in
+      match is_unification_pattern curenvnb sigma f (Array.to_list l) t with
+      | None ->
+	(match kind_of_term t with
+	| App (f',l') -> 
+	  if dir then unify_app curenvnb pb opt substn cM f1 l1 t f' l'
+	  else unify_app curenvnb pb opt substn t f' l' cN f2 l2
+	| Proj _ -> unify_app curenvnb pb opt substn cM f1 l1 cN f2 l2
+	| _ -> unify_not_same_head curenvnb pb opt substn cM cN)
+      | Some l ->
+	solve_pattern_eqn_array curenvnb f l t substn
+
+  and unify_app (curenv, nb as curenvnb) pb opt (sigma, metas, evars as substn) cM f1 l1 cN f2 l2 =
     try
+      let needs_expansion p c' = 
+	match kind_of_term c' with
+	| Meta _ -> true
+	| Evar _ -> true
+	| Const (c, u) -> Constant.equal c (Projection.constant p)
+	| _ -> false
+      in
+      let expand_proj c c' l = 
+      	match kind_of_term c with
+      	| Proj (p, t) when not (Projection.unfolded p) && needs_expansion p c' ->
+      	  (try destApp (Retyping.expand_projection curenv sigma p t (Array.to_list l))
+      	   with RetypeError _ -> (** Unification can be called on ill-typed terms, due
+      				     to FO and eta in particular, fail gracefully in that case *)
+      	     (c, l))
+      	| _ -> (c, l)
+      in
+      let f1, l1 = expand_proj f1 f2 l1 in
+      let f2, l2 = expand_proj f2 f1 l2 in
+      let opta = {opt with at_top = true; with_types = false} in
+      let optf = {opt with at_top = true; with_types = true} in
       let (f1,l1,f2,l2) = adjust_app_array_size f1 l1 f2 l2 in
-      Array.fold_left2 (unirec_rec curenvnb CONV true false)
-	(unirec_rec curenvnb CONV true true substn f1 f2) l1 l2
+	if Array.length l1 == 0 then error_cannot_unify (fst curenvnb) sigma (cM,cN)
+	else
+	  Array.fold_left2 (unirec_rec curenvnb CONV opta)
+	    (unirec_rec curenvnb CONV optf substn f1 f2) l1 l2
     with ex when precatchable_exception ex ->
-    try reduce curenvnb pb b false substn cM cN
+    try reduce curenvnb pb {opt with with_types = false} substn cM cN
     with ex when precatchable_exception ex ->
-    try canonical_projections curenvnb pb b cM cN substn
+    try canonical_projections curenvnb pb opt cM cN substn
     with ex when precatchable_exception ex ->
-    expand curenvnb pb b false substn cM f1 l1 cN f2 l2
+    expand curenvnb pb {opt with with_types = false} substn cM f1 l1 cN f2 l2
 
-  and unify_not_same_head curenvnb pb b wt substn cM cN =
-    try canonical_projections curenvnb pb b cM cN substn
-    with ex when precatchable_exception ex ->
-    if constr_cmp cv_pb cM cN then substn else
-    try reduce curenvnb pb b wt substn cM cN
-    with ex when precatchable_exception ex ->
-    let (f1,l1) =
-      match kind_of_term cM with App (f,l) -> (f,l) | _ -> (cM,[||]) in
-    let (f2,l2) =
-      match kind_of_term cN with App (f,l) -> (f,l) | _ -> (cN,[||]) in
-    expand curenvnb pb b wt substn cM f1 l1 cN f2 l2
+  and unify_same_proj (curenv, nb as curenvnb) cv_pb opt substn c1 c2 =
+    let substn = unirec_rec curenvnb CONV opt substn c1 c2 in
+      try (* Force unification of the types to fill in parameters *)
+	let ty1 = get_type_of curenv ~lax:true sigma c1 in
+	let ty2 = get_type_of curenv ~lax:true sigma c2 in
+	  unify_0_with_initial_metas substn true curenv cv_pb
+	    { flags with modulo_conv_on_closed_terms = Some full_transparent_state;
+	      modulo_delta = full_transparent_state;
+	      modulo_eta = true;
+	      modulo_betaiota = true }
+	    ty1 ty2
+      with RetypeError _ -> substn
 
-  and reduce curenvnb pb b wt (sigma, metas, evars as substn) cM cN =
-    if use_full_betaiota flags && not (subterm_restriction b flags) then
+  and unify_not_same_head curenvnb pb opt (sigma, metas, evars as substn) cM cN =
+    try canonical_projections curenvnb pb opt cM cN substn
+    with ex when precatchable_exception ex ->
+    let sigma', b = constr_cmp cv_pb sigma flags cM cN in
+      if b then (sigma', metas, evars)
+      else
+	try reduce curenvnb pb opt substn cM cN
+	with ex when precatchable_exception ex ->
+	let (f1,l1) =
+	  match kind_of_term cM with App (f,l) -> (f,l) | _ -> (cM,[||]) in
+	let (f2,l2) =
+	  match kind_of_term cN with App (f,l) -> (f,l) | _ -> (cN,[||]) in
+	  expand curenvnb pb opt substn cM f1 l1 cN f2 l2
+
+  and reduce curenvnb pb opt (sigma, metas, evars as substn) cM cN =
+    if use_full_betaiota flags && not (subterm_restriction opt flags) then
       let cM' = do_reduce flags.modulo_delta curenvnb sigma cM in
-	if not (eq_constr cM cM') then
-	  unirec_rec curenvnb pb b wt substn cM' cN
+	if not (Term.eq_constr cM cM') then
+	  unirec_rec curenvnb pb opt substn cM' cN
 	else
 	  let cN' = do_reduce flags.modulo_delta curenvnb sigma cN in
-	    if not (eq_constr cN cN') then
-	      unirec_rec curenvnb pb b wt substn cM cN'
+	    if not (Term.eq_constr cN cN') then
+	      unirec_rec curenvnb pb opt substn cM cN'
 	    else error_cannot_unify (fst curenvnb) sigma (cM,cN)
-    else
-      error_cannot_unify (fst curenvnb) sigma (cM,cN)
+    else error_cannot_unify (fst curenvnb) sigma (cM,cN)
 	    
-  and expand (curenv,_ as curenvnb) pb b wt (sigma,metasubst,_ as substn) cM f1 l1 cN f2 l2 =
-
-    if
+  and expand (curenv,_ as curenvnb) pb opt (sigma,metasubst,evarsubst as substn) cM f1 l1 cN f2 l2 =
+    let res =
       (* Try full conversion on meta-free terms. *)
       (* Back to 1995 (later on called trivial_unify in 2002), the
 	 heuristic was to apply conversion on meta-free (but not
@@ -548,123 +885,144 @@ let unify_0_with_initial_metas (sigma,ms,es as subst) conv_at_top env cv_pb flag
 	 (it is used by apply and rewrite); it might now be redundant
 	 with the support for delta-expansion (which is used
 	 essentially for apply)... *)
-      not (subterm_restriction b flags) &&
+      if subterm_restriction opt flags then None else 
       match flags.modulo_conv_on_closed_terms with
-      | None -> false
+      | None -> None
       | Some convflags ->
-      let subst = if flags.use_metas_eagerly_in_conv_on_closed_terms then metasubst else ms in
-      match subst_defined_metas subst cM with
-      | None -> (* some undefined Metas in cM *) false
+      let subst = ((if flags.use_metas_eagerly_in_conv_on_closed_terms then metasubst else ms), (if flags.use_evars_eagerly_in_conv_on_closed_terms then evarsubst else es)) in
+      match subst_defined_metas_evars subst cM with
+      | None -> (* some undefined Metas in cM *) None
       | Some m1 ->
-      match subst_defined_metas subst cN with
-      | None -> (* some undefined Metas in cN *) false
+      match subst_defined_metas_evars subst cN with
+      | None -> (* some undefined Metas in cN *) None
       | Some n1 ->
           (* No subterm restriction there, too much incompatibilities *)
-	  if is_trans_fconv pb convflags env sigma m1 n1
-	  then true else
-	    if is_ground_term sigma m1 && is_ground_term sigma n1 then
-	      error_cannot_unify curenv sigma (cM,cN)
-	    else false
-    then
-      substn
-    else
-      let cf1 = key_of env b flags f1 and cf2 = key_of env b flags f2 in
+	  let sigma, b = infer_conv ~pb ~ts:convflags curenv sigma m1 n1 in
+	    if b then Some (sigma, metasubst, evarsubst)
+	    else 
+	      if is_ground_term sigma m1 && is_ground_term sigma n1 then
+		error_cannot_unify curenv sigma (cM,cN)
+	      else None
+    in
+      match res with
+      | Some substn -> substn
+      | None ->
+      let cf1 = key_of curenv opt flags f1 and cf2 = key_of curenv opt flags f2 in
 	match oracle_order curenv cf1 cf2 with
 	| None -> error_cannot_unify curenv sigma (cM,cN)
 	| Some true ->
-	    (match expand_key curenv cf1 with
+	    (match expand_key flags.modulo_delta curenv sigma cf1 with
 	    | Some c ->
-		unirec_rec curenvnb pb b wt substn
+		unirec_rec curenvnb pb opt substn
                   (whd_betaiotazeta sigma (mkApp(c,l1))) cN
 	    | None ->
-		(match expand_key curenv cf2 with
+		(match expand_key flags.modulo_delta curenv sigma cf2 with
 		| Some c ->
-		    unirec_rec curenvnb pb b wt substn cM
+		    unirec_rec curenvnb pb opt substn cM
                       (whd_betaiotazeta sigma (mkApp(c,l2)))
 		| None ->
 		    error_cannot_unify curenv sigma (cM,cN)))
 	| Some false ->
-	    (match expand_key curenv cf2 with
+	    (match expand_key flags.modulo_delta curenv sigma cf2 with
 	    | Some c ->
-		unirec_rec curenvnb pb b wt substn cM
+		unirec_rec curenvnb pb opt substn cM
                   (whd_betaiotazeta sigma (mkApp(c,l2)))
 	    | None ->
-		(match expand_key curenv cf1 with
+		(match expand_key flags.modulo_delta curenv sigma cf1 with
 		| Some c ->
-		    unirec_rec curenvnb pb b wt substn
+		    unirec_rec curenvnb pb opt substn
                       (whd_betaiotazeta sigma (mkApp(c,l1))) cN
 		| None ->
 		    error_cannot_unify curenv sigma (cM,cN)))
 
-  and canonical_projections curenvnb pb b cM cN (sigma,_,_ as substn) =
+  and canonical_projections (curenv, _ as curenvnb) pb opt cM cN (sigma,_,_ as substn) =
     let f1 () =
       if isApp cM then
 	let f1l1 = whd_nored_state sigma (cM,Stack.empty) in
-	  if is_open_canonical_projection env sigma f1l1 then
+	  if is_open_canonical_projection curenv sigma f1l1 then
 	    let f2l2 = whd_nored_state sigma (cN,Stack.empty) in
-	      solve_canonical_projection curenvnb pb b cM f1l1 cN f2l2 substn
+	      solve_canonical_projection curenvnb pb opt cM f1l1 cN f2l2 substn
 	  else error_cannot_unify (fst curenvnb) sigma (cM,cN)
       else error_cannot_unify (fst curenvnb) sigma (cM,cN)
     in
-      if
+      if not opt.with_cs ||
         begin match flags.modulo_conv_on_closed_terms with
         | None -> true
-        | Some _ -> subterm_restriction b flags
+        | Some _ -> subterm_restriction opt flags
         end then
 	error_cannot_unify (fst curenvnb) sigma (cM,cN)
       else
 	try f1 () with e when precatchable_exception e ->
 	  if isApp cN then
 	    let f2l2 = whd_nored_state sigma (cN, Stack.empty) in
-	      if is_open_canonical_projection env sigma f2l2 then
+	      if is_open_canonical_projection curenv sigma f2l2 then
 		let f1l1 = whd_nored_state sigma (cM, Stack.empty) in
-		  solve_canonical_projection curenvnb pb b cN f2l2 cM f1l1 substn
+		  solve_canonical_projection curenvnb pb opt cN f2l2 cM f1l1 substn
 	      else error_cannot_unify (fst curenvnb) sigma (cM,cN)
 	  else error_cannot_unify (fst curenvnb) sigma (cM,cN)
 
-  and solve_canonical_projection curenvnb pb b cM f1l1 cN f2l2 (sigma,ms,es) =
-    let (c,bs,(params,params1),(us,us2),(ts,ts1),c1,(n,t2)) =
-      try Evarconv.check_conv_record f1l1 f2l2
+  and solve_canonical_projection curenvnb pb opt cM f1l1 cN f2l2 (sigma,ms,es) =
+    let (ctx,t,c,bs,(params,params1),(us,us2),(ts,ts1),c1,(n,t2)) =
+      try Evarconv.check_conv_record (fst curenvnb) sigma f1l1 f2l2
       with Not_found -> error_cannot_unify (fst curenvnb) sigma (cM,cN)
     in
     if Reductionops.Stack.compare_shape ts ts1 then
+      let sigma = Evd.merge_context_set Evd.univ_flexible sigma ctx in
       let (evd,ks,_) =
 	List.fold_left
 	  (fun (evd,ks,m) b ->
-	    if Int.equal m n then (evd,t2::ks, m-1) else
+	    if match n with Some n -> Int.equal m n | None -> false then
+                (evd,t2::ks, m-1)
+            else
               let mv = new_meta () in
 	      let evd' = meta_declare mv (substl ks b) evd in
 	      (evd', mkMeta mv :: ks, m - 1))
-	  (sigma,[],List.length bs - 1) bs
+	  (sigma,[],List.length bs) bs
       in
       try
+      let opt' = {opt with with_types = false} in
       let (substn,_,_) = Reductionops.Stack.fold2
-			   (fun s u1 u -> unirec_rec curenvnb pb b false s u1 (substl ks u))
+			   (fun s u1 u -> unirec_rec curenvnb pb opt' s u1 (substl ks u))
 			   (evd,ms,es) us2 us in
       let (substn,_,_) = Reductionops.Stack.fold2
-			   (fun s u1 u -> unirec_rec curenvnb pb b false s u1 (substl ks u))
+			   (fun s u1 u -> unirec_rec curenvnb pb opt' s u1 (substl ks u))
 			   substn params1 params in
-      let (substn,_,_) = Reductionops.Stack.fold2 (unirec_rec curenvnb pb b false) substn ts ts1 in
+      let (substn,_,_) = Reductionops.Stack.fold2 (unirec_rec curenvnb pb opt') substn ts ts1 in
       let app = mkApp (c, Array.rev_of_list ks) in
-	unirec_rec curenvnb pb b false substn c1 app
+      (* let substn = unirec_rec curenvnb pb b false substn t cN in *)
+	unirec_rec curenvnb pb opt' substn c1 app
       with Invalid_argument "Reductionops.Stack.fold2" ->
 	error_cannot_unify (fst curenvnb) sigma (cM,cN)
     else error_cannot_unify (fst curenvnb) sigma (cM,cN)
-      in
-  let evd = sigma in
-    if (if occur_meta_or_undefined_evar evd m || occur_meta_or_undefined_evar evd n
-        || subterm_restriction conv_at_top flags then false
-      else if (match flags.modulo_conv_on_closed_terms with
-      | Some convflags -> is_trans_fconv cv_pb convflags env sigma m n
-      | _ -> constr_cmp cv_pb m n) then true
-      else if (match flags.modulo_conv_on_closed_terms, flags.modulo_delta with
-            | Some (cv_id, cv_k), (dl_id, dl_k) ->
-                Id.Pred.subset dl_id cv_id && Cpred.subset dl_k cv_k
-            | None,(dl_id, dl_k) ->
-                Id.Pred.is_empty dl_id && Cpred.is_empty dl_k)
-      then error_cannot_unify env sigma (m, n) else false)
-    then subst
-    else unirec_rec (env,0) cv_pb conv_at_top false subst m n
+  in
+    
+  if !debug_unification then msg_debug (str "Starting unification");
+  let opt = { at_top = conv_at_top; with_types = false; with_cs = true } in
+  try
+  let res = 
+    if occur_meta_or_undefined_evar sigma m || occur_meta_or_undefined_evar sigma n
+      || subterm_restriction opt flags then None
+    else 
+      let sigma, b = match flags.modulo_conv_on_closed_terms with
+	| Some convflags -> infer_conv ~pb:cv_pb ~ts:convflags env sigma m n
+	| _ -> constr_cmp cv_pb sigma flags m n in
+	if b then Some sigma
+	else if (match flags.modulo_conv_on_closed_terms, flags.modulo_delta with
+        | Some (cv_id, cv_k), (dl_id, dl_k) ->
+          Id.Pred.subset dl_id cv_id && Cpred.subset dl_k cv_k
+        | None,(dl_id, dl_k) ->
+          Id.Pred.is_empty dl_id && Cpred.is_empty dl_k)
+	then error_cannot_unify env sigma (m, n) else None
+  in 
+    let a = match res with 
+    | Some sigma -> sigma, ms, es
+    | None -> unirec_rec (env,0) cv_pb opt subst m n in
+    if !debug_unification then msg_debug (str "Leaving unification with success");
+    a
+  with e ->
+    if !debug_unification then msg_debug (str "Leaving unification with failure");
+    raise e
+
 
 let unify_0 env sigma = unify_0_with_initial_metas (sigma,[],[]) true env
 
@@ -784,7 +1142,7 @@ let applyHead env evd n c  =
       match kind_of_term (whd_betadeltaiota env evd cty) with
       | Prod (_,c1,c2) ->
         let (evd',evar) =
-	  Evarutil.new_evar evd env ~src:(Loc.ghost,Evar_kinds.GoalEvar) c1 in
+	  Evarutil.new_evar env evd ~src:(Loc.ghost,Evar_kinds.GoalEvar) c1 in
 	  apprec (n-1) (mkApp(c,[|evar|])) (subst1 evar c2) evd'
       | _ -> error "Apply_Head_Then"
   in
@@ -792,7 +1150,7 @@ let applyHead env evd n c  =
     
 let is_mimick_head ts f =
   match kind_of_term f with
-  | Const c -> not (Closure.is_transparent_constant ts c)
+  | Const (c,u) -> not (Closure.is_transparent_constant ts c)
   | Var id -> not (Closure.is_transparent_variable ts id)
   | (Rel _|Construct _|Ind _) -> true
   | _ -> false
@@ -820,7 +1178,7 @@ let w_coerce env evd mv c =
   w_coerce_to_type env evd c cty mvty
 
 let unify_to_type env sigma flags c status u =
-  let c = refresh_universes c in
+  let sigma, c = refresh_universes (Some false) env sigma c in
   let t = get_type_of env sigma (nf_meta sigma c) in
   let t = nf_betaiota sigma (nf_meta sigma t) in
     unify_0 env sigma CUMUL flags t u
@@ -829,9 +1187,7 @@ let unify_type env sigma flags mv status c =
   let mvty = Typing.meta_type sigma mv in
   let mvty = nf_meta sigma mvty in
     unify_to_type env sigma 
-      {flags with modulo_delta = flags.modulo_delta_types;
-	 modulo_conv_on_closed_terms = Some flags.modulo_delta_types;
-	 modulo_betaiota = true}
+      (set_flags_for_type flags)
       c status mvty
 
 (* Move metas that may need coercion at the end of the list of instances *)
@@ -867,7 +1223,7 @@ let w_merge env with_types flags (evd,metas,evars) =
 	if Evd.is_defined evd evk then
 	  let v = Evd.existential_value evd ev in
 	  let (evd,metas',evars'') =
-	    unify_0 curenv evd CONV (set_merge_flags flags) rhs v in
+	    unify_0 curenv evd CONV flags rhs v in
 	  w_merge_rec evd (metas'@metas) (evars''@evars') eqns
     	else begin
 	  (* This can make rhs' ill-typed if metas are *)
@@ -879,16 +1235,22 @@ let w_merge env with_types flags (evd,metas,evars) =
 	      if is_mimick_head flags.modulo_delta f then
 		let evd' =
 		  mimick_undefined_evar evd flags f (Array.length cl) evk in
-		w_merge_rec evd' metas evars eqns
+		(* let evd' = Evarconv.consider_remaining_unif_problems env evd' in *)
+		  w_merge_rec evd' metas evars eqns
 	      else
-		let evd', rhs'' = pose_all_metas_as_evars curenv evd rhs' in
-		w_merge_rec (solve_simple_evar_eqn flags.modulo_delta_types curenv evd' ev rhs'')
-		  metas evars' eqns
-
+		let evd' = 
+		  let evd', rhs'' = pose_all_metas_as_evars curenv evd rhs' in
+		    try solve_simple_evar_eqn flags.modulo_delta_types curenv evd' ev rhs''
+		    with Retyping.RetypeError _ ->
+		      error_cannot_unify curenv evd' (mkEvar ev,rhs'')
+		in w_merge_rec evd' metas evars' eqns
           | _ ->
 	      let evd', rhs'' = pose_all_metas_as_evars curenv evd rhs' in
-		w_merge_rec (solve_simple_evar_eqn flags.modulo_delta_types curenv evd' ev rhs'')
-		  metas evars' eqns
+	      let evd' = 
+		try solve_simple_evar_eqn flags.modulo_delta_types curenv evd' ev rhs''
+		with Retyping.RetypeError _ -> error_cannot_unify curenv evd' (mkEvar ev, rhs'')
+	      in
+		w_merge_rec evd' metas evars' eqns
 	end
     | [] ->
 
@@ -947,19 +1309,30 @@ let w_merge env with_types flags (evd,metas,evars) =
     let sp_env = Global.env_of_context ev.evar_hyps in
     let (evd', c) = applyHead sp_env evd nargs hdc in
     let (evd'',mc,ec) =
-      unify_0 sp_env evd' CUMUL (set_merge_flags flags)
+      unify_0 sp_env evd' CUMUL flags
         (get_type_of sp_env evd' c) ev.evar_concl in
     let evd''' = w_merge_rec evd'' mc ec [] in
     if evd' == evd'''
     then Evd.define sp c evd'''
     else Evd.define sp (Evarutil.nf_evar evd''' c) evd''' in
 
-  (* merge constraints *)
-  w_merge_rec evd (order_metas metas) (List.rev evars) []
+  let check_types evd = 
+    let metas = Evd.meta_list evd in
+    let eqns = List.fold_left (fun acc (mv, b) ->
+      match b with
+      | Clval (n, (t, (c, TypeNotProcessed)), v) -> (mv, c, t.rebus) :: acc
+      | _ -> acc) [] metas
+    in w_merge_rec evd [] [] eqns
+  in
+  let res =  (* merge constraints *)
+    w_merge_rec evd (order_metas metas) (List.rev evars) []
+  in
+    if with_types then check_types res
+    else res
 
-let w_unify_meta_types env ?(flags=default_unify_flags) evd =
+let w_unify_meta_types env ?(flags=default_unify_flags ()) evd =
   let metas,evd = retract_coercible_metas evd in
-  w_merge env true flags (evd,metas,[])
+  w_merge env true flags.merge_unify_flags (evd,metas,[])
 
 (* [w_unify env evd M N]
    performs a unification of M and N, generating a bunch of
@@ -987,34 +1360,33 @@ let check_types env flags (sigma,_,_ as subst) m n =
       (get_type_of env sigma n)
   else subst
 
-let try_resolve_typeclasses env evd flags m n =
-  if flags.resolve_evars then
-    try Typeclasses.resolve_typeclasses ~filter:Typeclasses.no_goals ~split:false
-	  ~fail:true env evd
-    with e when Typeclasses_errors.unsatisfiable_exception e ->
-      error_cannot_unify env evd (m, n)
+let try_resolve_typeclasses env evd flag m n =
+  if flag then
+    Typeclasses.resolve_typeclasses ~filter:Typeclasses.no_goals ~split:false
+      ~fail:true env evd
   else evd
 
 let w_unify_core_0 env evd with_types cv_pb flags m n =
   let (mc1,evd') = retract_coercible_metas evd in
-  let (sigma,ms,es) = check_types env flags (evd,mc1,[]) m n in
+  let (sigma,ms,es) = check_types env (set_flags_for_type flags.core_unify_flags) (evd',mc1,[]) m n in
   let subst2 =
-     unify_0_with_initial_metas (evd',ms,es) false env cv_pb flags m n
+     unify_0_with_initial_metas (sigma,ms,es) false env cv_pb
+       flags.core_unify_flags m n
   in
-  let evd = w_merge env with_types flags subst2 in
-  try_resolve_typeclasses env evd flags m n
+  let evd = w_merge env with_types flags.merge_unify_flags subst2 in
+  try_resolve_typeclasses env evd flags.resolve_evars m n
 
 let w_typed_unify env evd = w_unify_core_0 env evd true
 
 let w_typed_unify_array env evd flags f1 l1 f2 l2 =
-  let flags' = { flags with resolve_evars = false } in
   let f1,l1,f2,l2 = adjust_app_array_size f1 l1 f2 l2 in
   let (mc1,evd') = retract_coercible_metas evd in
-  let fold_subst subst m n = unify_0_with_initial_metas subst true env CONV flags' m n in
+  let fold_subst subst m n = unify_0_with_initial_metas subst true env CONV flags.core_unify_flags  m n in
   let subst = fold_subst (evd', [], []) f1 f2 in
   let subst = Array.fold_left2 fold_subst subst l1 l2 in
-  let evd = w_merge env true flags subst in
-  try_resolve_typeclasses env evd flags (mkApp(f1,l1)) (mkApp(f2,l2))
+  let evd = w_merge env true flags.merge_unify_flags subst in
+  try_resolve_typeclasses env evd flags.resolve_evars
+    (mkApp(f1,l1)) (mkApp(f2,l2))
 
 (* takes a substitution s, an open term op and a closed term cl
    try to find a subterm of cl which matches op, if op is just a Meta
@@ -1029,15 +1401,236 @@ let iter_fail f a =
       with ex when precatchable_exception ex -> ffail (i+1)
   in ffail 0
 
+(* make_abstraction: a variant of w_unify_to_subterm which works on
+   contexts, with evars, and possibly with occurrences *)
+
+let indirectly_dependent c d decls =
+  not (isVar c) &&
+    (* This test is not needed if the original term is a variable, but
+       it is needed otherwise, as e.g. when abstracting over "2" in
+       "forall H:0=2, H=H:>(0=1+1) -> 0=2." where there is now obvious
+       way to see that the second hypothesis depends indirectly over 2 *)
+    List.exists (fun (id,_,_) -> dependent_in_decl (mkVar id) d) decls
+
+let indirect_dependency d decls =
+  pi1 (List.hd (List.filter (fun (id,_,_) -> dependent_in_decl (mkVar id) d) decls))
+
+let finish_evar_resolution ?(flags=Pretyping.all_and_fail_flags) env current_sigma (pending,c) =
+  let sigma = Pretyping.solve_remaining_evars flags env current_sigma pending in
+  let sigma, subst = nf_univ_variables sigma in
+  sigma, subst_univs_constr subst (nf_evar sigma c)
+
+let default_matching_core_flags sigma =
+  let ts = Names.full_transparent_state in {
+  modulo_conv_on_closed_terms = Some empty_transparent_state;
+  use_metas_eagerly_in_conv_on_closed_terms = false;
+  use_evars_eagerly_in_conv_on_closed_terms = false;
+  modulo_delta = empty_transparent_state;
+  modulo_delta_types = ts;
+  check_applied_meta_types = true;
+  use_pattern_unification = false;
+  use_meta_bound_pattern_unification = false;
+  frozen_evars =
+    fold_undefined (fun evk _ evars -> Evar.Set.add evk evars)
+      sigma Evar.Set.empty;
+  restrict_conv_on_strict_subterms = false;
+  modulo_betaiota = false;
+  modulo_eta = false;
+}
+
+let default_matching_merge_flags sigma =
+  let ts = Names.full_transparent_state in
+  let flags = default_matching_core_flags sigma in {
+  flags with
+    modulo_conv_on_closed_terms = Some ts;
+    modulo_delta = ts;
+    modulo_betaiota = true;
+    modulo_eta = true;
+    use_pattern_unification = true;
+}
+
+let default_matching_flags (sigma,_) =
+  let flags = default_matching_core_flags sigma in {
+  core_unify_flags = flags;
+  merge_unify_flags = default_matching_merge_flags sigma;
+  subterm_unify_flags = flags; (* does not matter *)
+  resolve_evars = false;
+  allow_K_in_toplevel_higher_order_unification = false;
+}
+
+(* This supports search of occurrences of term from a pattern *)
+(* from_prefix is useful e.g. for subterms in an inductive type: we can say *)
+(* "destruct t" and it finds "t u" *)
+
+exception PatternNotFound
+
+let make_pattern_test from_prefix_of_ind is_correct_type env sigma (pending,c) =
+  let flags =
+    if from_prefix_of_ind then
+      let flags = default_matching_flags pending in
+      { flags with core_unify_flags = { flags.core_unify_flags with
+        modulo_conv_on_closed_terms = Some Names.full_transparent_state;
+        restrict_conv_on_strict_subterms = true } }
+    else default_matching_flags pending in
+  let n = List.length (snd (decompose_app c)) in
+  let matching_fun _ t =
+    try
+      let t',l2 =
+        if from_prefix_of_ind then
+          (* We check for fully applied subterms of the form "u u1 .. un" *)
+          (* of inductive type knowing only a prefix "u u1 .. ui" *)
+          let t,l = decompose_app t in
+          let l1,l2 =
+            try List.chop n l with Failure _ -> raise (NotUnifiable None) in
+          if not (List.for_all closed0 l2) then raise (NotUnifiable None)
+          else
+            applist (t,l1), l2
+        else t, [] in
+      let sigma = w_typed_unify env sigma Reduction.CONV flags c t' in
+      let ty = Retyping.get_type_of env sigma t in
+      if not (is_correct_type ty) then raise (NotUnifiable None);
+      Some(sigma, t, l2)
+    with
+    | PretypeError (_,_,CannotUnify (c1,c2,Some e)) ->
+        raise (NotUnifiable (Some (c1,c2,e)))
+    (** MS: This is pretty bad, it catches Not_found for example *)
+    | e when Errors.noncritical e -> raise (NotUnifiable None) in
+  let merge_fun c1 c2 =
+    match c1, c2 with
+    | Some (evd,c1,_) as x, Some (_,c2,_) ->
+      if is_conv env sigma c1 c2 then x else raise (NotUnifiable None)
+    | Some _, None -> c1
+    | None, Some _ -> c2
+    | None, None -> None in
+  { match_fun = matching_fun; merge_fun = merge_fun;
+    testing_state = None; last_found = None },
+  (fun test -> match test.testing_state with
+  | None -> None
+  | Some (sigma,_,l) ->
+     let c = applist (nf_evar sigma (local_strong whd_meta sigma c),l) in
+     let univs, subst = nf_univ_variables sigma in
+     Some (sigma,subst_univs_constr subst c))
+
+let make_eq_test env evd c =
+  let out cstr =
+    match cstr.last_found with None -> None | _ -> Some (cstr.testing_state, c)
+  in
+  (make_eq_univs_test env evd c, out)
+
+let make_abstraction_core name (test,out) env sigma c ty occs check_occs concl =
+  let id =
+    let t = match ty with Some t -> t | None -> get_type_of env sigma c in
+    let x = id_of_name_using_hdchar (Global.env()) t name in
+    let ids = ids_of_named_context (named_context env) in
+    if name == Anonymous then next_ident_away_in_goal x ids else
+    if mem_named_context x (named_context env) then
+      error ("The variable "^(Id.to_string x)^" is already declared.")
+    else
+      x
+  in
+  let likefirst = clause_with_generic_occurrences occs in
+  let mkvarid () = mkVar id in
+  let compute_dependency _ (hyp,_,_ as d) (sign,depdecls) =
+    match occurrences_of_hyp hyp occs with
+    | NoOccurrences, InHyp ->
+        if indirectly_dependent c d depdecls then
+          (* Told explicitly not to abstract over [d], but it is dependent *)
+          let id' = indirect_dependency d depdecls in
+          errorlabstrm "" (str "Cannot abstract over " ++ Nameops.pr_id id'
+            ++ str " without also abstracting or erasing " ++ Nameops.pr_id hyp
+            ++ str ".")
+        else
+          (push_named_context_val d sign,depdecls)
+    | AllOccurrences, InHyp as occ ->
+        let occ = if likefirst then LikeFirst else AtOccs occ in
+        let newdecl = replace_term_occ_decl_modulo occ test mkvarid d in
+        if Context.eq_named_declaration d newdecl
+           && not (indirectly_dependent c d depdecls)
+        then
+          if check_occs && not (in_every_hyp occs)
+          then raise (PretypeError (env,sigma,NoOccurrenceFound (c,Some hyp)))
+          else (push_named_context_val d sign, depdecls)
+        else
+          (push_named_context_val newdecl sign, newdecl :: depdecls)
+    | occ ->
+        (* There are specific occurrences, hence not like first *)
+        let newdecl = replace_term_occ_decl_modulo (AtOccs occ) test mkvarid d in
+        (push_named_context_val newdecl sign, newdecl :: depdecls) in
+  try
+    let sign,depdecls =
+      fold_named_context compute_dependency env
+        ~init:(empty_named_context_val,[]) in
+    let ccl = match occurrences_of_goal occs with
+      | NoOccurrences -> concl
+      | occ ->
+          let occ = if likefirst then LikeFirst else AtOccs occ in
+          replace_term_occ_modulo occ test mkvarid concl
+    in
+    let lastlhyp =
+      if List.is_empty depdecls then None else Some (pi1(List.last depdecls)) in
+    (id,sign,depdecls,lastlhyp,ccl,out test)
+  with
+    SubtermUnificationError e ->
+      raise (PretypeError (env,sigma,CannotUnifyOccurrences e))
+
+(** [make_abstraction] is the main entry point to abstract over a term
+    or pattern at some occurrences; it returns:
+    - the id used for the abstraction
+    - the type of the abstraction
+    - the declarations from the context which depend on the term or pattern
+    - the most recent hyp before which there is no dependency in the term of pattern
+    - the abstracted conclusion
+    - an evar universe context effect to apply on the goal
+    - the term or pattern to abstract fully instantiated
+*)
+
+type prefix_of_inductive_support_flag = bool
+
+type abstraction_request =
+| AbstractPattern of prefix_of_inductive_support_flag * (types -> bool) * Name.t * pending_constr * clause * bool
+| AbstractExact of Name.t * constr * types option * clause * bool
+
+type abstraction_result =
+  Names.Id.t * named_context_val *
+    Context.named_declaration list * Names.Id.t option *
+    types * (Evd.evar_map * constr) option
+
+let make_abstraction env evd ccl abs =
+  match abs with
+  | AbstractPattern (from_prefix,check,name,c,occs,check_occs) ->
+      make_abstraction_core name
+        (make_pattern_test from_prefix check env evd c)
+        env evd (snd c) None occs check_occs ccl
+  | AbstractExact (name,c,ty,occs,check_occs) ->
+      make_abstraction_core name
+        (make_eq_test env evd c)
+        env evd c ty occs check_occs ccl
+
+let keyed_unify env evd kop = 
+  if not !keyed_unification then fun cl -> true
+  else 
+    match kop with 
+    | None -> fun _ -> true
+    | Some kop ->
+      fun cl ->
+	let kc = Keys.constr_key cl in
+	  match kc with
+	  | None -> false
+	  | Some kc -> Keys.equiv_keys kop kc
+
 (* Tries to find an instance of term [cl] in term [op].
    Unifies [cl] to every subterm of [op] until it finds a match.
    Fails if no match is found *)
-let w_unify_to_subterm env evd ?(flags=default_unify_flags) (op,cl) =
+let w_unify_to_subterm env evd ?(flags=default_unify_flags ()) (op,cl) =
+  let bestexn = ref None in
+  let kop = Keys.constr_key op in
   let rec matchrec cl =
     let cl = strip_outer_cast cl in
     (try
-       if closed0 cl && not (isEvar cl)
-       then w_typed_unify env evd CONV flags op cl,cl
+       if closed0 cl && not (isEvar cl) && keyed_unify env evd kop cl then
+	 (try w_typed_unify env evd CONV flags op cl,cl
+	  with ex when Pretype_errors.unsatisfiable_exception ex ->
+	    bestexn := Some ex; error "Unsat")
        else error "Bound 1"
      with ex when precatchable_exception ex ->
        (match kind_of_term cl with
@@ -1060,6 +1653,8 @@ let w_unify_to_subterm env evd ?(flags=default_unify_flags) (op,cl) =
 		 matchrec c1
 	       with ex when precatchable_exception ex ->
 		 matchrec c2)
+
+	  | Proj (p,c) -> matchrec c
 
 	  | Fix(_,(_,types,terms)) ->
 	       (try
@@ -1087,15 +1682,17 @@ let w_unify_to_subterm env evd ?(flags=default_unify_flags) (op,cl) =
   in
   try matchrec cl
   with ex when precatchable_exception ex ->
-    raise (PretypeError (env,evd,NoOccurrenceFound (op, None)))
+    match !bestexn with
+    | None -> raise (PretypeError (env,evd,NoOccurrenceFound (op, None)))
+    | Some e -> raise e
 
 (* Tries to find all instances of term [cl] in term [op].
    Unifies [cl] to every subterm of [op] and return all the matches.
    Fails if no match is found *)
-let w_unify_to_subterm_all env evd ?(flags=default_unify_flags) (op,cl) =
+let w_unify_to_subterm_all env evd ?(flags=default_unify_flags ()) (op,cl) =
   let return a b =
     let (evd,c as a) = a () in
-      if List.exists (fun (evd',c') -> eq_constr c c') b then b else a :: b
+      if List.exists (fun (evd',c') -> Term.eq_constr c c') b then b else a :: b
   in
   let fail str _ = error str in
   let bind f g a =
@@ -1130,6 +1727,8 @@ let w_unify_to_subterm_all env evd ?(flags=default_unify_flags) (op,cl) =
             | Case(_,_,c,lf) -> (* does not search in the predicate *)
 		bind (matchrec c) (bind_iter matchrec lf)
 
+	    | Proj (p,c) -> matchrec c
+
 	    | LetIn(_,c1,_,c2) ->
 		bind (matchrec c1) (matchrec c2)
 
@@ -1160,43 +1759,57 @@ let w_unify_to_subterm_list env evd flags hdmeta oplist t =
       if isMeta op then
 	if flags.allow_K_in_toplevel_higher_order_unification then (evd,op::l)
 	else error_abstraction_over_meta env evd hdmeta (destMeta op)
-      else if occur_meta_or_existential op then
+      else
+        let allow_K = flags.allow_K_in_toplevel_higher_order_unification in
+        let flags =
+          if occur_meta_or_existential op || !keyed_unification then
+            flags
+          else
+            (* up to Nov 2014, unification was bypassed on evar/meta-free terms;
+               now it is called in a minimalistic way, at least to possibly
+               unify pre-existing non frozen evars of the goal or of the
+               pattern *)
+            set_no_delta_flags flags in
         let (evd',cl) =
           try
 	    (* This is up to delta for subterms w/o metas ... *)
 	    w_unify_to_subterm env evd ~flags (strip_outer_cast op,t)
-	  with PretypeError (env,_,NoOccurrenceFound _) when
-              flags.allow_K_in_toplevel_higher_order_unification -> (evd,op)
+	  with PretypeError (env,_,NoOccurrenceFound _) when allow_K -> (evd,op)
         in
-	  if not flags.allow_K_in_toplevel_higher_order_unification &&
+	  if not allow_K &&
             (* ensure we found a different instance *)
-	    List.exists (fun op -> eq_constr op cl) l
+	    List.exists (fun op -> Term.eq_constr op cl) l
 	  then error_non_linear_unification env evd hdmeta cl
-	  else (evd',cl::l)
-      else if flags.allow_K_in_toplevel_higher_order_unification || dependent op t
-      then
-	(evd,op::l)
-      else
-	(* This is not up to delta ... *)
-	raise (PretypeError (env,evd,NoOccurrenceFound (op, None))))
+	  else (evd',cl::l))
     oplist
     (evd,[])
 
 let secondOrderAbstraction env evd flags typ (p, oplist) =
   (* Remove delta when looking for a subterm *)
-  let flags = { flags with modulo_delta = (fst flags.modulo_delta, Cpred.empty) } in
+  let flags = { flags with core_unify_flags = flags.subterm_unify_flags } in
   let (evd',cllist) = w_unify_to_subterm_list env evd flags p oplist typ in
   let typp = Typing.meta_type evd' p in
-  let pred,predtyp = abstract_list_all env evd' typp typ cllist in
-  if not (is_conv_leq env evd predtyp typp) then
-    error_wrong_abstraction_type env evd
+  let evd',(pred,predtyp) = abstract_list_all env evd' typp typ cllist in
+  let evd', b = infer_conv ~pb:CUMUL env evd' predtyp typp in
+  if not b then
+    error_wrong_abstraction_type env evd'
       (Evd.meta_name evd p) pred typp predtyp;
-  w_merge env false flags (evd',[p,pred,(Conv,TypeProcessed)],[])
+  w_merge env false flags.merge_unify_flags
+    (evd',[p,pred,(Conv,TypeProcessed)],[])
+
+  (* let evd',metas,evars =  *)
+  (*   try unify_0 env evd' CUMUL flags predtyp typp  *)
+  (*   with NotConvertible -> *)
+  (*     error_wrong_abstraction_type env evd *)
+  (*       (Evd.meta_name evd p) pred typp predtyp *)
+  (* in *)
+  (*   w_merge env false flags (evd',(p,pred,(Conv,TypeProcessed))::metas,evars) *)
 
 let secondOrderDependentAbstraction env evd flags typ (p, oplist) =
   let typp = Typing.meta_type evd p in
-  let pred = abstract_list_all_with_dependencies env evd typp typ oplist in
-  w_merge env false flags (evd,[p,pred,(Conv,TypeProcessed)],[])
+  let evd, pred = abstract_list_all_with_dependencies env evd typp typ oplist in
+  w_merge env false flags.merge_unify_flags
+    (evd,[p,pred,(Conv,TypeProcessed)],[])
 
 let secondOrderAbstractionAlgo dep =
   if dep then secondOrderDependentAbstraction else secondOrderAbstraction
@@ -1233,7 +1846,7 @@ let w_unify2 env evd flags dep cv_pb ty1 ty2 =
    Before, second-order was used if the type of Meta(1) and [x:A]t was
    convertible and first-order otherwise. But if failed if e.g. the type of
    Meta(1) had meta-variables in it. *)
-let w_unify env evd cv_pb ?(flags=default_unify_flags) ty1 ty2 =
+let w_unify env evd cv_pb ?(flags=default_unify_flags ()) ty1 ty2 =
   let hd1,l1 = decompose_appvect (whd_nored evd ty1) in
   let hd2,l2 = decompose_appvect (whd_nored evd ty2) in
   let is_empty1 = Array.is_empty l1 in
@@ -1267,3 +1880,17 @@ let w_unify env evd cv_pb ?(flags=default_unify_flags) ty1 ty2 =
 
       (* General case: try first order *)
       | _ -> w_typed_unify env evd cv_pb flags ty1 ty2
+
+(* Profiling *)
+
+let w_unify env evd cv_pb flags ty1 ty2 =
+  w_unify env evd cv_pb ~flags:flags ty1 ty2
+
+let w_unify = 
+  if Flags.profile then
+    let wunifkey = Profile.declare_profile "w_unify" in
+      Profile.profile6 wunifkey w_unify
+  else w_unify
+
+let w_unify env evd cv_pb ?(flags=default_unify_flags ()) ty1 ty2 =
+  w_unify env evd cv_pb flags ty1 ty2

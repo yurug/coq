@@ -1,6 +1,6 @@
 (************************************************************************)
 (*  v      *   The Coq Proof Assistant  /  The Coq Development Team     *)
-(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2012     *)
+(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2015     *)
 (*   \VV/  **************************************************************)
 (*    //   *      This file is distributed under the terms of the       *)
 (*         *       GNU Lesser General Public License Version 2.1        *)
@@ -54,7 +54,7 @@ sig
   module Unsafe :
   sig
     val map : (key -> 'a -> key * 'b) -> 'a t -> 'b t
-    (** As the usual [map], but also allows to modify the key of a binding.
+    (** As the usual [map], but also allows modifying the key of a binding.
         It is required that the mapping function [f] preserves key equality,
         i.e.: for all (k : key) (x : 'a), compare (fst (f k x)) k = 0. *)
   end

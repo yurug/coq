@@ -1,6 +1,6 @@
 (************************************************************************)
 (*  v      *   The Coq Proof Assistant  /  The Coq Development Team     *)
-(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2012     *)
+(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2015     *)
 (*   \VV/  **************************************************************)
 (*    //   *      This file is distributed under the terms of the       *)
 (*         *       GNU Lesser General Public License Version 2.1        *)
@@ -262,10 +262,8 @@ let firstchar =
   '\195' ['\152'-'\182'] |
   '\195' ['\184'-'\191'] |
   (* utf-8 letterlike symbols *)
-  (* '\206' ([ '\145' - '\183'] | '\187') | *)
-  (* '\xCF' [ '\x00' - '\xCE' ] |  *)
-  (* utf-8 letterlike symbols *)
-  '\206' (['\145'-'\161'] | ['\163'-'\187']) |
+  '\206' (['\145'-'\161'] | ['\163'-'\191']) |
+  '\207' (['\145'-'\191']) |
   '\226' ('\130' [ '\128'-'\137' ] (* subscripts *)
     | '\129' [ '\176'-'\187' ] (* superscripts *)
     | '\132' ['\128'-'\191'] | '\133' ['\128'-'\143'])
@@ -313,6 +311,7 @@ let def_token =
   | "Boxed"
   | "CoFixpoint"
   | "Record"
+  | "Variant"
   | "Structure"
   | "Scheme"
   | "Inductive"
@@ -894,11 +893,15 @@ and doc indents = parse
 and escaped_math_latex = parse
   | "$" { Output.stop_latex_math () }
   | eof { Output.stop_latex_math () }
+  | "*)"
+        { Output.stop_latex_math (); backtrack lexbuf }
   | _   { Output.latex_char (lexeme_char lexbuf 0); escaped_math_latex lexbuf }
 
 and escaped_latex = parse
   | "%" { () }
   | eof { () }
+  | "*)"
+        { backtrack lexbuf }
   | _   { Output.latex_char (lexeme_char lexbuf 0); escaped_latex lexbuf }
 
 and escaped_html = parse
@@ -908,6 +911,8 @@ and escaped_html = parse
   | "##"
         { Output.html_char '#'; escaped_html lexbuf }
   | eof { () }
+  | "*)"
+        { backtrack lexbuf }
   | _   { Output.html_char (lexeme_char lexbuf 0); escaped_html lexbuf }
 
 and verbatim inline = parse

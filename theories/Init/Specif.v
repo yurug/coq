@@ -1,6 +1,6 @@
 (************************************************************************)
 (*  v      *   The Coq Proof Assistant  /  The Coq Development Team     *)
-(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2012     *)
+(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2015     *)
 (*   \VV/  **************************************************************)
 (*    //   *      This file is distributed under the terms of the       *)
 (*         *       GNU Lesser General Public License Version 2.1        *)
@@ -65,7 +65,7 @@ Add Printing Let sigT2.
     [(proj1_sig y)] is the witness [a] and [(proj2_sig y)] is the
     proof of [(P a)] *)
 
-
+(* Set Universe Polymorphism. *)
 Section Subset_projections.
 
   Variable A : Type.
@@ -123,6 +123,8 @@ End Subset_projections2.
     [(projT1 x)] is the first projection and [(projT2 x)] is the
     second projection, the type of which depends on the [projT1]. *)
 
+
+
 Section Projections.
 
   Variable A : Type.
@@ -131,6 +133,7 @@ Section Projections.
   Definition projT1 (x:sigT P) : A := match x with
                                       | existT _ a _ => a
                                       end.
+
   Definition projT2 (x:sigT P) : P (projT1 x) :=
     match x return P (projT1 x) with
     | existT _ _ h => h
@@ -212,6 +215,8 @@ Add Printing If sumor.
 Arguments inleft {A B} _ , [A] B _.
 Arguments inright {A B} _ , A [B] _.
 
+(* Unset Universe Polymorphism. *)
+
 (** Various forms of the axiom of choice for specifications *)
 
 Section Choice_lemmas.
@@ -257,10 +262,10 @@ Section Dependent_choice_lemmas.
     (forall x:X, {y | R x y}) ->
     forall x0, {f : nat -> X | f O = x0 /\ forall n, R (f n) (f (S n))}.
   Proof.
-    intros H x0.
+    intros H x0. 
     set (f:=fix f n := match n with O => x0 | S n' => proj1_sig (H (f n')) end).
     exists f.
-    split. reflexivity.
+    split. reflexivity. 
     induction n; simpl; apply proj2_sig.
   Defined.
 
@@ -273,12 +278,14 @@ End Dependent_choice_lemmas.
      [Inductive Exc [A:Type] : Type := value : A->(Exc A) | error : (Exc A)].
 
      It is implemented using the option type. *)
+Section Exc.
+  Variable A : Type.
 
-Definition Exc := option.
-Definition value := Some.
-Definition error := @None.
-
-Arguments error [A].
+  Definition Exc := option A.
+  Definition value := @Some A.
+  Definition error := @None A.
+End Exc.
+Arguments error {A}.
 
 Definition except := False_rec. (* for compatibility with previous versions *)
 

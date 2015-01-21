@@ -1,6 +1,6 @@
 (************************************************************************)
 (*  v      *   The Coq Proof Assistant  /  The Coq Development Team     *)
-(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2012     *)
+(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2015     *)
 (*   \VV/  **************************************************************)
 (*    //   *      This file is distributed under the terms of the       *)
 (*         *       GNU Lesser General Public License Version 2.1        *)
@@ -107,7 +107,7 @@ open Names
 open Term
 open Pattern
 open Patternops
-open ConstrMatching
+open Constr_matching
 open Tacmach
 (*i*)
 
@@ -196,9 +196,9 @@ let coerce_meta_in n =
 
 let compute_lhs typ i nargsi =
   match kind_of_term typ with
-    | Ind(sp,0) ->
+    | Ind((sp,0),u) ->
         let argsi = Array.init nargsi (fun j -> mkMeta (nargsi - j)) in
-        mkApp (mkConstruct ((sp,0),i+1), argsi)
+        mkApp (mkConstructU (((sp,0),i+1),u), argsi)
     | _ -> i_can't_do_that ()
 
 (*s This function builds the pattern from the RHS. Recursive calls are
@@ -211,9 +211,9 @@ let compute_rhs bodyi index_of_f =
           let i = destRel (Array.last args) in
 	  PMeta (Some (coerce_meta_in i))
       | App (f,args) ->
-          PApp (snd (pattern_of_constr Evd.empty f), Array.map aux args)
+          PApp (snd (pattern_of_constr (Global.env()) Evd.empty f), Array.map aux args)
       | Cast (c,_,_) -> aux c
-      | _ -> snd (pattern_of_constr Evd.empty c)
+      | _ -> snd (pattern_of_constr (Global.env())(*FIXME*) Evd.empty c)
   in
   aux bodyi
 
@@ -221,7 +221,7 @@ let compute_rhs bodyi index_of_f =
 
 let compute_ivs f cs gl =
   let cst = try destConst f with DestKO -> i_can't_do_that () in
-  let body = Environ.constant_value (Global.env()) cst in
+  let body = Environ.constant_value_in (Global.env()) cst in
   match decomp_term body with
     | Fix(([| len |], 0), ([| name |], [| typ |], [| body2 |])) ->
         let (args3, body3) = decompose_lam body2 in
@@ -401,7 +401,7 @@ let quote_terms ivs lc =
       match l with
         | (lhs, rhs)::tail ->
             begin try
-              let s1 = Id.Map.bindings (matches rhs c) in
+              let s1 = Id.Map.bindings (matches (Global.env ()) Evd.empty rhs c) in
               let s2 = List.map (fun (i,c_i) -> (coerce_meta_out i,aux c_i)) s1
 	      in
               Termops.subst_meta s2 lhs
@@ -446,7 +446,7 @@ let quote_terms ivs lc =
   yet. *)
 
 let quote f lid =
-  Proofview.Goal.enter begin fun gl ->
+  Proofview.Goal.nf_enter begin fun gl ->
     let f = Tacmach.New.pf_global f gl in
     let cl = List.map (fun id -> Tacmach.New.pf_global id gl) lid in
     let ivs = compute_ivs f cl gl in
@@ -457,12 +457,12 @@ let quote f lid =
       | _ -> assert false
     in
     match ivs.variable_lhs with
-    | None -> Proofview.V82.tactic (Tactics.convert_concl (mkApp (f, [| p |])) DEFAULTcast)
-    | Some _ -> Proofview.V82.tactic (Tactics.convert_concl (mkApp (f, [| vm; p |])) DEFAULTcast)
+    | None -> Tactics.convert_concl (mkApp (f, [| p |])) DEFAULTcast
+    | Some _ -> Tactics.convert_concl (mkApp (f, [| vm; p |])) DEFAULTcast
   end
 
 let gen_quote cont c f lid =
-  Proofview.Goal.enter begin fun gl ->
+  Proofview.Goal.nf_enter begin fun gl ->
   let f = Tacmach.New.pf_global f gl in
   let cl = List.map (fun id -> Tacmach.New.pf_global id gl) lid in
   let ivs = compute_ivs f cl gl in

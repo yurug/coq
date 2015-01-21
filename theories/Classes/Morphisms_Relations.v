@@ -1,6 +1,6 @@
 (************************************************************************)
 (*  v      *   The Coq Proof Assistant  /  The Coq Development Team     *)
-(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2012     *)
+(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2015     *)
 (*   \VV/  **************************************************************)
 (*    //   *      This file is distributed under the terms of the       *)
 (*         *       GNU Lesser General Public License Version 2.1        *)
@@ -30,8 +30,6 @@ Instance relation_disjunction_morphism : Proper (relation_equivalence (A:=A) ==>
 
 (* Predicate equivalence is exactly the same as the pointwise lifting of [iff]. *)
 
-Require Import List.
-
 Lemma predicate_equivalence_pointwise (l : Tlist) :
   Proper (@predicate_equivalence l ==> pointwise_lifting iff l) id.
 Proof. do 2 red. unfold predicate_equivalence. auto. Qed.
@@ -40,7 +38,7 @@ Lemma predicate_implication_pointwise (l : Tlist) :
   Proper (@predicate_implication l ==> pointwise_lifting impl l) id.
 Proof. do 2 red. unfold predicate_implication. auto. Qed.
 
-(** The instanciation at relation allows to rewrite applications of relations
+(** The instantiation at relation allows rewriting applications of relations
     [R x y] to [R' x y]  when [R] and [R'] are in [relation_equivalence]. *)
 
 Instance relation_equivalence_pointwise :
@@ -52,6 +50,6 @@ Instance subrelation_pointwise :
 Proof. intro. apply (predicate_implication_pointwise (Tcons A (Tcons A Tnil))). Qed.
 
 
-Lemma inverse_pointwise_relation A (R : relation A) :
-  relation_equivalence (pointwise_relation A (inverse R)) (inverse (pointwise_relation A R)).
+Lemma flip_pointwise_relation A (R : relation A) :
+  relation_equivalence (pointwise_relation A (flip R)) (flip (pointwise_relation A R)).
 Proof. intros. split; firstorder. Qed.

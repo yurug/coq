@@ -1,6 +1,6 @@
 (************************************************************************)
 (*  v      *   The Coq Proof Assistant  /  The Coq Development Team     *)
-(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2013     *)
+(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2015     *)
 (*   \VV/  **************************************************************)
 (*    //   *      This file is distributed under the terms of the       *)
 (*         *       GNU Lesser General Public License Version 2.1        *)
@@ -49,17 +49,19 @@ let eq_rec_pos = Array.equal Int.equal
 
 type atom = 
   | Arel of int
-  | Aconstant of constant
-  | Aind of inductive
+  | Aconstant of pconstant
+  | Aind of pinductive
   | Asort of sorts
   | Avar of identifier
   | Acase of annot_sw * accumulator * t * (t -> t)
-  | Afix of  t array * t array * rec_pos * int
+  | Afix of t array * t array * rec_pos * int
+            (* types, bodies, rec_pos, pos *)
   | Acofix of t array * t array * int * t
   | Acofixe of t array * t array * int * t
   | Aprod of name * t * (t -> t)
   | Ameta of metavariable * t
   | Aevar of existential * t
+  | Aproj of constant * accumulator
 
 let accumulate_tag = 0
 
@@ -104,14 +106,19 @@ let mk_rels_accu lvl len =
 let napply (f:t) (args: t array) =
   Array.fold_left (fun f a -> f a) f args
 
-let mk_constant_accu kn = 
-  mk_accu (Aconstant kn)
+let mk_constant_accu kn u = 
+  mk_accu (Aconstant (kn,Univ.Instance.of_array u))
 
-let mk_ind_accu s = 
-  mk_accu (Aind s)
+let mk_ind_accu ind u = 
+  mk_accu (Aind (ind,Univ.Instance.of_array u))
 
-let mk_sort_accu s =
-  mk_accu (Asort s)
+let mk_sort_accu s u =
+  match s with
+  | Prop _ -> mk_accu (Asort s)
+  | Type s ->
+     let u = Univ.Instance.of_array u in
+     let s = Univ.subst_instance_universe u s in
+     mk_accu (Asort (Type s))
 
 let mk_var_accu id = 
   mk_accu (Avar id)
@@ -127,6 +134,9 @@ let mk_meta_accu mv ty =
 
 let mk_evar_accu ev ty =
   mk_accu (Aevar (ev,ty))
+
+let mk_proj_accu kn c = 
+  mk_accu (Aproj (kn,c))
 
 let atom_of_accu (k:accumulator) =
   (Obj.magic (Obj.field (Obj.magic k) 2) : atom)
@@ -480,7 +490,7 @@ let compare accu x y =
   if is_int x && is_int y then no_check_compare x y
   else accu x y
 
-let hobcnv = Array.init 256 (fun i -> Printf.sprintf "%.2x" i)
+let hobcnv = Array.init 256 (fun i -> Printf.sprintf "%02x" i)
 let bohcnv = Array.init 256 (fun i -> i -
                                       (if 0x30 <= i then 0x30 else 0) -
                                       (if 0x41 <= i then 0x7 else 0) -

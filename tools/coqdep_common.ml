@@ -1,6 +1,6 @@
 (************************************************************************)
 (*  v      *   The Coq Proof Assistant  /  The Coq Development Team     *)
-(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2012     *)
+(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2015     *)
 (*   \VV/  **************************************************************)
 (*    //   *      This file is distributed under the terms of the       *)
 (*         *       GNU Lesser General Public License Version 2.1        *)
@@ -23,6 +23,7 @@ let stdout = Pervasives.stdout
 let option_c = ref false
 let option_noglob = ref false
 let option_natdynlk = ref true
+let option_boot = ref false
 let option_mldep = ref None
 
 let norec_dirs = ref ([] : string list)
@@ -85,10 +86,10 @@ let vAccu   = ref ([] : (string * string) list)
 
 let addQueue q v = q := v :: !q
 
-let safe_hash_add clq q (k,v) =
+let safe_hash_add cmp clq q (k,v) =
   try
     let v2 = Hashtbl.find q k in
-    if v<>v2 then
+    if not (cmp v v2) then
       let rec add_clash = function
           (k1,l1)::cltl when k=k1 -> (k1,v::l1)::cltl
         | cl::cltl -> cl::add_clash cltl
@@ -102,12 +103,21 @@ let safe_hash_add clq q (k,v) =
     For the ML files, the string is the basename without extension.
 *)
 
+let warning_ml_clash x s suff s' suff' =
+  if suff = suff' then
+  eprintf
+    "*** Warning: %s%s already found in %s (discarding %s%s)\n" x suff
+    (match s with None -> "." | Some d -> d)
+    ((match s' with None -> "." | Some d -> d) // x) suff
+
 let mkknown () =
-  let h = (Hashtbl.create 19 : (string, dir) Hashtbl.t) in
-  let add x s = if Hashtbl.mem h x then () else Hashtbl.add h x s
-  and iter f = Hashtbl.iter f h
+  let h = (Hashtbl.create 19 : (string, dir * string) Hashtbl.t) in
+  let add x s suff =
+    try let s',suff' = Hashtbl.find h x in warning_ml_clash x s' suff' s suff
+    with Not_found -> Hashtbl.add h x (s,suff)
+  and iter f = Hashtbl.iter (fun x (s,_) -> f x s) h
   and search x =
-    try Some (Hashtbl.find h x)
+    try Some (fst (Hashtbl.find h x))
     with Not_found -> None
   in add, iter, search
 
@@ -127,7 +137,7 @@ let error_cannot_parse s (i,j) =
 
 let warning_module_notfound f s =
   eprintf "*** Warning: in file %s, library " f;
-  eprintf "%s.v is required and has not been found in loadpath!\n"
+  eprintf "%s.v is required and has not been found in the loadpath!\n"
     (String.concat "." s);
   flush stderr
 
@@ -288,6 +298,9 @@ let escape =
     done;
     Buffer.contents s'
 
+let compare_file f1 f2 =
+  absolute_dir (Filename.dirname f1) = absolute_dir (Filename.dirname f2)
+
 let canonize f =
   let f' = absolute_dir (Filename.dirname f) // Filename.basename f in
   match List.filter (fun (_,full) -> f' = full) !vAccu with
@@ -415,8 +428,8 @@ let coq_dependencies () =
        printf "%s%s%s %s.v.beautified: %s.v" ename !suffixe glob ename ename;
        traite_fichier_Coq !suffixe true (name ^ ".v");
        printf "\n";
-       printf "%s.vi: %s.v" ename ename;
-       traite_fichier_Coq ".vi" true (name ^ ".v");
+       printf "%s.vio: %s.v" ename ename;
+       traite_fichier_Coq ".vio" true (name ^ ".v");
        printf "\n";
        flush stdout)
     (List.rev !vAccu)
@@ -426,18 +439,28 @@ let rec suffixes = function
   | [name] -> [[name]]
   | dir::suffix as l -> l::suffixes suffix
 
-let add_known phys_dir log_dir f =
-  match get_extension f [".v";".ml";".mli";".ml4";".mllib";".mlpack"] with
+let add_caml_known phys_dir _ f =
+  let basename,suff =
+    get_extension f [".ml";".mli";".ml4";".mllib";".mlpack"] in
+  match suff with
+    | ".ml"|".ml4" -> add_ml_known basename (Some phys_dir) suff
+    | ".mli" -> add_mli_known basename (Some phys_dir) suff
+    | ".mllib" -> add_mllib_known basename (Some phys_dir) suff
+    | ".mlpack" -> add_mlpack_known basename (Some phys_dir) suff
+    | _ -> ()
+
+let add_known recur phys_dir log_dir f =
+  match get_extension f [".v";".vo"] with
     | (basename,".v") ->
 	let name = log_dir@[basename] in
 	let file = phys_dir//basename in
-	let paths = suffixes name in
+	let paths = if recur then suffixes name else [name] in
 	List.iter
-	  (fun n -> safe_hash_add clash_v vKnown (n,file)) paths
-    | (basename,(".ml"|".ml4")) -> add_ml_known basename (Some phys_dir)
-    | (basename,".mli") -> add_mli_known basename (Some phys_dir)
-    | (basename,".mllib") -> add_mllib_known basename (Some phys_dir)
-    | (basename,".mlpack") -> add_mlpack_known basename (Some phys_dir)
+	  (fun n -> safe_hash_add compare_file clash_v vKnown (n,file)) paths
+    | (basename,".vo") when not(!option_boot) ->
+        let name = log_dir@[basename] in
+	let paths = if recur then suffixes name else [name] in
+        List.iter (fun f -> Hashtbl.add coqlibKnown f ()) paths
     | _ -> ()
 
 (* Visits all the directories under [dir], including [dir],
@@ -464,11 +487,18 @@ let rec add_directory recur add_file phys_dir log_dir =
     done
   with End_of_file -> closedir dirh
 
+(** -Q semantic: go in subdirs but only full logical paths are known. *)
 let add_dir add_file phys_dir log_dir =
-  try add_directory false add_file phys_dir log_dir with Unix_error _ -> ()
+  try add_directory true (add_file false) phys_dir log_dir with Unix_error _ -> ()
 
+(** -R semantic: go in subdirs and suffixes of logical paths are known. *)
 let add_rec_dir add_file phys_dir log_dir =
-  handle_unix_error (add_directory true add_file phys_dir) log_dir
+  handle_unix_error (add_directory true (add_file true) phys_dir) log_dir
+
+(** -I semantic: do not go in subdirs. *)
+let add_caml_dir phys_dir =
+  handle_unix_error (add_directory true add_caml_known phys_dir) []
+
 
 let rec treat_file old_dirname old_name =
   let name = Filename.basename old_name

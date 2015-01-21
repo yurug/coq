@@ -1,6 +1,6 @@
 (************************************************************************)
 (*  v      *   The Coq Proof Assistant  /  The Coq Development Team     *)
-(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2012     *)
+(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2015     *)
 (*   \VV/  **************************************************************)
 (*    //   *      This file is distributed under the terms of the       *)
 (*         *       GNU Lesser General Public License Version 2.1        *)
@@ -94,7 +94,35 @@ let make_coqtop_args = function
       |Append_args -> get_args the_file @ !sup_args
       |Subst_args -> get_args the_file
 
-let create_session f = Session.create f (make_coqtop_args f)
+(** Setting drag & drop on widgets *)
+
+let load_file_cb : (string -> unit) ref = ref ignore
+
+let drop_received context ~x ~y data ~info ~time =
+  if data#format = 8 then begin
+    let files = Str.split (Str.regexp "\r?\n") data#data in
+    let path = Str.regexp "^file://\\(.*\\)$" in
+    List.iter (fun f ->
+      if Str.string_match path f 0 then
+        !load_file_cb (Str.matched_group 1 f)
+    ) files;
+    context#finish ~success:true ~del:false ~time
+  end else context#finish ~success:false ~del:false ~time
+
+let drop_targets = [
+  { Gtk.target = "text/uri-list"; Gtk.flags = []; Gtk.info = 0}
+]
+
+let set_drag (w : GObj.drag_ops) =
+  w#dest_set drop_targets ~actions:[`COPY;`MOVE];
+  w#connect#data_received ~callback:drop_received
+
+(** Session management *)
+
+let create_session f =
+  let ans = Session.create f (make_coqtop_args f) in
+  let _ = set_drag ans.script#drag in
+  ans
 
 (** Auxiliary functions for the File operations *)
 
@@ -208,6 +236,8 @@ let crash_save exitcode =
   exit exitcode
 
 end
+
+let () = load_file_cb := (fun s -> FileAux.load_file s)
 
 (** Callbacks for the File menu *)
 
@@ -568,11 +598,11 @@ let get_current_word term =
 
 let print_branch c l =
   Format.fprintf c " | @[<hov 1>%a@]=> _@\n"
-    (print_list (fun c s -> Format.fprintf c "%s@ " s)) l
+    (Minilib.print_list (fun c s -> Format.fprintf c "%s@ " s)) l
 
 let print_branches c cases =
   Format.fprintf c "@[match var with@\n%aend@]@."
-    (print_list print_branch) cases
+    (Minilib.print_list print_branch) cases
 
 let display_match sn = function
   |Interface.Fail _ ->
@@ -674,7 +704,7 @@ let initial_about () =
     else ""
   in
   let msg = initial_string ^ version_info ^ log_file_message () in
-  notebook#current_term.messages#add msg
+  on_current_term (fun term -> term.messages#add msg)
 
 let coq_icon () =
   (* May raise Nof_found *)
@@ -739,7 +769,7 @@ let coqtop_arguments sn =
         let args = String.concat " " args in
         let msg = Printf.sprintf "Invalid arguments: %s" args in
         let () = sn.messages#clear in
-        sn.messages#push Interface.Error msg
+        sn.messages#push Pp.Error msg
     else dialog#destroy ()
   in
   let _ = entry#connect#activate ok_cb in
@@ -795,6 +825,7 @@ let refresh_editor_prefs () =
     Gobject.set conv sn.script#as_widget show_spaces;
 
     sn.script#set_show_right_margin prefs.show_right_margin;
+    if prefs.show_progress_bar then sn.segment#misc#show () else sn.segment#misc#hide ();
     sn.script#set_insert_spaces_instead_of_tabs
       prefs.spaces_instead_of_tabs;
     sn.script#set_tab_width prefs.tab_length;
@@ -915,8 +946,6 @@ let emit_to_focus window sgn =
   let obj = Gobject.unsafe_cast focussed_widget in
   try GtkSignal.emit_unit obj ~sgn with _ -> ()
 
-
-
 (** {2 Creation of the main coqide window } *)
 
 let build_ui () =
@@ -930,8 +959,9 @@ let build_ui () =
     try w#set_icon (Some (GdkPixbuf.from_file (MiscMenu.coq_icon ())))
     with _ -> ()
   in
-  let _ = w#event#connect#delete ~callback:(fun _ -> File.quit (); true)
-  in
+  let _ = w#event#connect#delete ~callback:(fun _ -> File.quit (); true) in
+  let _ = set_drag w#drag in
+
   let vbox = GPack.vbox ~homogeneous:false ~packing:w#add () in
 
   let file_menu = GAction.action_group ~name:"File" () in
@@ -1077,7 +1107,7 @@ let build_ui () =
       ~tooltip:"Next occurence"
       ~accel:(prefs.modifier_for_navigation^"greater");
     item "Force" ~label:"_Force" ~stock:`EXECUTE ~callback:Nav.join_document
-      ~tooltip:"Force the processing of the whole document" 
+      ~tooltip:"Fully check the document" 
       ~accel:(current.modifier_for_navigation^"f"); 
   ];
 
@@ -1299,10 +1329,7 @@ let build_ui () =
 (** {2 Coqide main function } *)
 
 let make_file_buffer f =
-  let f =
-    if Sys.file_exists f || Filename.check_suffix f ".v" then f
-    else f^".v"
-  in
+  let f = if Filename.check_suffix f ".v" then f else f^".v" in
   FileAux.load_file ~maycreate:true f
 
 let make_scratch_buffer () =
@@ -1348,7 +1375,7 @@ let check_for_geoproof_input () =
     full name, with the last occurrence of "coqide" replaced by "coqtop".
     This should correctly handle the ".opt", ".byte", ".exe" situations.
     If the replacement fails, we default to "coqtop", hoping it's somewhere
-    in the path. Note that the -coqtop option to coqide allows to override
+    in the path. Note that the -coqtop option to coqide overrides
     this default coqtop path *)
 
 let read_coqide_args argv =
@@ -1371,6 +1398,9 @@ let read_coqide_args argv =
       filter_coqtop coqtop project_files ("-debug"::out) args
     |"-coqtop-flags" :: flags :: args->
       Flags.ideslave_coqtop_flags := Some flags;
+      filter_coqtop coqtop project_files out args
+    |arg::args when out = [] && Minilib.is_prefix_of "-psn_" arg ->
+      (* argument added by MacOS during .app launch *)
       filter_coqtop coqtop project_files out args
     |arg::args -> filter_coqtop coqtop project_files (arg::out) args
     |[] -> (coqtop,List.rev project_files,List.rev out)

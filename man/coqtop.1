@@ -47,18 +47,8 @@ set the toplevel name to be
 instead of Top
 
 .TP
-.BI \-inputstate \ filename, \ \-is \ filename 
-read state from file
-.I filename.coq
-
-.TP
 .B \-nois
 start with an empty initial state
-
-.TP
-.BI \-outputstate filename
-write state in file
-.I filename.coq
 
 .TP
 .BI \-load\-ml\-object \ filename
@@ -108,14 +98,6 @@ verbosely compile Coq file
 (implies 
 .B \-batch
 )
-
-.TP
-.B \-opt
-run the native\-code version of Coq
-
-.TP
-.B \-byte
-run the bytecode version of Coq
 
 .TP
 .B \-where
@@ -169,17 +151,6 @@ set sort Set impredicative
 .TP
 .B \-dont\-load\-proofs
 don't load opaque proofs in memory
-
-.TP
-.B \-xml
-export XML files either to the hierarchy rooted in
-the directory $COQ_XML_LIBRARY_ROOT (if set) or to
-stdout (if unset)
-
-.TP
-.B \-quality
-improve the legibility of the proof terms produced by
-some tactics
 
 .SH SEE ALSO
 

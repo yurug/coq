@@ -1,6 +1,6 @@
 (************************************************************************)
 (*  v      *   The Coq Proof Assistant  /  The Coq Development Team     *)
-(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2012     *)
+(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2015     *)
 (*   \VV/  **************************************************************)
 (*    //   *      This file is distributed under the terms of the       *)
 (*         *       GNU Lesser General Public License Version 2.1        *)
@@ -51,3 +51,6 @@ type refiner_error =
 exception RefinerError of refiner_error
 
 val catchable_exception : exn -> bool
+
+val convert_hyp : bool -> Environ.named_context_val -> evar_map ->
+  Context.named_declaration -> Environ.named_context_val

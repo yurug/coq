@@ -1,6 +1,6 @@
 (************************************************************************)
 (*  v      *   The Coq Proof Assistant  /  The Coq Development Team     *)
-(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2012     *)
+(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2015     *)
 (*   \VV/  **************************************************************)
 (*    //   *      This file is distributed under the terms of the       *)
 (*         *       GNU Lesser General Public License Version 2.1        *)
@@ -14,14 +14,21 @@ open Type_errors
 
 type unification_error =
   | OccurCheck of existential_key * constr
-  | NotClean of existential * constr
+  | NotClean of existential * env * constr
   | NotSameArgSize
   | NotSameHead
   | NoCanonicalStructure
   | ConversionFailed of env * constr * constr
   | MetaOccurInBody of existential_key
   | InstanceNotSameType of existential_key * env * types * types
-  | UnifUnivInconsistency
+  | UnifUnivInconsistency of Univ.univ_inconsistency
+  | CannotSolveConstraint of Evd.evar_constraint * unification_error
+
+type position = (Id.t * Locus.hyp_location_flag) option
+
+type position_reporting = (position * int) * constr
+
+type subterm_unification_error = bool * position_reporting * position_reporting * (constr * constr * unification_error) option
 
 type pretype_error =
   (* Old Case *)
@@ -30,8 +37,7 @@ type pretype_error =
   | ActualTypeNotCoercible of unsafe_judgment * types * unification_error
   (* Tactic unification *)
   | UnifOccurCheck of existential_key * constr
-  | UnsolvableImplicit of Evd.evar_info * Evar_kinds.t *
-      Evd.unsolvability_explanation option
+  | UnsolvableImplicit of existential_key * Evd.unsolvability_explanation option
   | CannotUnify of constr * constr * unification_error option
   | CannotUnifyLocal of constr * constr * constr
   | CannotUnifyBindingType of constr * constr
@@ -46,6 +52,9 @@ type pretype_error =
   | UnexpectedType of constr * constr
   | NotProduct of constr
   | TypingError of type_error
+  | CannotUnifyOccurrences of subterm_unification_error
+  | UnsatisfiableConstraints of
+    (existential_key * Evar_kinds.t) option * Evar.Set.t option
 
 exception PretypeError of env * Evd.evar_map * pretype_error
 
@@ -98,9 +107,9 @@ let error_not_a_type_loc loc env sigma j =
 let error_occur_check env sigma ev c =
   raise (PretypeError (env, sigma, UnifOccurCheck (ev,c)))
 
-let error_unsolvable_implicit loc env sigma evi e explain =
+let error_unsolvable_implicit loc env sigma evk explain =
   Loc.raise loc
-    (PretypeError (env, sigma, UnsolvableImplicit (evi, e, explain)))
+    (PretypeError (env, sigma, UnsolvableImplicit (evk, explain)))
 
 let error_cannot_unify_loc loc env sigma ?reason (m,n) =
   Loc.raise loc (PretypeError (env, sigma,CannotUnify (m,n,reason)))
@@ -145,3 +154,20 @@ let error_not_product_loc loc env sigma c =
 
 let error_var_not_found_loc loc s =
   raise_pretype_error (loc, empty_env, Evd.empty, VarNotFound s)
+
+(*s Typeclass errors *)
+
+let unsatisfiable_constraints env evd ev comp =
+  match ev with
+  | None ->
+    let err = UnsatisfiableConstraints (None, comp) in
+    raise (PretypeError (env,evd,err))
+  | Some ev ->
+    let loc, kind = Evd.evar_source ev evd in
+    let err = UnsatisfiableConstraints (Some (ev, kind), comp) in
+    Loc.raise loc (PretypeError (env,evd,err))
+
+let unsatisfiable_exception exn =
+  match exn with
+  | PretypeError (_, _, UnsatisfiableConstraints _) -> true
+  | _ -> false

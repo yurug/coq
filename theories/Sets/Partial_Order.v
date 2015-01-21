@@ -1,6 +1,6 @@
 (************************************************************************)
 (*  v      *   The Coq Proof Assistant  /  The Coq Development Team     *)
-(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2012     *)
+(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2015     *)
 (*   \VV/  **************************************************************)
 (*    //   *      This file is distributed under the terms of the       *)
 (*         *       GNU Lesser General Public License Version 2.1        *)
@@ -61,7 +61,7 @@ Section Partial_order_facts.
 
   Lemma Strict_Rel_Transitive_with_Rel :
     forall x y z:U,
-      Strict_Rel_of U D x y -> Rel_of U D y z -> Strict_Rel_of U D x z.
+      Strict_Rel_of U D x y -> @Rel_of U D y z -> Strict_Rel_of U D x z.
   Proof.
     unfold Strict_Rel_of at 1.
     red.
@@ -77,7 +77,7 @@ Section Partial_order_facts.
 
   Lemma Strict_Rel_Transitive_with_Rel_left :
     forall x y z:U,
-      Rel_of U D x y -> Strict_Rel_of U D y z -> Strict_Rel_of U D x z.
+      @Rel_of U D x y -> Strict_Rel_of U D y z -> Strict_Rel_of U D x z.
   Proof.
     unfold Strict_Rel_of at 1.
     red.

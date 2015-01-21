@@ -1,6 +1,6 @@
 (************************************************************************)
 (*  v      *   The Coq Proof Assistant  /  The Coq Development Team     *)
-(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2012     *)
+(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2015     *)
 (*   \VV/  **************************************************************)
 (*    //   *      This file is distributed under the terms of the       *)
 (*         *       GNU Lesser General Public License Version 2.1        *)
@@ -68,3 +68,6 @@ type frozen_bits
 val freeze_summary :
   marshallable:marshallable -> ?complement:bool -> string list -> frozen_bits
 val unfreeze_summary : frozen_bits -> unit
+val surgery_summary : frozen -> frozen_bits -> frozen
+val project_summary : frozen -> ?complement:bool -> string list -> frozen_bits
+val pointer_equal : frozen_bits -> frozen_bits -> bool

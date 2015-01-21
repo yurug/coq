@@ -13,12 +13,41 @@ let invalid_arg s = raise (Invalid_argument ("Document."^s))
 type 'a sentence = { mutable state_id : Stateid.t option; data : 'a }
 
 type id = Stateid.t
+
+class type ['a] signals =
+  object
+    method popped : callback:('a -> unit) -> unit
+    method pushed : callback:('a -> unit) -> unit
+  end
+
+class ['a] signal () =
+object
+  val mutable attached : ('a -> unit) list = []
+  method call (x : 'a) =
+    let iter f = try f x with _ -> () in
+    List.iter iter attached
+  method connect f = attached <- f :: attached
+end
+
 type 'a document = {
   mutable stack : 'a sentence list;
-  mutable context : ('a sentence list * 'a sentence list) option
+  mutable context : ('a sentence list * 'a sentence list) option;
+  pushed_sig : 'a signal;
+  popped_sig : 'a signal;
 }
-  
-let create () = { stack = []; context = None }
+
+let connect d =
+  object
+    method pushed ~callback = d.pushed_sig#connect callback
+    method popped ~callback = d.popped_sig#connect callback
+  end
+
+let create () = {
+  stack = [];
+  context = None;
+  pushed_sig = new signal ();
+  popped_sig = new signal ();
+}
 
 (* Invariant, only the tip is a allowed to have state_id = None *)
 let invariant l = l = [] || (List.hd l).state_id <> None
@@ -34,11 +63,12 @@ let tip_data = function
 
 let push d x =
   assert(invariant d.stack);
-  d.stack <- { data = x; state_id = None } :: d.stack
+  d.stack <- { data = x; state_id = None } :: d.stack;
+  d.pushed_sig#call x
 
 let pop = function
   | { stack = [] } -> raise Empty
-  | { stack = { data }::xs } as s -> s.stack <- xs; data
+  | { stack = { data }::xs } as s -> s.stack <- xs; s.popped_sig#call data; data
   
 let focus d ~cond_top:c_start ~cond_bot:c_stop =
   assert(invariant d.stack);
@@ -106,8 +136,6 @@ let is_in_focus d id =
   let _, focused, _ = to_lists d in
   List.exists (fun { state_id } -> stateid_opt_equal state_id (Some id)) focused
 
-let clear d = d.stack <- []; d.context <- None
-  
 let print d f =
   let top, mid, bot = to_lists d in
   let open Pp in

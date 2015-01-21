@@ -1,6 +1,6 @@
 (************************************************************************)
 (*  v      *   The Coq Proof Assistant  /  The Coq Development Team     *)
-(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2012     *)
+(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2015     *)
 (*   \VV/  **************************************************************)
 (*    //   *      This file is distributed under the terms of the       *)
 (*         *       GNU Lesser General Public License Version 2.1        *)
@@ -60,6 +60,7 @@ let usage () =
   prerr_endline "  --boot               run in boot mode";
   prerr_endline "  --coqlib_path <dir>  set the path where Coq files are installed";
   prerr_endline "  -R <dir> <coqdir>    map physical dir to Coq dir";
+  prerr_endline "  -Q <dir> <coqdir>    map physical dir to Coq dir";
   prerr_endline "  --latin1             set ISO-8859-1 input language";
   prerr_endline "  --utf8               set UTF-8 input language";
   prerr_endline "  --charset <string>   set HTML charset";
@@ -320,6 +321,10 @@ let parse () =
 	add_path path log; parse_rec rem
     | "-R" :: ([] | [_]) ->
 	usage ()
+    | "-Q" :: path :: log :: rem ->
+	add_path path log; parse_rec rem
+    | "-Q" :: ([] | [_]) ->
+	usage ()
     | ("-glob-from" | "--glob-from") :: f :: rem ->
 	glob_source := GlobFile f; parse_rec rem
     | ("-glob-from" | "--glob-from") :: [] ->
@@ -445,7 +450,7 @@ let gen_mult_files l =
       if (!header_trailer) then Output.trailer ();
       close_out_file()
     end
-      (* Rq: pour latex et texmacs, une toc ou un index séparé n'a pas de sens... *)
+    (* NB: for latex and texmacs, a separated toc or index is meaningless... *)
 
 let read_glob_file vfile f =
   try Index.read_glob vfile f

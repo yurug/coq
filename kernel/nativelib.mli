@@ -1,6 +1,6 @@
 (************************************************************************)
 (*  v      *   The Coq Proof Assistant  /  The Coq Development Team     *)
-(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2013     *)
+(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2015     *)
 (*   \VV/  **************************************************************)
 (*    //   *      This file is distributed under the terms of the       *)
 (*         *       GNU Lesser General Public License Version 2.1        *)
@@ -10,16 +10,18 @@ open Nativecode
 (** This file provides facilities to access OCaml compiler and dynamic linker,
 used by the native compiler. *)
 
+(* Directory where compiled files are stored *)
+val output_dir : string
+
 val get_load_paths : (unit -> string list) ref
 
 val load_obj : (string -> unit) ref
 
 val get_ml_filename : unit -> string * string
 
-val compile : string -> global list -> int * string
+val compile : string -> global list -> bool * string
 
-val compile_library : Names.dir_path ->
-		      global list -> string list -> string -> int
+val compile_library : Names.dir_path -> global list -> string -> bool
 
 val call_linker :
   ?fatal:bool -> string -> string -> code_location_updates option -> unit

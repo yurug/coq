@@ -1,6 +1,6 @@
 (************************************************************************)
 (*  v      *   The Coq Proof Assistant  /  The Coq Development Team     *)
-(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2012     *)
+(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2015     *)
 (*   \VV/  **************************************************************)
 (*    //   *      This file is distributed under the terms of the       *)
 (*         *       GNU Lesser General Public License Version 2.1        *)
@@ -39,7 +39,7 @@ type library_t = {
   library_deps : (compilation_unit_name * Safe_typing.vodigest) array;
   library_imports : compilation_unit_name array;
   library_digests : Safe_typing.vodigest;
-  library_extra_univs : Univ.constraints;
+  library_extra_univs : Univ.universe_context_set;
 }
 
 module LibraryOrdered = DirPath
@@ -222,7 +222,7 @@ let locate_absolute_library dir =
       let _, file = System.where_in_path ~warn:false loadpath name in
       [file]
     with Not_found -> [] in
-  match find ".vo" @ find ".vi" with
+  match find ".vo" @ find ".vio" with
   | [] -> raise LibNotFound
   | [file] -> dir, file
   | [vo;vi] when Unix.((stat vo).st_mtime < (stat vi).st_mtime) ->
@@ -245,7 +245,7 @@ let locate_qualified_library warn qid =
       [lpath, file]
     with Not_found -> [] in
   let lpath, file =
-    match find ".vo" @ find ".vi" with
+    match find ".vo" @ find ".vio" with
     | [] -> raise LibNotFound
     | [lpath, file] -> lpath, file
     | [lpath_vo, vo; lpath_vi, vi]
@@ -329,7 +329,7 @@ type 'a table_status =
 let opaque_tables =
   ref (LibraryMap.empty : (Term.constr table_status) LibraryMap.t)
 let univ_tables =
-  ref (LibraryMap.empty : (Univ.constraints table_status) LibraryMap.t)
+  ref (LibraryMap.empty : (Univ.universe_context_set table_status) LibraryMap.t)
 
 let add_opaque_table dp st =
   opaque_tables := LibraryMap.add dp st !opaque_tables
@@ -347,100 +347,26 @@ let access_table fetch_table add_table tables dp i =
   assert (i < Array.length t); t.(i)
 
 let access_opaque_table dp i =
-  if !Flags.load_proofs == Flags.Dont then
-    error "Not accessing an opaque term due to option -dont-load-proofs.";
   access_table
     (fetch_table "opaque proofs")
     add_opaque_table !opaque_tables dp i
 let access_univ_table dp i =
-  access_table
-    (fetch_table "universe constraints of opaque proofs")
-    add_univ_table !univ_tables dp i
-
-(** Table of opaque terms from the library currently being compiled *)
-
-module OpaqueTables = struct
-
- let a_constr = Future.from_val (Term.mkRel 1)
- let a_univ = Future.from_val Univ.empty_constraint
- let a_discharge : Opaqueproof.cooking_info list = []
-
- let local_opaque_table = ref (Array.make 100 a_constr)
- let local_univ_table = ref (Array.make 100 a_univ)
- let local_discharge_table = ref (Array.make 100 a_discharge)
- let local_index = ref 0
-
- module FMap = Map.Make(Future.UUID)
- let f2t = ref FMap.empty
-
- let get_opaque dp i =
-   if DirPath.equal dp (Lib.library_dp ())
-   then (!local_opaque_table).(i)
-   else access_opaque_table dp i
- 
- let join_local_opaque dp i =
-   if DirPath.equal dp (Lib.library_dp ()) then
-    ignore(Future.force (!local_opaque_table).(i))
-
- let join_local_univ dp i =
-   if DirPath.equal dp (Lib.library_dp ()) then
-    ignore(Future.join (!local_univ_table).(i))
-
- let get_univ dp i =
-   if DirPath.equal dp (Lib.library_dp ())
-   then Some (!local_univ_table).(i)
-   else try Some (access_univ_table dp i) with Not_found -> None
-
- let store (d,cu) =
-  let n = !local_index in
-  incr local_index;
-  if Int.equal n (Array.length !local_opaque_table) then begin
-    let t = Array.make (2*n) a_constr in
-    Array.blit !local_opaque_table 0 t 0 n;
-    local_opaque_table := t;
-    let t = Array.make (2*n) a_univ in
-    Array.blit !local_univ_table 0 t 0 n;
-    local_univ_table := t;
-    let t = Array.make (2*n) a_discharge in
-    Array.blit !local_discharge_table 0 t 0 n;
-    local_discharge_table := t
-  end;
-  let c, u = Future.split2 ~greedy:true cu in
-  Future.sink u;
-  Future.sink c;
-  (!local_opaque_table).(n) <- c;
-  (!local_univ_table).(n) <- u;
-  (!local_discharge_table).(n) <- d;
-  f2t := FMap.add (Future.uuid cu) n !f2t;
-  Some (Lib.library_dp (), n)
-
- let dump () =
-   Array.sub !local_opaque_table 0 !local_index,
-   Array.sub !local_univ_table 0 !local_index,
-   Array.sub !local_discharge_table 0 !local_index,
-   FMap.bindings !f2t
-
- let reset () =
-   local_discharge_table := Array.make 100 a_discharge;
-   local_univ_table := Array.make 100 a_univ;
-   local_opaque_table := Array.make 100 a_constr;
-   f2t := FMap.empty;
-   local_index := 0
-
-end
+  try
+    Some (access_table 
+            (fetch_table "universe contexts of opaque proofs")
+            add_univ_table !univ_tables dp i)
+  with Not_found -> None
 
 let () =
-  Opaqueproof.set_indirect_opaque_accessor OpaqueTables.get_opaque;
-  Opaqueproof.set_indirect_univ_accessor OpaqueTables.get_univ;
-  Opaqueproof.set_join_indirect_local_opaque OpaqueTables.join_local_opaque;
-  Opaqueproof.set_join_indirect_local_univ OpaqueTables.join_local_univ
+  Opaqueproof.set_indirect_opaque_accessor access_opaque_table;
+  Opaqueproof.set_indirect_univ_accessor access_univ_table
 
 (************************************************************************)
 (* Internalise libraries *)
 
 type seg_lib = library_disk
 type seg_univ = (* true = vivo, false = vi *)
-  Univ.constraints Future.computation array * Univ.constraints * bool
+  Univ.universe_context_set Future.computation array * Univ.universe_context_set * bool
 type seg_discharge = Opaqueproof.cooking_info list array
 type seg_proofs = Term.constr Future.computation array
 
@@ -466,20 +392,26 @@ let intern_from_file f =
   add_opaque_table lmd.md_name (ToFetch (f,pos,digest));
   let open Safe_typing in
   match univs with
-  | None -> mk_library lmd (Dvo_or_vi digest_lmd) Univ.empty_constraint
+  | None -> mk_library lmd (Dvo_or_vi digest_lmd) Univ.ContextSet.empty
   | Some (utab,uall,true) ->
       add_univ_table lmd.md_name (Fetched utab);
       mk_library lmd (Dvivo (digest_lmd,digest_u)) uall
   | Some (utab,_,false) ->
       add_univ_table lmd.md_name (Fetched utab);
-      mk_library lmd (Dvo_or_vi digest_lmd) Univ.empty_constraint
+      mk_library lmd (Dvo_or_vi digest_lmd) Univ.ContextSet.empty
 
-let rec intern_library needed (dir, f) =
+module DPMap = Map.Make(DirPath)
+
+let deps_to_string deps =
+  Array.fold_left (fun s (n, _) -> s^"\n  - "^(DirPath.to_string n)) "" deps
+
+let rec intern_library (needed, contents) (dir, f) from =
+  Pp.feedback(Feedback.FileDependency (from, f));
   (* Look if in the current logical environment *)
-  try find_library dir, needed
+  try find_library dir, (needed, contents)
   with Not_found ->
   (* Look if already listed and consequently its dependencies too *)
-  try List.assoc_f DirPath.equal dir needed, needed
+  try DPMap.find dir contents, (needed, contents)
   with Not_found ->
   (* [dir] is an absolute name which matches [f] which must be in loadpath *)
   let m = intern_from_file f in
@@ -488,21 +420,24 @@ let rec intern_library needed (dir, f) =
       (str ("The file " ^ f ^ " contains library") ++ spc () ++
        pr_dirpath m.library_name ++ spc () ++ str "and not library" ++
        spc() ++ pr_dirpath dir);
-  m, intern_library_deps needed dir m
+  Pp.feedback(Feedback.FileLoaded(DirPath.to_string dir, f));
+  m, intern_library_deps (needed, contents) dir m (Some f)
 
-and intern_library_deps needed dir m =
-  (dir,m)::Array.fold_left (intern_mandatory_library dir) needed m.library_deps
+and intern_library_deps libs dir m from =
+  let needed, contents = Array.fold_left (intern_mandatory_library dir from) libs m.library_deps in
+  (dir :: needed, DPMap.add dir m contents )
 
-and intern_mandatory_library caller needed (dir,d) =
-  let m,needed = intern_library needed (try_locate_absolute_library dir) in
+and intern_mandatory_library caller from libs (dir,d) =
+  let m, libs = intern_library libs (try_locate_absolute_library dir) from in
   if not (Safe_typing.digest_match ~actual:m.library_digests ~required:d) then
     errorlabstrm "" (strbrk ("Compiled library "^ DirPath.to_string caller ^
       ".vo makes inconsistent assumptions over library " ^
       DirPath.to_string dir));
-  needed
+  libs
 
-let rec_intern_library needed mref =
-  let _,needed = intern_library needed mref in needed
+let rec_intern_library libs mref =
+  let _, libs = intern_library libs mref None in
+  libs
 
 let check_library_short_name f dir = function
   | Some id when not (Id.equal id (snd (split_dirpath dir))) ->
@@ -516,8 +451,6 @@ let rec_intern_by_filename_only id f =
   let m = try intern_from_file f with Sys_error s -> error s in
   (* Only the base name is expected to match *)
   check_library_short_name f m.library_name id;
-  if !Flags.print_mod_uid then
-    print_endline (Nativecode.mod_uid_of_dirpath m.library_name);
   (* We check no other file containing same library is loaded *)
   if library_is_loaded m.library_name then
     begin
@@ -527,8 +460,14 @@ let rec_intern_by_filename_only id f =
       m.library_name, []
     end
  else
-    let needed = intern_library_deps [] m.library_name m in
+    let needed, contents = intern_library_deps ([], DPMap.empty) m.library_name m (Some f) in
+    let needed = List.map (fun dir -> dir, DPMap.find dir contents) needed in
     m.library_name, needed
+
+let native_name_from_filename f =
+  let ch = System.with_magic_number_check raw_intern_library f in
+  let (lmd : seg_lib), pos, digest_lmd = System.marshal_in_segment f ch in
+  Nativecode.mod_uid_of_dirpath lmd.md_name
 
 let rec_intern_library_from_file idopt f =
   (* A name is specified, we have to check it contains library id *)
@@ -596,11 +535,9 @@ let in_require : require_obj -> obj =
 (* Require libraries, import them if [export <> None], mark them for export
    if [export = Some true] *)
 
-let (f_xml_require, xml_require) = Hook.make ~default:ignore ()
-
 let require_library_from_dirpath modrefl export =
-  let needed = List.fold_left rec_intern_library [] modrefl in
-  let needed = List.rev_map snd needed in
+  let needed, contents = List.fold_left rec_intern_library ([], DPMap.empty) modrefl in
+  let needed = List.rev_map (fun dir -> DPMap.find dir contents) needed in
   let modrefl = List.map fst modrefl in
     if Lib.is_module_or_modtype () then
       begin
@@ -611,7 +548,6 @@ let require_library_from_dirpath modrefl export =
       end
     else
       add_anonymous_leaf (in_require (needed,modrefl,export));
-    if !Flags.xml_export then List.iter (Hook.get f_xml_require) modrefl;
   add_frozen_state ()
 
 let require_library qidl export =
@@ -628,7 +564,6 @@ let require_library_from_file idopt file export =
   end
   else
     add_anonymous_leaf (in_require (needed,[modref],export));
-  if !Flags.xml_export then Hook.get f_xml_require modref;
   add_frozen_state ()
 
 (* the function called by Vernacentries.vernac_import *)
@@ -660,6 +595,25 @@ let check_coq_overwriting p id =
       (strbrk ("Cannot build module "^DirPath.to_string p^"."^Id.to_string id^
       ": it starts with prefix \"Coq\" which is reserved for the Coq library."))
 
+(* Verifies that a string starts by a letter and do not contain
+   others caracters than letters, digits, or `_` *)
+
+let check_module_name s =
+  let msg c =
+    strbrk "Invalid module name: " ++ str s ++ strbrk " character " ++
+    (if c = '\'' then str "\"'\"" else (str "'" ++ str (String.make 1 c) ++ str "'")) ++
+    strbrk " is not allowed in module names\n"
+  in
+  let err c = errorlabstrm "" (msg c) in
+  match String.get s 0 with
+    | 'a' .. 'z' | 'A' .. 'Z' ->
+        for i = 1 to (String.length s)-1 do
+          match String.get s i with
+            | 'a' .. 'z' | 'A' .. 'Z' | '0' .. '9' | '_'  -> ()
+            | c -> err c
+        done
+    | c -> err c
+
 let start_library f =
   let paths = Loadpath.get_paths () in
   let _, longf =
@@ -670,11 +624,11 @@ let start_library f =
       Loadpath.logical lp
     with Not_found -> Nameops.default_root_prefix
   in
-  let id = Id.of_string (Filename.basename f) in
+  let file = Filename.basename f in
+  let id = Id.of_string file in
+  check_module_name file;
   check_coq_overwriting ldir0 id;
   let ldir = add_dirpath_suffix ldir0 id in
-  OpaqueTables.reset ();
-  Opaqueproof.set_indirect_creator OpaqueTables.store;
   Declaremods.start_library ldir;
   ldir,longf
 
@@ -682,7 +636,7 @@ let load_library_todo f =
   let paths = Loadpath.get_paths () in
   let _, longf =
     System.find_file_in_path ~warn:(Flags.is_verbose()) paths (f^".v") in
-  let f = longf^"i" in
+  let f = longf^"io" in
   let ch = System.with_magic_number_check raw_intern_library f in
   let (s1 : seg_lib), _, _ = System.marshal_in_segment f ch in
   let (s2 : seg_univ option), _, _ = System.marshal_in_segment f ch in
@@ -690,10 +644,10 @@ let load_library_todo f =
   let tasks, _, _ = System.marshal_in_segment f ch in
   let (s5 : seg_proofs), _, _ = System.marshal_in_segment f ch in
   close_in ch;
-  if tasks = None then errorlabstrm "restart" (str"not a .vi file");
-  if s2 = None then errorlabstrm "restart" (str"not a .vi file");
-  if s3 = None then errorlabstrm "restart" (str"not a .vi file");
-  if pi3 (Option.get s2) then errorlabstrm "restart" (str"not a .vi file");
+  if tasks = None then errorlabstrm "restart" (str"not a .vio file");
+  if s2 = None then errorlabstrm "restart" (str"not a .vio file");
+  if s3 = None then errorlabstrm "restart" (str"not a .vio file");
+  if pi3 (Option.get s2) then errorlabstrm "restart" (str"not a .vio file");
   longf, s1, Option.get s2, Option.get s3, Option.get tasks, s5
 
 (************************************************************************)
@@ -722,22 +676,36 @@ let error_recursively_dependent_library dir =
 (* Security weakness: file might have been changed on disk between
    writing the content and computing the checksum... *)
 
-let save_library_to ?todo dir f =
-  let f, todo, utab, dtab =
-    match todo with
+let save_library_to ?todo dir f otab =
+  let f, except = match todo with
     | None ->
         assert(!Flags.compilation_mode = Flags.BuildVo);
-        f ^ "o", (fun _ -> None), (fun _ -> None), (fun _ -> None)
-    | Some d ->
-        assert(!Flags.compilation_mode = Flags.BuildVi);
-        f ^ "i", (fun x -> Some (d x)),
-          (fun x -> Some (x,Univ.empty_constraint,false)), (fun x -> Some x) in
-  Opaqueproof.reset_indirect_creator ();
-  let cenv, seg, ast = Declaremods.end_library dir in
-  let opaque_table, univ_table, disch_table, f2t_map =
-    OpaqueTables.dump () in
-  assert(!Flags.compilation_mode = Flags.BuildVi ||
-         Array.for_all Future.is_val opaque_table);
+        f ^ "o", Future.UUIDSet.empty
+    | Some (l,_) ->
+        f ^ "io",
+        List.fold_left (fun e r -> Future.UUIDSet.add r.Stateid.uuid e)
+          Future.UUIDSet.empty l in
+  let cenv, seg, ast = Declaremods.end_library ~except dir in
+  let opaque_table, univ_table, disch_table, f2t_map = Opaqueproof.dump otab in
+  let tasks, utab, dtab =
+    match todo with
+    | None -> None, None, None
+    | Some (tasks, rcbackup) ->
+        let tasks =
+          List.map Stateid.(fun r ->
+            { r with uuid = Future.UUIDMap.find r.uuid f2t_map }) tasks in
+        Some (tasks,rcbackup),
+        Some (univ_table,Univ.ContextSet.empty,false),
+        Some disch_table in
+  let except =
+    Future.UUIDSet.fold (fun uuid acc ->
+      Int.Set.add (Future.UUIDMap.find uuid f2t_map) acc)
+      except Int.Set.empty in
+  let is_done_or_todo i x = Future.is_val x || Int.Set.mem i except in
+  Array.iteri (fun i x ->
+    if not(is_done_or_todo i x) then Errors.errorlabstrm "library"
+      Pp.(str"Proof object "++int i++str" is not checked nor to be checked"))
+    opaque_table;
   let md = {
     md_name = dir;
     md_compiled = cenv;
@@ -750,24 +718,23 @@ let save_library_to ?todo dir f =
   let (f',ch) = raw_extern_library f in
   try
     (* Writing vo payload *)
-    System.marshal_out_segment f' ch (md               : seg_lib);
-    System.marshal_out_segment f' ch (utab univ_table  : seg_univ option);
-    System.marshal_out_segment f' ch (dtab disch_table : seg_discharge option);
-    System.marshal_out_segment f' ch (todo f2t_map     : 'tasks option);
-    System.marshal_out_segment f' ch (opaque_table     : seg_proofs);
+    System.marshal_out_segment f' ch (md           : seg_lib);
+    System.marshal_out_segment f' ch (utab         : seg_univ option);
+    System.marshal_out_segment f' ch (dtab         : seg_discharge option);
+    System.marshal_out_segment f' ch (tasks        : 'tasks option);
+    System.marshal_out_segment f' ch (opaque_table : seg_proofs);
     close_out ch;
     (* Writing native code files *)
     if not !Flags.no_native_compiler then
-      let lp = Loadpath.get_accessible_paths () in
       let fn = Filename.dirname f'^"/"^Nativecode.mod_uid_of_dirpath dir in
-      if not (Int.equal (Nativelib.compile_library dir ast lp fn) 0) then
+      if not (Nativelib.compile_library dir ast fn) then
         msg_error (str"Could not compile the library to native code. Skipping.")
    with reraise ->
     let reraise = Errors.push reraise in
     let () = msg_warning (str ("Removed file "^f')) in
     let () = close_out ch in
     let () = Sys.remove f' in
-    raise reraise
+    iraise reraise
 
 let save_library_raw f lib univs proofs =
   let (f',ch) = raw_extern_library (f^"o") in
@@ -789,7 +756,13 @@ let mem s =
 		 (CObj.size_kb m) (CObj.size_kb m.library_compiled)
 		 (CObj.size_kb m.library_objects)))
 
-let get_load_paths_str () =
-  List.map CUnix.string_of_physical_path (Loadpath.get_accessible_paths ())
+module StringOrd = struct type t = string let compare = String.compare end
+module StringSet = Set.Make(StringOrd)
 
-let _ = Nativelib.get_load_paths := get_load_paths_str
+let get_used_load_paths () =
+  StringSet.elements
+    (List.fold_left (fun acc m -> StringSet.add
+      (Filename.dirname (library_full_filename m.library_name)) acc)
+       StringSet.empty !libraries_loaded_list)
+
+let _ = Nativelib.get_load_paths := get_used_load_paths

@@ -1,6 +1,6 @@
 (************************************************************************)
 (*  v      *   The Coq Proof Assistant  /  The Coq Development Team     *)
-(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2012     *)
+(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2015     *)
 (*   \VV/  **************************************************************)
 (*    //   *      This file is distributed under the terms of the       *)
 (*         *       GNU Lesser General Public License Version 2.1        *)
@@ -14,6 +14,7 @@ Require Import Fourier.
 Require Import RiemannInt.
 Require Import SeqProp.
 Require Import Max.
+Require Import Omega.
 Local Open Scope R_scope.
 
 (** * Preliminaries lemmas *)
@@ -164,8 +165,8 @@ assert (forall x l, lb < x < ub -> (derivable_pt_abs f x l <-> derivable_pt_abs 
  apply Rlt_le_trans with (r2:=Rmin delta (Rmin (ub - a) (a - lb))) ; [| apply Rmin_r] ; assumption.
  unfold derivable_pt in Prf.
   unfold derivable_pt in Prg.
-  elim Prf; intros.
-  elim Prg; intros.
+  elim Prf; intros x0 p.
+  elim Prg; intros x1 p0.
   assert (Temp := p); rewrite H in Temp.
   unfold derivable_pt_abs in p.
   unfold derivable_pt_abs in p0.
@@ -294,8 +295,8 @@ intros. (* f x y f_cont_interv x_lt_y fx_neg fy_pos.*)
   generalize (dicho_lb_cv x y (fun z:R => cond_positivity (f z)) H3). 
   generalize (dicho_up_cv x y (fun z:R => cond_positivity (f z)) H3). 
   intros X X0.
-  elim X; intros.
-  elim X0; intros.
+  elim X; intros x0 p.
+  elim X0; intros x1 p0.
   assert (H4 := cv_dicho _ _ _ _ _ H3 p0 p).
   rewrite H4 in p0.
   exists x0.
@@ -337,14 +338,14 @@ intros. (* f x y f_cont_interv x_lt_y fx_neg fy_pos.*)
   left; assumption.
   intro.
   unfold cond_positivity in |- *.
-  case (Rle_dec 0 z); intro.
+  destruct (Rle_dec 0 z) as [|Hnotle].
   split.
   intro; assumption.
   intro; reflexivity.
   split.
   intro feqt;discriminate feqt.
   intro.
-  elim n0; assumption.
+  elim Hnotle; assumption.
   unfold Vn in |- *.
   cut (forall z:R, cond_positivity z = false <-> z < 0).
   intros.
@@ -358,10 +359,10 @@ intros. (* f x y f_cont_interv x_lt_y fx_neg fy_pos.*)
   assumption.
   intro.
   unfold cond_positivity in |- *.
-  case (Rle_dec 0 z); intro.
+  destruct (Rle_dec 0 z) as [Hle|].
   split.
   intro feqt; discriminate feqt.
-  intro; elim (Rlt_irrefl _ (Rle_lt_trans _ _ _ r H7)).
+  intro; elim (Rlt_irrefl _ (Rle_lt_trans _ _ _ Hle H7)).
   split.
   intro; auto with real.
   intro; reflexivity.
@@ -370,10 +371,9 @@ intros. (* f x y f_cont_interv x_lt_y fx_neg fy_pos.*)
   assert (Temp : x <= x0 <= y).
    apply IVT_interv_prelim1 with (D:=(fun z : R => cond_positivity (f z))) ; assumption.
   assert (H7 := continuity_seq f Wn x0 (H x0 Temp) H5).
-  case (total_order_T 0 (f x0)); intro.
-  elim s; intro.
+  destruct (total_order_T 0 (f x0)) as [[Hlt|<-]|Hgt].
   left; assumption.
-  rewrite <- b; right; reflexivity.
+  right; reflexivity.
   unfold Un_cv in H7; unfold R_dist in H7.
   cut (0 < - f x0).
   intro.
@@ -396,11 +396,10 @@ intros. (* f x y f_cont_interv x_lt_y fx_neg fy_pos.*)
   assert (Temp : x <= x0 <= y).
    apply IVT_interv_prelim1 with (D:=(fun z : R => cond_positivity (f z))) ; assumption.
   assert (H7 := continuity_seq f Vn x0 (H x0 Temp) H5).
-  case (total_order_T 0 (f x0)); intro.
-  elim s; intro.
+  destruct (total_order_T 0 (f x0)) as [[Hlt|Heq]|].
   unfold Un_cv in H7; unfold R_dist in H7.
-  elim (H7 (f x0) a); intros.
-  cut (x2 >= x2)%nat; [ intro | unfold ge in |- *; apply le_n ].
+  elim (H7 (f x0) Hlt); intros.
+  cut (x2 >= x2)%nat; [ intro | unfold ge; apply le_n ].
   assert (H10 := H8 x2 H9).
   rewrite Rabs_left in H10.
   pattern (f x0) at 2 in H10; rewrite <- Rplus_0_r in H10.
@@ -418,7 +417,7 @@ intros. (* f x y f_cont_interv x_lt_y fx_neg fy_pos.*)
     [ unfold Rminus in |- *; apply Rplus_lt_le_0_compat | ring ].
   assumption.
   apply Ropp_0_ge_le_contravar; apply Rle_ge; apply H6.
-  right; rewrite <- b; reflexivity.
+  right; rewrite <- Heq; reflexivity.
   left; assumption.
   unfold Vn in |- *; assumption.
 Qed.
@@ -695,7 +694,7 @@ intros f g lb ub x Prf g_cont_pur lb_lt_ub x_encad Prg_incr f_eq_g df_neq.
        exists deltatemp ; exact Htemp.
     elim (Hf_deriv eps eps_pos).
     intros deltatemp Htemp.
-     red in Hlinv ; red in Hlinv ; simpl dist in Hlinv ; unfold R_dist in Hlinv.
+     red in Hlinv ; red in Hlinv ; unfold dist in Hlinv ; unfold R_dist in Hlinv.
      assert (Hlinv' := Hlinv (fun h => (f (y+h) - f y)/h) (fun h => h <>0) l 0).
      unfold limit1_in, limit_in, dist in Hlinv' ; simpl in Hlinv'. unfold R_dist in Hlinv'.
      assert (Premisse : (forall eps : R,
@@ -1037,62 +1036,6 @@ Definition mkposreal_lb_ub (x lb ub:R) (lb_lt_x:lb<x) (x_lt_ub:x<ub) : posreal.
  apply (mkposreal ((ub-lb)/2) (ub_lt_2_pos x ub lb lb_lt_x x_lt_ub)).
 Defined.
 (* end hide *)
-
-Definition boule_of_interval x y (h : x < y) :
-  {c :R & {r : posreal | c - r = x /\ c + r = y}}.
-exists ((x + y)/2).
-assert (radius : 0 < (y - x)/2).
- unfold Rdiv; apply Rmult_lt_0_compat; fourier.
- exists (mkposreal _ radius).
- simpl; split; unfold Rdiv; field.
-Qed.
-
-Definition boule_in_interval x y z (h : x < z < y) :
-  {c : R & {r | Boule c r z /\  x < c - r /\ c + r < y}}.
-Proof.
-assert (cmp : x * /2 + z * /2 < z * /2 + y * /2).
-destruct h as [h1 h2]; fourier.
-destruct (boule_of_interval _ _ cmp) as [c [r [P1 P2]]].
-exists c, r; split.
- destruct h; unfold Boule; simpl; apply Rabs_def1; fourier.
-destruct h; split; fourier.
-Qed.
-
-Lemma Ball_in_inter : forall c1 c2 r1 r2 x,
-  Boule c1 r1 x -> Boule c2 r2 x ->
-  {r3 : posreal | forall y, Boule x r3 y -> Boule c1 r1 y /\ Boule c2 r2 y}.
-intros c1 c2 [r1 r1p] [r2 r2p] x; unfold Boule; simpl; intros in1 in2.
-assert (Rmax (c1 - r1)(c2 - r2) < x).
- apply Rmax_lub_lt;[revert in1 | revert in2]; intros h;
-  apply Rabs_def2 in h; destruct h; fourier.
-assert (x < Rmin (c1 + r1) (c2 + r2)).
- apply Rmin_glb_lt;[revert in1 | revert in2]; intros h;
-  apply Rabs_def2 in h; destruct h; fourier.
-assert (t: 0 < Rmin (x - Rmax (c1 - r1) (c2 - r2)) 
-              (Rmin (c1 + r1) (c2 + r2) - x)).
- apply Rmin_glb_lt; fourier.
-exists (mkposreal _ t).
-apply Rabs_def2 in in1; destruct in1.
-apply Rabs_def2 in in2; destruct in2.
-assert (c1 - r1 <= Rmax (c1 - r1) (c2 - r2)) by apply Rmax_l.
-assert (c2 - r2 <= Rmax (c1 - r1) (c2 - r2)) by apply Rmax_r.
-assert (Rmin (c1 + r1) (c2 + r2) <= c1 + r1) by apply Rmin_l.
-assert (Rmin (c1 + r1) (c2 + r2) <= c2 + r2) by apply Rmin_r.
-assert (Rmin (x - Rmax (c1 - r1) (c2 - r2)) 
-         (Rmin (c1 + r1) (c2 + r2) - x) <= x - Rmax (c1 - r1) (c2 - r2))
- by apply Rmin_l.
-assert (Rmin (x - Rmax (c1 - r1) (c2 - r2)) 
-         (Rmin (c1 + r1) (c2 + r2) - x) <= Rmin (c1 + r1) (c2 + r2) - x)
- by apply Rmin_r.
-simpl.
-intros y h; apply Rabs_def2 in h; destruct h;split; apply Rabs_def1; fourier.
-Qed.
-
-Lemma Boule_center : forall x r, Boule x r x.
-Proof.
-intros x [r rpos]; unfold Boule, Rminus; simpl; rewrite Rplus_opp_r.
-rewrite Rabs_pos_eq;[assumption | apply Rle_refl].
-Qed.
 
 Lemma derivable_pt_lim_CVU : forall (fn fn':nat -> R -> R) (f g:R->R)
       (x:R) c r, Boule c r x ->

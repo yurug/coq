@@ -1,7 +1,7 @@
 (* -*- coding: utf-8 -*- *)
 (************************************************************************)
 (*  v      *   The Coq Proof Assistant  /  The Coq Development Team     *)
-(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2012     *)
+(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2015     *)
 (*   \VV/  **************************************************************)
 (*    //   *      This file is distributed under the terms of the       *)
 (*         *       GNU Lesser General Public License Version 2.1        *)
@@ -99,7 +99,7 @@ Lemma AC_bool_subset_to_bool :
 Proof.
   destruct (guarded_rel_choice _ _
    (fun Q:bool -> Prop =>  exists y : _, Q y)
-   (fun (Q:bool -> Prop) (y:bool) => Q y)) as (R,(HRsub,HR)).
+   (fun (Q:bool -> Prop) (y:bool) => Q y)) as (R,(HRsub,HR)). 
     exact (fun _ H => H).
   exists R; intros P HP.
   destruct (HR P HP) as (y,(Hy,Huni)).
@@ -113,23 +113,23 @@ Theorem pred_ext_and_rel_choice_imp_EM : forall P:Prop, P \/ ~ P.
 Proof.
 intro P.
 
-(** first we exhibit the choice functional relation R *)
+(* first we exhibit the choice functional relation R *)
 destruct AC_bool_subset_to_bool as [R H].
 
 set (class_of_true := fun b => b = true \/ P).
 set (class_of_false := fun b => b = false \/ P).
 
-(** the actual "decision": is (R class_of_true) = true or false? *)
+(* the actual "decision": is (R class_of_true) = true or false? *)
 destruct (H class_of_true) as [b0 [H0 [H0' H0'']]].
 exists true; left; reflexivity.
 destruct H0.
 
-(** the actual "decision": is (R class_of_false) = true or false? *)
+(* the actual "decision": is (R class_of_false) = true or false? *)
 destruct (H class_of_false) as [b1 [H1 [H1' H1'']]].
 exists false; left; reflexivity.
 destruct H1.
 
-(** case where P is false: (R class_of_true)=true /\ (R class_of_false)=false *)
+(* case where P is false: (R class_of_true)=true /\ (R class_of_false)=false *)
 right.
 intro HP.
 assert (Hequiv : forall b:bool, class_of_true b <-> class_of_false b).
@@ -145,7 +145,7 @@ rewrite <- H0''. reflexivity.
 rewrite Heq.
 assumption.
 
-(** cases where P is true *)
+(* cases where P is true *)
 left; assumption.
 left; assumption.
 
@@ -154,7 +154,7 @@ Qed.
 End PredExt_RelChoice_imp_EM.
 
 (**********************************************************************)
-(** * B. Proof-Irrel. + Rel. Axiom of Choice -> Excl.-Middle for Equality *)
+(** * Proof-Irrel. + Rel. Axiom of Choice -> Excl.-Middle for Equality *)
 
 (** This is an adaptation of Diaconescu's theorem, exploiting the
     form of extensionality provided by proof-irrelevance *)
@@ -172,7 +172,7 @@ Variables a1 a2 : A.
 
 (** We build the subset [A'] of [A] made of [a1] and [a2] *)
 
-Definition A' := sigT (fun x => x=a1 \/ x=a2).
+Definition A' := @sigT A (fun x => x=a1 \/ x=a2).
 
 Definition a1':A'.
 exists a1 ; auto.

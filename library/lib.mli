@@ -1,6 +1,6 @@
 (************************************************************************)
 (*  v      *   The Coq Proof Assistant  /  The Coq Development Team     *)
-(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2012     *)
+(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2015     *)
 (*   \VV/  **************************************************************)
 (*    //   *      This file is distributed under the terms of the       *)
 (*         *       GNU Lesser General Public License Version 2.1        *)
@@ -127,7 +127,9 @@ val end_modtype :
 (** {6 Compilation units } *)
 
 val start_compilation : Names.DirPath.t -> Names.module_path -> unit
-val end_compilation : Names.DirPath.t -> Libnames.object_prefix * library_segment
+val end_compilation_checks : Names.DirPath.t -> Libnames.object_name
+val end_compilation :
+  Libnames.object_name-> Libnames.object_prefix * library_segment
 
 (** The function [library_dp] returns the [DirPath.t] of the current
    compiling library (or [default_library]) *)
@@ -154,30 +156,27 @@ val unfreeze : frozen -> unit
 
 val init : unit -> unit
 
-(** XML output hooks *)
-val xml_open_section : (Names.Id.t -> unit) Hook.t
-val xml_close_section : (Names.Id.t -> unit) Hook.t
-
 (** {6 Section management for discharge } *)
 type variable_info = Names.Id.t * Decl_kinds.binding_kind *
     Term.constr option * Term.types
-type variable_context = variable_info list
+type variable_context = variable_info list 
+type abstr_info = variable_context * Univ.universe_level_subst * Univ.UContext.t
 
 val instance_from_variable_context : variable_context -> Names.Id.t array
 val named_of_variable_context : variable_context -> Context.named_context
 
-val section_segment_of_constant : Names.constant -> variable_context
-val section_segment_of_mutual_inductive: Names.mutual_inductive -> variable_context
+val section_segment_of_constant : Names.constant -> abstr_info
+val section_segment_of_mutual_inductive: Names.mutual_inductive -> abstr_info
 
-val section_instance : Globnames.global_reference -> Names.Id.t array
+val section_instance : Globnames.global_reference -> Univ.universe_instance * Names.Id.t array
 val is_in_section : Globnames.global_reference -> bool
 
-val add_section_variable : Names.Id.t -> Decl_kinds.binding_kind -> unit
+val add_section_variable : Names.Id.t -> Decl_kinds.binding_kind -> Decl_kinds.polymorphic -> Univ.universe_context_set -> unit
 
-val add_section_constant : Names.constant -> Context.named_context -> unit
+val add_section_constant : bool (* is_projection *) -> 
+  Names.constant -> Context.named_context -> unit
 val add_section_kn : Names.mutual_inductive -> Context.named_context -> unit
-val replacement_context : unit ->
-  (Names.Id.t array Names.Cmap.t * Names.Id.t array Names.Mindmap.t)
+val replacement_context : unit -> Opaqueproof.work_list
 
 (** {6 Discharge: decrease the section level if in the current section } *)
 

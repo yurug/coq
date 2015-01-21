@@ -1,6 +1,6 @@
 (************************************************************************)
 (*  v      *   The Coq Proof Assistant  /  The Coq Development Team     *)
-(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2012     *)
+(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2015     *)
 (*   \VV/  **************************************************************)
 (*    //   *      This file is distributed under the terms of the       *)
 (*         *       GNU Lesser General Public License Version 2.1        *)
@@ -21,7 +21,6 @@ open Reductionops
 open Formula
 open Sequent
 open Names
-open Globnames
 open Misctypes
 
 let compare_instance inst1 inst2=
@@ -101,12 +100,12 @@ let dummy_constr=mkMeta (-1)
 
 let dummy_bvid=Id.of_string "x"
 
-let mk_open_instance id gl m t=
+let mk_open_instance id idc gl m t=
   let env=pf_env gl in
   let evmap=Refiner.project gl in
   let var_id=
     if id==dummy_id then dummy_bvid else
-      let typ=pf_type_of gl (constr_of_global id) in
+      let typ=pf_type_of gl idc in
 	(* since we know we will get a product,
 	   reduction is not too expensive *)
       let (nam,_,_)=destProd (whd_betadeltaiota env evmap typ) in
@@ -119,16 +118,16 @@ let mk_open_instance id gl m t=
       let nid=(fresh_id avoid var_id gl) in
 	(Name nid,None,dummy_constr)::(aux (n-1) (nid::avoid)) in
   let nt=it_mkLambda_or_LetIn revt (aux m []) in
-  let rawt=Detyping.detype false [] [] nt in
+  let rawt=Detyping.detype false [] env evmap nt in
   let rec raux n t=
     if Int.equal n 0 then t else
       match t with
 	  GLambda(loc,name,k,_,t0)->
 	    let t1=raux (n-1) t0 in
-	      GLambda(loc,name,k,GHole (Loc.ghost,Evar_kinds.BinderType name,None),t1)
+	      GLambda(loc,name,k,GHole (Loc.ghost,Evar_kinds.BinderType name,Misctypes.IntroAnonymous,None),t1)
 	| _-> anomaly (Pp.str "can't happen") in
   let ntt=try
-    Pretyping.understand evmap env (raux m rawt)
+    fst (Pretyping.understand env evmap (raux m rawt))(*FIXME*)
   with e when Errors.noncritical e ->
     error "Untypable instance, maybe higher-order non-prenex quantification" in
     decompose_lam_n_assum m ntt
@@ -144,9 +143,10 @@ let left_instance_tac (inst,id) continue seq=
 	  tclTHENS (Proofview.V82.of_tactic (cut dom))
 	    [tclTHENLIST
 	       [Proofview.V82.of_tactic introf;
+                pf_constr_of_global id (fun idc ->
 		(fun gls->generalize
-		   [mkApp(constr_of_global id,
-			  [|mkVar (Tacmach.pf_nth_hyp_id gls 1)|])] gls);
+		   [mkApp(idc,
+			  [|mkVar (Tacmach.pf_nth_hyp_id gls 1)|])] gls));
 		Proofview.V82.of_tactic introf;
 		tclSOLVE [wrap 1 false continue
 			    (deepen (record (id,None) seq))]];
@@ -157,14 +157,16 @@ let left_instance_tac (inst,id) continue seq=
 	else
 	  let special_generalize=
 	    if m>0 then
-	      fun gl->
-		let (rc,ot)= mk_open_instance id gl m t in
-		let gt=
-		  it_mkLambda_or_LetIn
-		    (mkApp(constr_of_global id,[|ot|])) rc in
-		  generalize [gt] gl
+	      pf_constr_of_global id (fun idc ->
+		fun gl->
+		  let (rc,ot) = mk_open_instance id idc gl m t in
+		  let gt=
+		    it_mkLambda_or_LetIn
+		      (mkApp(idc,[|ot|])) rc in
+		    generalize [gt] gl)
 	    else
-	      generalize [mkApp(constr_of_global id,[|t|])]
+	      pf_constr_of_global id (fun idc ->
+		generalize [mkApp(idc,[|t|])])
 	  in
 	    tclTHENLIST
 	      [special_generalize;

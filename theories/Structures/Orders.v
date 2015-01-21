@@ -15,11 +15,11 @@ Unset Strict Implicit.
 (** First, signatures with only the order relations *)
 
 Module Type HasLt (Import T:Typ).
-  Parameter Inline lt : t -> t -> Prop.
+  Parameter Inline(40) lt : t -> t -> Prop.
 End HasLt.
 
 Module Type HasLe (Import T:Typ).
-  Parameter Inline le : t -> t -> Prop.
+  Parameter Inline(40) le : t -> t -> Prop.
 End HasLe.
 
 Module Type EqLt := Typ <+ HasEq <+ HasLt.
@@ -95,7 +95,7 @@ Module Type OrderedTypeFull' :=
  OrderedTypeFull <+ EqLtLeNotation <+ CmpNotation.
 
 (** NB: in [OrderedType], an [eq_dec] could be deduced from [compare].
-  But adding this redundant field allows to see an [OrderedType] as a
+  But adding this redundant field allows seeing an [OrderedType] as a
   [DecidableType]. *)
 
 (** * Versions with [eq] being the usual Leibniz equality of Coq *)

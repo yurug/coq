@@ -1,6 +1,6 @@
 (************************************************************************)
 (*  v      *   The Coq Proof Assistant  /  The Coq Development Team     *)
-(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2012     *)
+(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2015     *)
 (*   \VV/  **************************************************************)
 (*    //   *      This file is distributed under the terms of the       *)
 (*         *       GNU Lesser General Public License Version 2.1        *)
@@ -216,8 +216,8 @@ Definition Psub(P P':Pol):= P ++ (--P').
   intros l P i n Q;unfold mkPX.
   destruct P;try (simpl;reflexivity).
   assert (Hh := ring_morphism_eq  c 0). 
-simpl; case_eq (Ceqb c 0);simpl;try reflexivity.
-intros.
+  simpl; case_eq (Ceqb c 0);simpl;try reflexivity.
+  intros.
   rewrite Hh. rewrite ring_morphism0.
   rsimpl. apply Ceqb_eq. trivial.
   destruct (Pos.compare_spec i p).

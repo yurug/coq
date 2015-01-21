@@ -1,6 +1,6 @@
 (************************************************************************)
 (*  v      *   The Coq Proof Assistant  /  The Coq Development Team     *)
-(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2012     *)
+(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2015     *)
 (*   \VV/  **************************************************************)
 (*    //   *      This file is distributed under the terms of the       *)
 (*         *       GNU Lesser General Public License Version 2.1        *)
@@ -62,6 +62,14 @@ let init b x =
 let flatten = function
   | Some (Some y) -> Some y
   | _ -> None
+
+
+(** [append x y] is the first element of the concatenation of [x] and
+    [y] seen as lists. *)
+let append o1 o2 =
+  match o1 with
+  | Some _ -> o1
+  | None  -> o2
 
 
 (** {6 "Iterators"} ***)

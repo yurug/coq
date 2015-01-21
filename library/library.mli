@@ -1,6 +1,6 @@
 (************************************************************************)
 (*  v      *   The Coq Proof Assistant  /  The Coq Development Team     *)
-(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2012     *)
+(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2015     *)
 (*   \VV/  **************************************************************)
 (*    //   *      This file is distributed under the terms of the       *)
 (*         *       GNU Lesser General Public License Version 2.1        *)
@@ -31,7 +31,7 @@ val require_library_from_file :
 (** Segments of a library *)
 type seg_lib
 type seg_univ = (* cst, all_cst, finished? *)
-  Univ.constraints Future.computation array * Univ.constraints * bool
+  Univ.universe_context_set Future.computation array * Univ.universe_context_set * bool
 type seg_discharge = Opaqueproof.cooking_info list array
 type seg_proofs = Term.constr Future.computation array
 
@@ -43,8 +43,9 @@ val import_module : bool -> qualid located -> unit
 val start_library : string -> DirPath.t * string
 
 (** {6 End the compilation of a library and save it to a ".vo" file } *)
-val save_library_to : ?todo:((Future.UUID.t * int) list -> 'tasks) ->
-  DirPath.t -> string -> unit
+val save_library_to :
+  ?todo:((Future.UUID.t,'document) Stateid.request list * 'counters) ->
+  DirPath.t -> string -> Opaqueproof.opaquetab -> unit
 
 val load_library_todo :
   string -> string * seg_lib * seg_univ * seg_discharge * 'tasks * seg_proofs
@@ -66,9 +67,6 @@ val library_full_filename : DirPath.t -> string
   (** - Overwrite the filename of all libraries (used when restoring a state) *)
 val overwrite_library_filenames : string -> unit
 
-(** {6 Hook for the xml exportation of libraries } *)
-val xml_require : (DirPath.t -> unit) Hook.t
-
 (** {6 Locate a library in the load paths } *)
 exception LibUnmappedDir
 exception LibNotFound
@@ -80,3 +78,6 @@ val try_locate_qualified_library : qualid located -> DirPath.t * string
 
 (** {6 Statistics: display the memory use of a library. } *)
 val mem : DirPath.t -> Pp.std_ppcmds
+
+(** {6 Native compiler. } *)
+val native_name_from_filename : string -> string

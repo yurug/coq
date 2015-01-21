@@ -1,6 +1,6 @@
 (************************************************************************)
 (*  v      *   The Coq Proof Assistant  /  The Coq Development Team     *)
-(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2012     *)
+(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2015     *)
 (*   \VV/  **************************************************************)
 (*    //   *      This file is distributed under the terms of the       *)
 (*         *       GNU Lesser General Public License Version 2.1        *)
@@ -31,8 +31,8 @@ let interp = Interp.obj
 let register_interp0 = Interp.register0
 
 let generic_interp ist gl v =
-  let unpack wit v =
-    let (sigma, ans) = interp wit ist gl v in
+  let unpacker wit v =
+    let (sigma, ans) = interp wit ist gl (glb v) in
     (sigma, in_gen (topwit wit) ans)
   in
-  glb_unpack { glb_unpack = unpack; } v
+  unpack { unpacker; } v

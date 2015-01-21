@@ -1,6 +1,6 @@
 (************************************************************************)
 (*  v      *   The Coq Proof Assistant  /  The Coq Development Team     *)
-(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2012     *)
+(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2015     *)
 (*   \VV/  **************************************************************)
 (*    //   *      This file is distributed under the terms of the       *)
 (*         *       GNU Lesser General Public License Version 2.1        *)
@@ -9,11 +9,13 @@
 (*                                                                        *)
 (* Omega: a solver of quantifier-free problems in Presburger Arithmetic   *)
 (*                                                                        *)
-(* Pierre Crégut (CNET, Lannion, France)                                  *)
+(* Pierre CrÃ©gut (CNET, Lannion, France)                                  *)
 (*                                                                        *)
 (**************************************************************************)
 
 (*i camlp4deps: "grammar/grammar.cma" i*)
+
+DECLARE PLUGIN "omega_plugin"
 
 open Coq_omega
 

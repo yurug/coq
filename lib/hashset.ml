@@ -1,6 +1,6 @@
 (************************************************************************)
 (*  v      *   The Coq Proof Assistant  /  The Coq Development Team     *)
-(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2012     *)
+(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2015     *)
 (*   \VV/  **************************************************************)
 (*    //   *      This file is distributed under the terms of the       *)
 (*         *       GNU Lesser General Public License Version 2.1        *)
@@ -174,12 +174,8 @@ module Make (E : EqType) =
     let rec loop i =
       if i >= sz then ifnotfound index
       else if h = hashes.(i) then begin
-        match Weak.get_copy bucket i with
-        | Some v when E.equal v d ->
-          begin match Weak.get bucket i with
-          | Some v -> v
-          | None -> loop (i + 1)
-          end
+        match Weak.get bucket i with
+        | Some v when E.equal v d -> v
         | _ -> loop (i + 1)
       end else loop (i + 1)
     in

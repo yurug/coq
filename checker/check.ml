@@ -1,6 +1,6 @@
 (************************************************************************)
 (*  v      *   The Coq Proof Assistant  /  The Coq Development Team     *)
-(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2012     *)
+(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2015     *)
 (*   \VV/  **************************************************************)
 (*    //   *      This file is distributed under the terms of the       *)
 (*         *       GNU Lesser General Public License Version 2.1        *)
@@ -332,10 +332,10 @@ let intern_from_file (dir, f) =
         errorlabstrm "intern_from_file"
           (str "The file "++str f++str " contains unfinished tasks");
       if opaque_csts <> None then begin
-        pp (str " (was a vi file) ");
+        pp (str " (was a vio file) ");
       Option.iter (fun (_,_,b) -> if not b then
         errorlabstrm "intern_from_file"
-          (str "The file "++str f++str " is still a .vi"))
+          (str "The file "++str f++str " is still a .vio"))
         opaque_csts;
       Validate.validate !Flags.debug Values.v_univopaques opaque_csts;
       end;
@@ -344,7 +344,7 @@ let intern_from_file (dir, f) =
       Validate.validate !Flags.debug Values.v_opaques table;
       Flags.if_verbose ppnl (str" done]"); pp_flush ();
       let digest =
-        if opaque_csts <> None then Cic.Dvivo (digest,udg)
+        if opaque_csts <> None then Cic.Dviovo (digest,udg)
         else (Cic.Dvo digest) in
       md,table,opaque_csts,digest
     with e -> Flags.if_verbose ppnl (str" failed!]"); raise e in
@@ -355,7 +355,9 @@ let intern_from_file (dir, f) =
       LibraryMap.add md.md_name opaque_csts !opaque_univ_tables)
     opaque_csts;
   let extra_cst =
-    Option.default Univ.empty_constraint (Option.map pi2 opaque_csts) in
+    Option.default Univ.empty_constraint
+      (Option.map (fun (_,cs,_) ->
+         Univ.ContextSet.constraints cs) opaque_csts) in
   mk_library md f table digest extra_cst
 
 let get_deps (dir, f) =

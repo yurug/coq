@@ -1,6 +1,6 @@
 (************************************************************************)
 (*  v      *   The Coq Proof Assistant  /  The Coq Development Team     *)
-(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2012     *)
+(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2015     *)
 (*   \VV/  **************************************************************)
 (*    //   *      This file is distributed under the terms of the       *)
 (*         *       GNU Lesser General Public License Version 2.1        *)
@@ -19,6 +19,7 @@ type cl_typ =
   | CL_SECVAR of variable
   | CL_CONST of constant
   | CL_IND of inductive
+  | CL_PROJ of constant
 
 (** Equality over [cl_typ] *)
 val cl_typ_eq : cl_typ -> cl_typ -> bool
@@ -53,9 +54,9 @@ val class_info : cl_typ -> (cl_index * cl_info_typ)
 
 val class_info_from_index : cl_index -> cl_typ * cl_info_typ
 
-(** [find_class_type env sigma c] returns the head reference of [c] and its
-   arguments *)
-val find_class_type : evar_map -> types -> cl_typ * constr list
+(** [find_class_type env sigma c] returns the head reference of [c],
+    its universe instance and its arguments *)
+val find_class_type : evar_map -> types -> cl_typ * Univ.universe_instance * constr list
 
 (** raises [Not_found] if not convertible to a class *)
 val class_of : env -> evar_map -> types -> types * cl_index
@@ -73,7 +74,7 @@ val declare_coercion :
 (** {6 Access to coercions infos } *)
 val coercion_exists : coe_typ -> bool
 
-val coercion_value : coe_index -> (unsafe_judgment * bool)
+val coercion_value : coe_index -> (unsafe_judgment * bool * bool) Univ.in_universe_context_set
 
 (** {6 Lookup functions for coercion paths } *)
 
@@ -87,7 +88,7 @@ val lookup_path_to_fun_from : env -> evar_map -> types ->
 val lookup_path_to_sort_from : env -> evar_map -> types ->
       types * inheritance_path
 val lookup_pattern_path_between :
-  inductive * inductive -> (constructor * int) list
+  env -> inductive * inductive -> (constructor * int) list
 
 (**/**)
 (* Crade *)

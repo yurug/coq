@@ -1,6 +1,6 @@
 (************************************************************************)
 (*  v      *   The Coq Proof Assistant  /  The Coq Development Team     *)
-(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2012     *)
+(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2015     *)
 (*   \VV/  **************************************************************)
 (*    //   *      This file is distributed under the terms of the       *)
 (*         *       GNU Lesser General Public License Version 2.1        *)
@@ -93,7 +93,7 @@ let mode_tactic sel_cb (proof : #GText.view_skel) goals hints = match goals with
         in
         proof#buffer#insert (goal_str 1 goals_cnt);
         proof#buffer#insert ~tags cur_goal;
-	proof#buffer#insert "\n"
+        proof#buffer#insert "\n"
       in
       (* Insert remaining goals (no hypotheses) *)
       let fold_goal i _ { Interface.goal_ccl = g } =
@@ -104,7 +104,7 @@ let mode_tactic sel_cb (proof : #GText.view_skel) goals hints = match goals with
 
       ignore(proof#buffer#place_cursor
                ~where:(proof#buffer#end_iter#backward_to_tag_toggle
-			 (Some Tags.Proof.goal)));
+                         (Some Tags.Proof.goal)));
       ignore(proof#scroll_to_mark ~use_align:true ~yalign:0.95 `INSERT)
 
 let mode_cesar (proof : #GText.view_skel) = function

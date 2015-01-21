@@ -1,6 +1,6 @@
 (************************************************************************)
 (*  v      *   The Coq Proof Assistant  /  The Coq Development Team     *)
-(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2012     *)
+(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2015     *)
 (*   \VV/  **************************************************************)
 (*    //   *      This file is distributed under the terms of the       *)
 (*         *       GNU Lesser General Public License Version 2.1        *)
@@ -77,6 +77,7 @@ type pref =
       mutable auto_indent : bool;
       mutable show_spaces : bool;
       mutable show_right_margin : bool;
+      mutable show_progress_bar : bool;
       mutable spaces_instead_of_tabs : bool;
       mutable tab_length : int;
       mutable highlight_current_line : bool;

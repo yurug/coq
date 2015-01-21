@@ -1,6 +1,6 @@
 (************************************************************************)
 (*  v      *   The Coq Proof Assistant  /  The Coq Development Team     *)
-(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2012     *)
+(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2015     *)
 (*   \VV/  **************************************************************)
 (*    //   *      This file is distributed under the terms of the       *)
 (*         *       GNU Lesser General Public License Version 2.1        *)
@@ -18,23 +18,26 @@ open Misctypes
 
 (* Absurd *)
 
-let absurd c gls =
-  let env = pf_env gls and sigma = project gls in
-  let j = Retyping.get_judgment_of env sigma c in
-  let sigma, j = Coercion.inh_coerce_to_sort Loc.ghost env sigma j in
-  let c = j.Environ.utj_val in
-  (tclTHENS
-     (tclTHEN (elim_type (build_coq_False ())) (Proofview.V82.of_tactic (cut c)))
-     ([(tclTHENS
-          (Proofview.V82.of_tactic (cut (mkApp(build_coq_not (),[|c|]))))
-	  ([(tclTHEN (Proofview.V82.of_tactic intros)
-	       ((fun gl ->
-		   let ida = pf_nth_hyp_id gl 1
-                   and idna = pf_nth_hyp_id gl 2 in
-                   exact_no_check (mkApp(mkVar idna,[|mkVar ida|])) gl)));
-            tclIDTAC]));
-       tclIDTAC])) { gls with Evd.sigma; }
-let absurd c = Proofview.V82.tactic (absurd c)
+let mk_absurd_proof t =
+  let id = Namegen.default_dependent_ident in
+  mkLambda (Names.Name id,mkApp(build_coq_not (),[|t|]),
+    mkLambda (Names.Name id,t,mkApp (mkRel 2,[|mkRel 1|])))
+
+let absurd c =
+  Proofview.Goal.enter begin fun gl ->
+    let env = Proofview.Goal.env gl in
+    let sigma = Proofview.Goal.sigma gl in
+    let j = Retyping.get_judgment_of env sigma c in
+    let sigma, j = Coercion.inh_coerce_to_sort Loc.ghost env sigma j in
+    let t = j.Environ.utj_val in
+    Tacticals.New.tclTHENLIST [
+      Proofview.Unsafe.tclEVARS sigma;
+      elim_type (build_coq_False ());
+      Simple.apply (mk_absurd_proof t)
+    ]
+  end
+
+let absurd c = absurd c
 
 (* Contradiction *)
 
@@ -44,13 +47,13 @@ let filter_hyp f tac =
     | [] -> Proofview.tclZERO Not_found
     | (id,_,t)::rest when f t -> tac id
     | _::rest -> seek rest in
-  Proofview.Goal.raw_enter begin fun gl ->
+  Proofview.Goal.enter begin fun gl ->
     let hyps = Proofview.Goal.hyps (Proofview.Goal.assume gl) in
     seek hyps
   end
 
 let contradiction_context =
-  Proofview.Goal.raw_enter begin fun gl ->
+  Proofview.Goal.enter begin fun gl ->
     let sigma = Proofview.Goal.sigma gl in
     let env = Proofview.Goal.env gl in
     let rec seek_neg l = match l with
@@ -63,14 +66,14 @@ let contradiction_context =
 	  else match kind_of_term typ with
 	  | Prod (na,t,u) when is_empty_type u ->
 	      (Proofview.tclORELSE
-                 (Proofview.Goal.raw_enter begin fun gl ->
+                 (Proofview.Goal.enter begin fun gl ->
                    let is_conv_leq = Tacmach.New.pf_apply is_conv_leq gl in
 	           filter_hyp (fun typ -> is_conv_leq typ t)
 		     (fun id' -> simplest_elim (mkApp (mkVar id,[|mkVar id'|])))
                  end)
-                 begin function
+                 begin function (e, info) -> match e with
 	           | Not_found -> seek_neg rest
-                   | e -> Proofview.tclZERO e
+                   | e -> Proofview.tclZERO ~info e
                  end)
 	  | _ -> seek_neg rest
     in
@@ -86,14 +89,16 @@ let is_negation_of env sigma typ t =
     | _ -> false
 
 let contradiction_term (c,lbind as cl) =
-  Proofview.Goal.enter begin fun gl ->
+  Proofview.Goal.nf_enter begin fun gl ->
     let sigma = Proofview.Goal.sigma gl in
     let env = Proofview.Goal.env gl in
     let type_of = Tacmach.New.pf_type_of gl in
     let typ = type_of c in
     let _, ccl = splay_prod env sigma typ in
     if is_empty_type ccl then
-      Tacticals.New.tclTHEN (elim false cl None) (Tacticals.New.tclTRY assumption)
+      Tacticals.New.tclTHEN
+        (elim false None cl None)
+        (Tacticals.New.tclTRY assumption)
     else
       Proofview.tclORELSE
         begin
@@ -103,9 +108,9 @@ let contradiction_term (c,lbind as cl) =
           else
             Proofview.tclZERO Not_found
         end
-        begin function
+        begin function (e, info) -> match e with
           | Not_found -> Proofview.tclZERO (Errors.UserError ("",Pp.str"Not a contradiction."))
-          | e -> Proofview.tclZERO e
+          | e -> Proofview.tclZERO ~info e
         end
   end
 

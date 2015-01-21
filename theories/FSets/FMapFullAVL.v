@@ -674,6 +674,8 @@ Module IntMake_ord (I:Int)(X: OrderedType)(D : OrderedType) <:
   Definition cardinal_e_2 ee :=
    (cardinal_e (fst ee) + cardinal_e (snd ee))%nat.
 
+  Local Unset Keyed Unification.
+
   Function compare_aux (ee:Raw.enumeration D.t * Raw.enumeration D.t)
    { measure cardinal_e_2 ee } : comparison :=
   match ee with
@@ -726,7 +728,7 @@ Module IntMake_ord (I:Int)(X: OrderedType)(D : OrderedType) <:
   intros.
   assert (H1:=cons_1 m1 (Raw.End _)).
   assert (H2:=cons_1 m2 (Raw.End _)).
-  simpl in *; rewrite <- app_nil_end in *; rewrite <-H1,<-H2.
+  simpl in *; rewrite app_nil_r in *; rewrite <-H1,<-H2.
   apply (@compare_aux_Cmp (Raw.cons m1 (Raw.End _),
                            Raw.cons m2 (Raw.End _))).
   Qed.

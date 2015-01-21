@@ -1,6 +1,6 @@
 (************************************************************************)
 (*  v      *   The Coq Proof Assistant  /  The Coq Development Team     *)
-(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2012     *)
+(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2015     *)
 (*   \VV/  **************************************************************)
 (*    //   *      This file is distributed under the terms of the       *)
 (*         *       GNU Lesser General Public License Version 2.1        *)
@@ -22,6 +22,23 @@ open Libnames
 open Globnames
 open Environ
 open Termops
+
+(**********************************************************************)
+(* Conventional names *)
+
+let default_prop_string = "H"
+let default_prop_ident = Id.of_string default_prop_string
+
+let default_small_string = "H"
+let default_small_ident = Id.of_string default_small_string
+
+let default_type_string = "X"
+let default_type_ident = Id.of_string default_type_string
+
+let default_non_dependent_string = "H"
+let default_non_dependent_ident = Id.of_string default_non_dependent_string
+
+let default_dependent_ident = Id.of_string "x"
 
 (**********************************************************************)
 (* Globality of identifiers *)
@@ -61,6 +78,20 @@ let is_constructor id =
 (**********************************************************************)
 (* Generating "intuitive" names from its type *)
 
+let head_name c = (* Find the head constant of a constr if any *)
+  let rec hdrec c =
+    match kind_of_term c with
+    | Prod (_,_,c) | Lambda (_,_,c) | LetIn (_,_,_,c)
+    | Cast (c,_,_) | App (c,_) -> hdrec c
+    | Proj (kn,_) -> Some (Label.to_id (con_label (Projection.constant kn)))
+    | Const _ | Ind _ | Construct _ | Var _ ->
+	Some (basename_of_global (global_of_constr c))
+    | Fix ((_,i),(lna,_,_)) | CoFix (i,(lna,_,_)) ->
+	Some (match lna.(i) with Name id -> id | _ -> assert false)
+    | Sort _ | Rel _ | Meta _|Evar _|Case (_, _, _, _) -> None
+  in
+  hdrec c
+
 let lowercase_first_char id = (* First character of a constr *)
   Unicode.lowercase_first_char (Id.to_string id)
 
@@ -71,14 +102,12 @@ let sort_hdchar = function
 let hdchar env c =
   let rec hdrec k c =
     match kind_of_term c with
-    | Prod (_,_,c)    -> hdrec (k+1) c
-    | Lambda (_,_,c)  -> hdrec (k+1) c
-    | LetIn (_,_,_,c) -> hdrec (k+1) c
-    | Cast (c,_,_)    -> hdrec k c
-    | App (f,l)       -> hdrec k f
-    | Const kn -> lowercase_first_char (Label.to_id (con_label kn))
-    | Ind x -> lowercase_first_char (basename_of_global (IndRef x))
-    | Construct x -> lowercase_first_char (basename_of_global (ConstructRef x))
+    | Prod (_,_,c) | Lambda (_,_,c) | LetIn (_,_,_,c) -> hdrec (k+1) c
+    | Cast (c,_,_) | App (c,_) -> hdrec k c
+    | Proj (kn,_) -> lowercase_first_char (Label.to_id (con_label (Projection.constant kn)))
+    | Const (kn,_) -> lowercase_first_char (Label.to_id (con_label kn))
+    | Ind (x,_) -> lowercase_first_char (basename_of_global (IndRef x))
+    | Construct (x,_) -> lowercase_first_char (basename_of_global (ConstructRef x))
     | Var id  -> lowercase_first_char id
     | Sort s -> sort_hdchar s
     | Rel n ->
@@ -88,13 +117,11 @@ let hdchar env c =
 	     | (Name id,_,_)   -> lowercase_first_char id
 	     | (Anonymous,_,t) -> hdrec 0 (lift (n-k) t)
 	   with Not_found -> "y")
-    | Fix ((_,i),(lna,_,_)) ->
+    | Fix ((_,i),(lna,_,_)) | CoFix (i,(lna,_,_)) ->
 	let id = match lna.(i) with Name id -> id | _ -> assert false in
 	lowercase_first_char id
-    | CoFix (i,(lna,_,_)) ->
-	let id = match lna.(i) with Name id -> id | _ -> assert false in
-	lowercase_first_char id
-    | Meta _|Evar _|Case (_, _, _, _) -> "y"
+    | Evar _ (* We could do better... *)
+    | Meta _ | Case (_, _, _, _) -> "y"
   in
   hdrec 0 c
 
@@ -138,8 +165,6 @@ let it_mkLambda_or_LetIn_name env b hyps =
 (**********************************************************************)
 (* Fresh names *)
 
-let default_x = Id.of_string "x"
-
 (* Looks for next "good" name by lifting subscript *)
 
 let next_ident_away_from id bad =
@@ -151,21 +176,46 @@ let next_ident_away_from id bad =
 
 let restart_subscript id =
   if not (has_subscript id) then id else
-    (* Ce serait sans doute mieux avec quelque chose inspiré de
-     *** make_ident id (Some 0) *** mais ça brise la compatibilité... *)
+    (* It would probably be better with something in the spirit of
+     *** make_ident id (Some 0) *** but compatibility would be lost... *)
     forget_subscript id
 
 let rec to_avoid id = function
 | [] -> false
 | id' :: avoid -> Id.equal id id' || to_avoid id avoid
 
+let occur_rel p env id =
+  try
+    let name = lookup_name_of_rel p env in
+    begin match name with
+    | Name id' -> Id.equal id' id
+    | Anonymous -> false
+    end
+  with Not_found -> false (* Unbound indice : may happen in debug *)
+
+let visibly_occur_id id (nenv,c) =
+  let rec occur n c = match kind_of_term c with
+    | Const _ | Ind _ | Construct _ | Var _
+      when
+        let short = shortest_qualid_of_global Id.Set.empty (global_of_constr c) in
+        qualid_eq short (qualid_of_ident id) ->
+      raise Occur
+    | Rel p when p>n && occur_rel (p-n) nenv id -> raise Occur
+    | _ -> iter_constr_with_binders succ occur n c
+  in
+  try occur 1 c; false
+  with Occur -> true
+    | Not_found -> false (* Happens when a global is not in the env *)
+
 (* Now, there are different renaming strategies... *)
 
 (* 1- Looks for a fresh name for printing in cases pattern *)
 
-let next_name_away_in_cases_pattern na avoid =
-  let id = match na with Name id -> id | Anonymous -> default_x in
-  next_ident_away_from id (fun id -> to_avoid id avoid || is_constructor id)
+let next_name_away_in_cases_pattern env_t na avoid =
+  let id = match na with Name id -> id | Anonymous -> default_dependent_ident in
+  let bad id = to_avoid id avoid || is_constructor id
+                                 || visibly_occur_id id env_t in
+  next_ident_away_from id bad
 
 (* 2- Looks for a fresh name for introduction in goal *)
 
@@ -182,7 +232,9 @@ let next_ident_away_in_goal id avoid =
   next_ident_away_from id bad
 
 let next_name_away_in_goal na avoid =
-  let id = match na with Name id -> id | Anonymous -> Id.of_string "H" in
+  let id = match na with
+    | Name id -> id
+    | Anonymous -> default_non_dependent_ident in
   next_ident_away_in_goal id avoid
 
 (* 3- Looks for next fresh name outside a list that is moreover valid
@@ -220,7 +272,7 @@ let next_name_away_with_default_using_types default na avoid t =
 	| Anonymous -> Id.of_string default in
   next_ident_away id avoid
 
-let next_name_away = next_name_away_with_default "H"
+let next_name_away = next_name_away_with_default default_non_dependent_string
 
 let make_all_name_different env =
   let avoid = ref (ids_of_named_context (named_context env)) in
@@ -236,29 +288,6 @@ let make_all_name_different env =
    looks for name of same base with lower available subscript beyond current
    subscript *)
 
-let occur_rel p env id =
-  try
-    let name = lookup_name_of_rel p env in
-    begin match name with
-    | Name id' -> Id.equal id' id
-    | Anonymous -> false
-    end
-  with Not_found -> false (* Unbound indice : may happen in debug *)
-
-let visibly_occur_id id (nenv,c) =
-  let rec occur n c = match kind_of_term c with
-    | Const _ | Ind _ | Construct _ | Var _
-      when
-        let short = shortest_qualid_of_global Id.Set.empty (global_of_constr c) in
-        qualid_eq short (qualid_of_ident id) ->
-      raise Occur
-    | Rel p when p>n && occur_rel (p-n) nenv id -> raise Occur
-    | _ -> iter_constr_with_binders succ occur n c
-  in
-  try occur 1 c; false
-  with Occur -> true
-    | Not_found -> false (* Happens when a global is not in the env *)
-
 let next_ident_away_for_default_printing env_t id avoid =
   let bad id = to_avoid id avoid || visibly_occur_id id env_t in
   next_ident_away_from id bad
@@ -270,7 +299,7 @@ let next_name_away_for_default_printing env_t na avoid =
       (* In principle, an anonymous name is not dependent and will not be *)
       (* taken into account by the function compute_displayed_name_in; *)
       (* just in case, invent a valid name *)
-      Id.of_string "H" in
+      default_non_dependent_ident in
   next_ident_away_for_default_printing env_t id avoid
 
 (**********************************************************************)
@@ -292,13 +321,13 @@ let next_name_away_for_default_printing env_t na avoid =
 *)
 
 type renaming_flags =
-  | RenamingForCasesPattern
+  | RenamingForCasesPattern of (Name.t list * constr)
   | RenamingForGoal
   | RenamingElsewhereFor of (Name.t list * constr)
 
 let next_name_for_display flags =
   match flags with
-  | RenamingForCasesPattern -> next_name_away_in_cases_pattern
+  | RenamingForCasesPattern env_t -> next_name_away_in_cases_pattern env_t
   | RenamingForGoal -> next_name_away_in_goal
   | RenamingElsewhereFor env_t -> next_name_away_for_default_printing env_t
 
@@ -341,3 +370,25 @@ let rename_bound_vars_as_displayed avoid env c =
     | _ -> c
   in
   rename avoid env c
+
+(**********************************************************************)
+(* "H"-based naming strategy introduced June 2014 for hypotheses in
+   Prop produced by case/elim/destruct/induction, in place of the
+   strategy that was using the first letter of the type, leading to
+   inelegant "n:~A", "e:t=u", etc. when eliminating sumbool or similar
+   types *)
+
+let h_based_elimination_names = ref false
+
+let use_h_based_elimination_names () =
+  !h_based_elimination_names && Flags.version_strictly_greater Flags.V8_4
+
+open Goptions
+
+let _ = declare_bool_option
+	  { optsync  = true;
+            optdepr  = false;
+	    optname  = "use of \"H\"-based proposition names in elimination tactics";
+	    optkey   = ["Standard";"Proposition";"Elimination";"Names"];
+	    optread  = (fun () -> !h_based_elimination_names);
+	    optwrite = (:=) h_based_elimination_names }

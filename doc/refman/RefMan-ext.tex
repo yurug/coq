@@ -14,7 +14,7 @@ records as is done in many programming languages.  Its syntax is
 described on Figure~\ref{record-syntax}.  In fact, the \verb+Record+
 macro is more general than the usual record types, since it allows
 also for ``manifest'' expressions. In this sense, the \verb+Record+
-construction allows to define ``signatures''.
+construction allows defining ``signatures''.
 
 \begin{figure}[h]
 \begin{centerframe}
@@ -97,9 +97,9 @@ Remark here that the field
 %\medskip
 
 Let us now see the work done by the {\tt Record} macro.  First the
-macro generates an inductive definition with just one constructor:
+macro generates a variant type definition with just one constructor:
 \begin{quote}
-{\tt Inductive {\ident} {\params} :{\sort} :=} \\
+{\tt Variant {\ident} {\params} :{\sort} :=} \\
 \qquad {\tt
   {\ident$_0$} ({\ident$_1$}:{\term$_1$}) .. ({\ident$_n$}:{\term$_n$}).}
 \end{quote}
@@ -160,6 +160,11 @@ raises an  error). To define recursive  records, one can  use the {\tt
   Inductive} and {\tt CoInductive} keywords, resulting in an inductive
 or  co-inductive record.  A  \emph{caveat}, however,  is that  records
 cannot appear in mutually inductive (or co-inductive) definitions.
+Induction schemes are automatically generated for inductive records.
+Automatic generation of induction schemes for non-recursive records
+defined with the {\tt Record} keyword can be activated with the
+{\tt Nonrecursive Elimination Schemes} option
+(see~\ref{set-nonrecursive-elimination-schemes}).
 
 \begin{Warnings}
 \item {\tt Warning: {\ident$_i$} cannot be defined.}
@@ -208,7 +213,7 @@ Record point := { x : nat; y : nat }.
 Definition a := Build_point 5 3.
 \end{coq_example}
 
-The following syntax allows to create objects by using named fields. The
+The following syntax allows creating objects by using named fields. The
 fields do not have to be in any particular order, nor do they have to be all
 present if the missing ones can be inferred or prompted for (see
 Section~\ref{Program}).
@@ -276,6 +281,37 @@ the inductive type.
 
 To deactivate the printing of projections, use 
 {\tt Unset Printing Projections}.
+
+\subsection{Primitive Projections}
+\index{Primitive projections}
+\label{prim-proj}
+
+The option {\tt Set Primitive Projections} turns on the use of primitive
+projections when defining subsequent records. Primitive projections
+extended the calculus of inductive constructions with a new binary term
+constructor {\tt r.(p)} representing a primitive projection p applied to
+a record object {\tt r} (i.e., primitive projections are always
+applied). Even if the record type has parameters, these do not appear at
+applications of the projection, considerably reducing the sizes of terms
+when manipulating parameterized records and typechecking time. On the
+user level, primitive projections are a transparent replacement
+for the usual defined ones.
+
+  % - r.(p) and (p r) elaborate to native projection application, and
+  %   the parameters cannot be mentioned. The following arguments are
+  %   parsed according to the remaining implicit arguments declared for the
+  %   projection (i.e. the implicit arguments after the record type
+  %   argument). In dot notation, the record type argument is considered
+  %   explicit no matter what its implicit status is.
+  % - r.(@p params) and @p args are parsed as regular applications of the
+  %   projection with explicit parameters.
+  % - [simpl p] is forbidden, but [simpl @p] will simplify both the projection
+  %   and its explicit [@p] version.
+  % - [unfold p] has no effect on projection applications unless it is applied
+  %   to a constructor. If the explicit version appears it reduces to the
+  %   projection application.
+  % - [pattern x at n], [rewrite x at n] and in general abstraction and selection
+  %   of occurrences may fail due to the disappearance of parameters.
 
 
 \section{Variants and extensions of {\mbox{\tt match}}
@@ -712,7 +748,7 @@ each branch.
 
 Function does not support partial application of the function being defined. Thus, the following example cannot be accepted due to the presence of partial application of \ident{wrong} into the body of \ident{wrong}~:
 \begin{coq_example*}
-  Function wrong (C:nat) {\ldots} : nat := 
+  Function wrong (C:nat) : nat := 
     List.hd(List.map wrong (C::nil)).
 \end{coq_example*}
 
@@ -859,8 +895,8 @@ subgoals belonging to a Lemma {\ident}{\tt\_tcc}. % These subgoals are independe
 \index{Sections}
 \label{Section}}
 
-The sectioning mechanism allows to organize a proof in structured
-sections. Then local declarations become available (see
+The sectioning mechanism can be used to to organize a proof in
+structured sections. Then local declarations become available (see
 Section~\ref{Basic-definitions}).
 
 \subsection{\tt Section {\ident}\comindex{Section}}
@@ -913,7 +949,7 @@ section is closed.
 %However, a name already used in a closed section (see \ref{Section})
 %can be reused. In this case, the old name is no longer accessible.
 
-% Obsolète
+% ObsolÃ¨te
 %\item A module implicitly open a section. Be careful not to name a
 %module with an identifier already used in the module (see \ref{compiled}).
 \end{Remarks}
@@ -922,36 +958,25 @@ section is closed.
 
 \section{Libraries and qualified names}
 
-\subsection{Names of libraries and files
+\subsection{Names of libraries
 \label{Libraries}
-\index{Libraries}
-\index{Physical paths}
-\index{Logical paths}}
-
-\paragraph{Libraries}
+\index{Libraries}}
 
 The theories developed in {\Coq} are stored in {\em library files}
 which are hierarchically classified into {\em libraries} and {\em
-sublibraries}. To express this hierarchy, library names are
+  sublibraries}. To express this hierarchy, library names are
 represented by qualified identifiers {\qualid}, i.e. as list of
 identifiers separated by dots (see Section~\ref{qualid}). For
 instance, the library file {\tt Mult} of the standard {\Coq} library
-{\tt Arith} has name {\tt Coq.Arith.Mult}. The identifier
-that starts the name of a library is called a {\em library root}.
-All library files of the standard library of {\Coq} have reserved root
-{\tt Coq} but library file names based on other roots can be obtained
-by using {\tt coqc} options {\tt -I} or {\tt -R} (see
-Section~\ref{coqoptions}). Also, when an interactive {\Coq} session
-starts, a library of root {\tt Top} is started, unless option {\tt
--top} or {\tt -notop} is set (see Section~\ref{coqoptions}).
-
-As library files are stored on the file system of the underlying
-operating system, a translation from file-system names to {\Coq} names
-is needed. In this translation, names in the file system are called
-{\em physical} paths while {\Coq} names are contrastingly called {\em
-logical} names. Logical names are mapped to physical paths using the
-commands {\tt Add LoadPath} or {\tt Add Rec LoadPath} (see
-Sections~\ref{AddLoadPath} and~\ref{AddRecLoadPath}).
+{\tt Arith} is named {\tt Coq.Arith.Mult}. The identifier that starts
+the name of a library is called a {\em library root}.  All library
+files of the standard library of {\Coq} have the reserved root {\tt Coq}
+but library file names based on other roots can be obtained by using
+{\Coq} commands ({\tt coqc}, {\tt coqtop}, {\tt coqdep}, \dots) options
+{\tt -Q} or {\tt -R} (see Section~\ref{coqoptions}). Also, when an
+interactive {\Coq} session starts, a library of root {\tt Top} is
+started, unless option {\tt -top} or {\tt -notop} is set (see
+Section~\ref{coqoptions}).
 
 \subsection{Qualified names
 \label{LongNames}
@@ -998,11 +1023,6 @@ partially qualified name is mapped to the absolute name in {\Coq} name
 table. Definitions flagged as {\tt Local} are only accessible with their
 fully qualified name (see \ref{Definition}).
 
-A similar table exists for library file names. It is updated by the
-vernacular commands {\tt Add LoadPath} and {\tt Add Rec LoadPath} (or
-their equivalent as options of the {\Coq} executables, {\tt -I} and
-{\tt -R}).
-
 It may happen that a visible name is hidden by the short name or a
 qualified name of another construction. In this case, the name that
 has been hidden must be referred to using one more level of
@@ -1023,6 +1043,61 @@ Locate nat.
 
 \SeeAlso Command {\tt Locate} in Section~\ref{Locate} and {\tt Locate
 Library} in Section~\ref{Locate Library}.
+
+\subsection{Libraries and filesystem\label{loadpath}\index{Loadpath}
+\index{Physical paths} \index{Logical paths}}
+
+Please note that the questions described here have been subject to
+redesign in Coq v8.5. Former versions of Coq use the same terminology
+to describe slightly different things.
+
+Compiled files (\texttt{.vo} and \texttt{.vi}) store sub-libraries. In
+order to refer to them inside {\Coq}, a translation from file-system
+names to {\Coq} names is needed. In this translation, names in the
+file system are called {\em physical} paths while {\Coq} names are
+contrastingly called {\em logical} names.
+
+A logical name {\tt Lib} can associated to a physical path
+\textrm{\textsl{path}} using the command line option {\tt -Q}
+\textrm{\textsl{path}} {\tt Lib}. This associates a logical name to
+all the compiled files in the directory tree rooted at
+\textrm{\textsl{path}}. The name associated to the file {\tt
+  path/fOO/Bar/File.vo} is {\tt Lib.fOO.Bar.File}. Subdirectories
+corresponding to invalid {\Coq} identifiers are skipped, and, by
+convention, subdirectories named {\tt CVS} or {\tt \_darcs} are
+skipped too.
+
+{\Coq} commands also associate automatically a logical path to files
+in the repository trees rooted at the directory from where the command
+is launched, \textit{coqlib}\texttt{/user-contrib/}, the directories
+listed in the \verb:$COQPATH:, \verb:${XDG_DATA_HOME}/coq/: and
+\verb:${XDG_DATA_DIRS}/coq/: environment variables (see
+\url{http://standards.freedesktop.org/basedir-spec/basedir-spec-latest.html})
+with the same $/ \to .$ convention but no prefix.
+
+The command line option \texttt{-R} is a variant of \texttt{-Q} that
+associates to a physical path the same logical path as \texttt{-Q}, as
+well as all suffixes of that logical path. The option \texttt{-R}
+\textrm{\textsl{path}} \texttt{Lib} associates to
+\texttt{path/fOO/Bar/File.vo} the logical names
+\texttt{Lib.fOO.Bar.File}, \texttt{fOO.Bar.File}, \texttt{Bar.File}
+and \texttt{File}. If several files with identical base name are
+present in different subdirectories of a recursive loadpath, which of
+these files is found first may be system-dependent and explicit
+qualification is recommended.
+
+There are currently two loadpaths in {\Coq}. There is one loadpath
+where seeking {\Coq} files (extensions \texttt{.v} or \texttt{.vo} or
+\texttt{.vi}) whose management has been explained just above, and one
+where seeking {\ocaml} files. The {\ocaml} loadpath is
+managed using the option \texttt{-I path}. As in {\ocaml} world, there
+is nether a notion of logical name prefix nor a way to access files in
+subdirectories of \texttt{path}. See the command \texttt{Declare ML
+  Module} in Section~\ref{compiled} to understand the need of the
+{\ocaml} loadpath.
+
+See Section~\ref{coqoptions} for a more general view over the {\Coq}
+command line options.
 
 %% \paragraph{The special case of remarks and facts}
 %% 
@@ -1224,6 +1299,13 @@ After the above declaration is issued, implicit arguments can just (and
 have to) be skipped in any expression involving an application of
 {\qualid}.
 
+Implicit arguments can be cleared with the following syntax:
+
+\begin{quote}
+{\tt Arguments {\qualid} : clear implicits
+\comindex{Arguments}}
+\end{quote}
+
 \begin{Variants}
 \item {\tt Global Arguments {\qualid} \nelist{\possiblybracketedident}{}
 \comindex{Global Arguments}}
@@ -1358,21 +1440,6 @@ Variables (a b c : X) (r1 : R a b) (r2 : R b c).
 \begin{coq_example}
 Check (p r1 r2).
 \end{coq_example}
-
-Implicit arguments can be cleared with the following syntax:
-
-\begin{quote}
-{\tt Arguments {\qualid} : clear implicits
-\comindex{Arguments}}
-\end{quote}
-
-In the following example implict arguments declarations for the {\tt nil}
-constant are cleared:
-\begin{coq_example}
-Arguments cons : clear implicits.
-Print Implicit cons.
-\end{coq_example}
-
 
 \subsection{Mode for automatic declaration of implicit arguments
 \label{Auto-implicit}
@@ -1721,7 +1788,7 @@ the generalized variables. Inside implicit generalization
 delimiters, free variables in the current context are automatically
 quantified using a product or a lambda abstraction to generate a closed
 term. In the following statement for example, the variables \texttt{n}
-and \texttt{m} are autamatically generalized and become explicit
+and \texttt{m} are automatically generalized and become explicit
 arguments of the lemma as we are using \verb|`( )|:
 
 \begin{coq_example}

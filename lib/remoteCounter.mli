@@ -1,6 +1,6 @@
 (************************************************************************)
 (*  v      *   The Coq Proof Assistant  /  The Coq Development Team     *)
-(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2013     *)
+(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2015     *)
 (*   \VV/  **************************************************************)
 (*    //   *      This file is distributed under the terms of the       *)
 (*         *       GNU Lesser General Public License Version 2.1        *)
@@ -10,7 +10,10 @@
  * scenario, the slave installs a getter that asks the master for a fresh
  * value.  In the scenario of a slave that runs after the death of the master
  * on some marshalled data, a backup of all counters status should be taken and
- * restored to avoid reusing ids. *)
+ * restored to avoid reusing ids.
+ * Counters cannot be created by threads, they must be created once and forall
+ * as toplevel module declarations. *)
+
 
 type 'a getter = unit -> 'a
 type 'a installer = ('a getter) -> unit
@@ -20,4 +23,7 @@ val new_counter : name:string ->
 
 type remote_counters_status
 val backup : unit -> remote_counters_status
+(* like backup but makes a copy so that further increment does not alter
+ * the snapshot *)
+val snapshot : unit -> remote_counters_status
 val restore : remote_counters_status -> unit

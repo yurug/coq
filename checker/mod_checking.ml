@@ -18,29 +18,39 @@ let refresh_arity ar =
   let ctxt, hd = decompose_prod_assum ar in
   match hd with
       Sort (Type u) when not (Univ.is_univ_variable u) ->
-        let u' = Univ.fresh_local_univ() in
-        mkArity (ctxt,Type u'),
-        Univ.enforce_leq u u' Univ.empty_constraint
+        let u' = Univ.Universe.make (Univ.Level.make empty_dirpath 1) in
+        mkArity (ctxt,Prop Null), 
+	  Univ.enforce_leq u u' Univ.empty_constraint
     | _ -> ar, Univ.empty_constraint
 
 let check_constant_declaration env kn cb =
-  Flags.if_verbose ppnl (str "  checking cst: " ++ prcon kn);
-(*  let env = add_constraints cb.const_constraints env in*)
-  (match cb.const_type with
-      NonPolymorphicType ty ->
-        let ty, cu = refresh_arity ty in
-        let envty = add_constraints cu env in
-        let _ = infer_type envty ty in
-        (match body_of_constant cb with
-          | Some bd ->
-              let j = infer env bd in
-              conv_leq envty j ty
-          | None -> ())
-    | PolymorphicArity(ctxt,par) ->
-        let _ = check_ctxt env ctxt in
-        check_polymorphic_arity env ctxt par);
-  add_constant kn cb env
-
+  Flags.if_verbose ppnl (str "  checking cst: " ++ prcon kn); pp_flush ();
+  let env' = add_constraints (Univ.UContext.constraints cb.const_universes) env in
+  let envty, ty = 
+    match cb.const_type with
+      RegularArity ty ->
+        let ty', cu = refresh_arity ty in
+        let envty = add_constraints cu env' in
+        let _ = infer_type envty ty' in envty, ty
+    | TemplateArity(ctxt,par) ->
+        let _ = check_ctxt env' ctxt in
+        check_polymorphic_arity env' ctxt par;
+	env', it_mkProd_or_LetIn (Sort(Type par.template_level)) ctxt 
+  in
+  let () = 
+    match body_of_constant cb with
+    | Some bd ->
+      (match cb.const_proj with 
+      | None -> let j = infer envty bd in
+		  conv_leq envty j ty
+      | Some pb -> 
+	let env' = add_constant kn cb env' in
+	let j = infer env' bd in
+	  conv_leq envty j ty)
+    | None -> ()
+  in
+  if cb.const_polymorphic then add_constant kn cb env
+  else add_constant kn cb env'
 
 (** {6 Checking modules } *)
 
@@ -54,6 +64,15 @@ let lookup_module mp env =
   with Not_found ->
     failwith ("Unknown module: "^string_of_mp mp)
 
+let mk_mtb mp sign delta =
+  { mod_mp = mp;
+    mod_expr = Abstract;
+    mod_type = sign;
+    mod_type_alg = None;
+    mod_constraints = Univ.Constraint.empty;
+    mod_delta = delta;
+    mod_retroknowledge = []; }
+
 let rec check_module env mp mb =
   let (_:module_signature) =
     check_signature env mb.mod_type mb.mod_mp mb.mod_delta
@@ -66,25 +85,14 @@ let rec check_module env mp mb =
   match optsign with
   |None -> ()
   |Some sign ->
-    let mtb1 =
-      {typ_mp=mp;
-       typ_expr=sign;
-       typ_expr_alg=None;
-       typ_constraints=Univ.empty_constraint;
-       typ_delta = mb.mod_delta;}
-    and mtb2 =
-      {typ_mp=mp;
-       typ_expr=mb.mod_type;
-       typ_expr_alg=None;
-       typ_constraints=Univ.empty_constraint;
-       typ_delta = mb.mod_delta;}
-    in
+    let mtb1 = mk_mtb mp sign mb.mod_delta
+    and mtb2 = mk_mtb mp mb.mod_type mb.mod_delta in
     let env = add_module_type mp mtb1 env in
     Subtyping.check_subtypes env mtb1 mtb2
 
 and check_module_type env mty =
   let (_:module_signature) =
-    check_signature env mty.typ_expr mty.typ_mp mty.typ_delta in
+    check_signature env mty.mod_type mty.mod_mp mty.mod_delta in
   ()
 
 and check_structure_field env mp lab res = function

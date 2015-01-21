@@ -1,6 +1,6 @@
 (************************************************************************)
 (*  v      *   The Coq Proof Assistant  /  The Coq Development Team     *)
-(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2012     *)
+(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2015     *)
 (*   \VV/  **************************************************************)
 (*    //   *      This file is distributed under the terms of the       *)
 (*         *       GNU Lesser General Public License Version 2.1        *)
@@ -15,6 +15,7 @@ Require Import PSeries_reg.
 Require Import Div2.
 Require Import Even.
 Require Import Max.
+Require Import Omega.
 Local Open Scope nat_scope.
 Local Open Scope R_scope.
 
@@ -85,18 +86,17 @@ Qed.
 
 Lemma div2_not_R0 : forall N:nat, (1 < N)%nat -> (0 < div2 N)%nat.
 Proof.
-  intros; induction  N as [| N HrecN].
-  elim (lt_n_O _ H).
-  cut ((1 < N)%nat \/ N = 1%nat).
-  intro; elim H0; intro.
-  assert (H2 := even_odd_dec N).
-  elim H2; intro.
-  rewrite <- (even_div2 _ a); apply HrecN; assumption.
-  rewrite <- (odd_div2 _ b); apply lt_O_Sn.
-  rewrite H1; simpl; apply lt_O_Sn.
-  inversion H.
-  right; reflexivity.
-  left; apply lt_le_trans with 2%nat; [ apply lt_n_Sn | apply H1 ].
+  intros; induction N as [| N HrecN].
+  - elim (lt_n_O _ H).
+  - cut ((1 < N)%nat \/ N = 1%nat).
+    { intro; elim H0; intro.
+      + destruct (even_odd_dec N) as [Heq|Heq].
+        * rewrite <- (even_div2 _ Heq); apply HrecN; assumption.
+        * rewrite <- (odd_div2 _ Heq); apply lt_O_Sn.
+      + rewrite H1; simpl; apply lt_O_Sn. }
+    inversion H.
+    right; reflexivity.
+    left; apply lt_le_trans with 2%nat; [ apply lt_n_Sn | apply H1 ].
 Qed.
 
 Lemma Reste_E_maj :
@@ -722,15 +722,14 @@ Qed.
 (**********)
 Lemma exp_pos : forall x:R, 0 < exp x.
 Proof.
-  intro; case (total_order_T 0 x); intro.
-  elim s; intro.
-  apply (exp_pos_pos _ a).
-  rewrite <- b; rewrite exp_0; apply Rlt_0_1.
+  intro; destruct (total_order_T 0 x) as [[Hlt|<-]|Hgt].
+  apply (exp_pos_pos _ Hlt).
+  rewrite exp_0; apply Rlt_0_1.
   replace (exp x) with (1 / exp (- x)).
   unfold Rdiv; apply Rmult_lt_0_compat.
   apply Rlt_0_1.
   apply Rinv_0_lt_compat; apply exp_pos_pos.
-  apply (Ropp_0_gt_lt_contravar _ r).
+  apply (Ropp_0_gt_lt_contravar _ Hgt).
   cut (exp (- x) <> 0).
   intro; unfold Rdiv; apply Rmult_eq_reg_l with (exp (- x)).
   rewrite Rmult_1_l; rewrite <- Rinv_r_sym.
@@ -771,10 +770,10 @@ Proof.
   apply (not_eq_sym H6).
   rewrite Rminus_0_r; apply H7.
   unfold SFL.
-  case (cv 0); intros.
+  case (cv 0) as (x,Hu).
   eapply UL_sequence.
-  apply u.
-  unfold Un_cv, SP.
+  apply Hu.
+  unfold Un_cv, SP in |- *.
   intros; exists 1%nat; intros.
   unfold R_dist; rewrite decomp_sum.
   rewrite (Rplus_comm (fn 0%nat 0)).
@@ -791,14 +790,13 @@ Proof.
   unfold Rdiv; rewrite Rinv_1; rewrite Rmult_1_r; reflexivity.
   apply lt_le_trans with 1%nat; [ apply lt_n_Sn | apply H9 ].
   unfold SFL, exp.
-  case (cv h); case (exist_exp h); simpl; intros.
+  case (cv h) as (x0,Hu); case (exist_exp h) as (x,Hexp); simpl.
   eapply UL_sequence.
-  apply u.
+  apply Hu.
   unfold Un_cv; intros.
-  unfold exp_in in e.
-  unfold infinite_sum in e.
+  unfold exp_in, infinite_sum in Hexp.
   cut (0 < eps0 * Rabs h).
-  intro; elim (e _ H9); intros N0 H10.
+  intro; elim (Hexp _ H9); intros N0 H10.
   exists N0; intros.
   unfold R_dist.
   apply Rmult_lt_reg_l with (Rabs h).
@@ -858,8 +856,7 @@ Proof.
         Un_cv
         (fun n:nat =>
           sum_f_R0 (fun k:nat => Rabs (r ^ k / INR (fact (S k)))) n) l }.
-  intro X.
-  elim X; intros.
+  intros (x,p).
   exists x; intros.
   split.
   apply p.

@@ -1,6 +1,6 @@
 (************************************************************************)
 (*  v      *   The Coq Proof Assistant  /  The Coq Development Team     *)
-(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2012     *)
+(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2015     *)
 (*   \VV/  **************************************************************)
 (*    //   *      This file is distributed under the terms of the       *)
 (*         *       GNU Lesser General Public License Version 2.1        *)
@@ -43,7 +43,7 @@ Extract Constant Pos.max => "Pervasives.max".
 Extract Constant Pos.compare =>
  "fun x y -> if x=y then Eq else if x<y then Lt else Gt".
 Extract Constant Pos.compare_cont =>
- "fun x y c -> if x=y then c else if x<y then Lt else Gt".
+ "fun c x y -> if x=y then c else if x<y then Lt else Gt".
 
 
 Extract Constant N.add => "(+)".

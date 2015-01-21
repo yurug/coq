@@ -1,6 +1,6 @@
 (************************************************************************)
 (*  v      *   The Coq Proof Assistant  /  The Coq Development Team     *)
-(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2012     *)
+(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2015     *)
 (*   \VV/  **************************************************************)
 (*    //   *      This file is distributed under the terms of the       *)
 (*         *       GNU Lesser General Public License Version 2.1        *)
@@ -9,7 +9,7 @@
 (*                                                                        *)
 (* Omega: a solver of quantifier-free problems in Presburger Arithmetic   *)
 (*                                                                        *)
-(* Pierre Crégut (CNET, Lannion, France)                                  *)
+(* Pierre CrÃ©gut (CNET, Lannion, France)                                  *)
 (*                                                                        *)
 (**************************************************************************)
 
@@ -34,10 +34,10 @@ open OmegaSolver
 (* Added by JCF, 09/03/98 *)
 
 let elim_id id =
-  Proofview.Goal.enter begin fun gl ->
+  Proofview.Goal.nf_enter begin fun gl ->
     simplest_elim (Tacmach.New.pf_global id gl)
   end
-let resolve_id id gl = apply (pf_global gl id) gl
+let resolve_id id gl = Proofview.V82.of_tactic (apply (pf_global gl id)) gl
 
 let timing timer_name f arg = f arg
 
@@ -170,7 +170,7 @@ let hide_constr,find_constr,clear_constr_tables,dump_tables =
   let l = ref ([]:(constr * (Id.t * Id.t * bool)) list) in
   (fun h id eg b -> l := (h,(id,eg,b)):: !l),
   (fun h ->
-    try List.assoc_f Constr.equal h !l with Not_found -> failwith "find_contr"),
+    try List.assoc_f eq_constr_nounivs h !l with Not_found -> failwith "find_contr"),
   (fun () -> l := []),
   (fun () -> !l)
 
@@ -304,10 +304,10 @@ let coq_le = lazy (init_constant "le")
 let coq_lt = lazy (init_constant "lt")
 let coq_ge = lazy (init_constant "ge")
 let coq_gt = lazy (init_constant "gt")
-let coq_minus = lazy (init_constant "minus")
-let coq_plus = lazy (init_constant "plus")
-let coq_mult = lazy (init_constant "mult")
-let coq_pred = lazy (init_constant "pred")
+let coq_minus = lazy (init_constant "Nat.sub")
+let coq_plus = lazy (init_constant "Nat.add")
+let coq_mult = lazy (init_constant "Nat.mul")
+let coq_pred = lazy (init_constant "Nat.pred")
 let coq_nat = lazy (init_constant "nat")
 let coq_S = lazy (init_constant "S")
 let coq_O = lazy (init_constant "O")
@@ -350,7 +350,7 @@ let coq_iff = lazy (constant "iff")
 
 (* For unfold *)
 let evaluable_ref_of_constr s c = match kind_of_term (Lazy.force c) with
-  | Const kn when Tacred.is_evaluable (Global.env()) (EvalConstRef kn) ->
+  | Const (kn,u) when Tacred.is_evaluable (Global.env()) (EvalConstRef kn) ->
       EvalConstRef kn
   | _ -> anomaly ~label:"Coq_omega" (Pp.str (s^" is not an evaluable constant"))
 
@@ -367,15 +367,16 @@ let mk_var v = mkVar (Id.of_string v)
 let mk_plus t1 t2 = mkApp (Lazy.force coq_Zplus, [| t1; t2 |])
 let mk_times t1 t2 = mkApp (Lazy.force coq_Zmult, [| t1; t2 |])
 let mk_minus t1 t2 = mkApp (Lazy.force coq_Zminus, [| t1;t2 |])
-let mk_eq t1 t2 = mkApp (build_coq_eq (), [| Lazy.force coq_Z; t1; t2 |])
+let mk_eq t1 t2 = mkApp (Universes.constr_of_global (build_coq_eq ()),
+			 [| Lazy.force coq_Z; t1; t2 |])
 let mk_le t1 t2 = mkApp (Lazy.force coq_Zle, [| t1; t2 |])
 let mk_gt t1 t2 = mkApp (Lazy.force coq_Zgt, [| t1; t2 |])
 let mk_inv t = mkApp (Lazy.force coq_Zopp, [| t |])
 let mk_and t1 t2 =  mkApp (build_coq_and (), [| t1; t2 |])
 let mk_or t1 t2 =  mkApp (build_coq_or (), [| t1; t2 |])
 let mk_not t = mkApp (build_coq_not (), [| t |])
-let mk_eq_rel t1 t2 = mkApp (build_coq_eq (),
-			      [| Lazy.force coq_comparison; t1; t2 |])
+let mk_eq_rel t1 t2 = mkApp (Universes.constr_of_global (build_coq_eq ()),
+			     [| Lazy.force coq_comparison; t1; t2 |])
 let mk_inj t = mkApp (Lazy.force coq_Z_of_nat, [| t |])
 
 let mk_integer n =
@@ -419,7 +420,7 @@ type result =
 let destructurate_prop t =
   let c, args = decompose_app t in
   match kind_of_term c, args with
-    | _, [_;_;_] when eq_constr c (build_coq_eq ()) -> Kapp (Eq,args)
+    | _, [_;_;_] when is_global (build_coq_eq ()) c -> Kapp (Eq,args)
     | _, [_;_] when eq_constr c (Lazy.force coq_neq) -> Kapp (Neq,args)
     | _, [_;_] when eq_constr c (Lazy.force coq_Zne) -> Kapp (Zne,args)
     | _, [_;_] when eq_constr c (Lazy.force coq_Zle) -> Kapp (Zle,args)
@@ -436,11 +437,11 @@ let destructurate_prop t =
     | _, [_;_] when eq_constr c (Lazy.force coq_lt) -> Kapp (Lt,args)
     | _, [_;_] when eq_constr c (Lazy.force coq_ge) -> Kapp (Ge,args)
     | _, [_;_] when eq_constr c (Lazy.force coq_gt) -> Kapp (Gt,args)
-    | Const sp, args ->
+    | Const (sp,_), args ->
 	Kapp (Other (string_of_path (path_of_global (ConstRef sp))),args)
-    | Construct csp , args ->
+    | Construct (csp,_) , args ->
 	Kapp (Other (string_of_path (path_of_global (ConstructRef csp))), args)
-    | Ind isp, args ->
+    | Ind (isp,_), args ->
 	Kapp (Other (string_of_path (path_of_global (IndRef isp))),args)
     | Var id,[] -> Kvar id
     | Prod (Anonymous,typ,body), [] -> Kimp(typ,body)
@@ -565,7 +566,7 @@ let abstract_path typ path t =
 
 let focused_simpl path gl =
   let newc = context (fun i t -> pf_nf gl t) (List.rev path) (pf_concl gl) in
-  convert_concl_no_check newc DEFAULTcast gl
+  Proofview.V82.of_tactic (convert_concl_no_check newc DEFAULTcast) gl
 
 let focused_simpl path = focused_simpl path
 
@@ -1081,7 +1082,8 @@ let replay_history tactic_normalisation =
 	  let p_initial = [P_APP 2;P_TYPE] in
 	  let tac = shuffle_cancel p_initial e1.body in
 	  let solve_le =
-            let not_sup_sup = mkApp (build_coq_eq (), [|
+            let not_sup_sup = mkApp (Universes.constr_of_global (build_coq_eq ()),
+				     [|
 					Lazy.force coq_comparison;
 					Lazy.force coq_Gt;
 					Lazy.force coq_Gt |])
@@ -1414,7 +1416,7 @@ let reintroduce id =
 open Proofview.Notations
 
 let coq_omega =
-  Proofview.Goal.enter begin fun gl ->
+  Proofview.Goal.nf_enter begin fun gl ->
   clear_constr_tables ();
   let hyps_types = Tacmach.New.pf_hyps_types gl in
   let destructure_omega = Tacmach.New.of_old destructure_omega gl in
@@ -1467,7 +1469,7 @@ let coq_omega =
 let coq_omega = coq_omega
 
 let nat_inject =
-  Proofview.Goal.enter begin fun gl ->
+  Proofview.Goal.nf_enter begin fun gl ->
   let is_conv = Tacmach.New.pf_apply Reductionops.is_conv gl in
   let rec explore p t : unit Proofview.tactic =
     try match destructurate_term t with
@@ -1671,22 +1673,22 @@ let onClearedName id tac =
   (* so renaming may be necessary *)
   Tacticals.New.tclTHEN
     (Proofview.V82.tactic (tclTRY (clear [id])))
-    (Proofview.Goal.enter begin fun gl ->
+    (Proofview.Goal.nf_enter begin fun gl ->
      let id = Tacmach.New.of_old (fresh_id [] id) gl in
-     Tacticals.New.tclTHEN (Proofview.V82.tactic (introduction id)) (tac id)
+     Tacticals.New.tclTHEN (introduction id) (tac id)
     end)
 
 let onClearedName2 id tac =
   Tacticals.New.tclTHEN
     (Proofview.V82.tactic (tclTRY (clear [id])))
-    (Proofview.Goal.enter begin fun gl ->
+    (Proofview.Goal.nf_enter begin fun gl ->
      let id1 = Tacmach.New.of_old (fresh_id [] (add_suffix id "_left")) gl in
      let id2 = Tacmach.New.of_old (fresh_id [] (add_suffix id "_right")) gl in
-      Tacticals.New.tclTHENLIST [ Proofview.V82.tactic (introduction id1); Proofview.V82.tactic (introduction id2); tac id1 id2 ]
+      Tacticals.New.tclTHENLIST [ introduction id1; introduction id2; tac id1 id2 ]
     end)
 
 let destructure_hyps =
-  Proofview.Goal.enter begin fun gl ->
+  Proofview.Goal.nf_enter begin fun gl ->
   let type_of = Tacmach.New.pf_type_of gl in
   let decidability = Tacmach.New.of_old decidability gl in
   let pf_nf = Tacmach.New.of_old pf_nf gl in
@@ -1804,15 +1806,15 @@ let destructure_hyps =
 		    match destructurate_type (pf_nf typ) with
 		    | Kapp(Nat,_) ->
                         (Tacticals.New.tclTHEN
-			   (Proofview.V82.tactic (convert_hyp_no_check
+			   (convert_hyp_no_check
                                                     (i,body,
-				                     (mkApp (Lazy.force coq_neq, [| t1;t2|])))))
+				                     (mkApp (Lazy.force coq_neq, [| t1;t2|]))))
 			   (loop lit))
 		    | Kapp(Z,_) ->
                         (Tacticals.New.tclTHEN
-			   (Proofview.V82.tactic (convert_hyp_no_check
+			   (convert_hyp_no_check
                                                     (i,body,
-				                     (mkApp (Lazy.force coq_Zne, [| t1;t2|])))))
+				                     (mkApp (Lazy.force coq_Zne, [| t1;t2|]))))
 			   (loop lit))
 		    | _ -> loop lit
                   end
@@ -1829,7 +1831,7 @@ let destructure_hyps =
   end
 
 let destructure_goal =
-  Proofview.Goal.enter begin fun gl ->
+  Proofview.Goal.nf_enter begin fun gl ->
     let concl = Proofview.Goal.concl gl in
     let decidability = Tacmach.New.of_old decidability gl in
     let rec loop t =
@@ -1848,7 +1850,7 @@ let destructure_goal =
                 (Proofview.V82.tactic (Tactics.refine
 		                         (mkApp (Lazy.force coq_dec_not_not, [| t; dec; mkNewMeta () |]))))
 	        intro
-	    with Undecidable -> Proofview.V82.tactic (Tactics.elim_type (build_coq_False ()))
+	    with Undecidable -> Tactics.elim_type (build_coq_False ())
 	  in
 	  Tacticals.New.tclTHEN goal_tac destructure_hyps
     in

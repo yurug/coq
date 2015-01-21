@@ -1,6 +1,6 @@
 (************************************************************************)
 (*  v      *   The Coq Proof Assistant  /  The Coq Development Team     *)
-(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2012     *)
+(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2015     *)
 (*   \VV/  **************************************************************)
 (*    //   *      This file is distributed under the terms of the       *)
 (*         *       GNU Lesser General Public License Version 2.1        *)
@@ -112,26 +112,35 @@ let report_on_load_obj_error exc =
   else str (Printexc.to_string exc)
 
 (* Dynamic loading of .cmo/.cma *)
-let dir_ml_load s =
+
+let ml_load s =
   match !load with
     | WithTop t ->
-      (try t.load_obj s
+      (try t.load_obj s; s
        with
        | e when Errors.noncritical e ->
         let e = Errors.push e in
-        match e with
-        | (UserError _ | Failure _ | Not_found as u) -> raise u
+        match fst e with
+        | (UserError _ | Failure _ | Not_found as u) -> Exninfo.iraise (u, snd e)
         | exc ->
             let msg = report_on_load_obj_error exc in
             errorlabstrm "Mltop.load_object" (str"Cannot link ml-object " ++
                   str s ++ str" to Coq code (" ++ msg ++ str ")."))
     | WithoutTop ->
+        try
+          Dynlink.loadfile s; s
+	with Dynlink.Error a ->
+          errorlabstrm "Mltop.load_object"
+            (strbrk "while loading " ++ str s ++
+             strbrk ": " ++ str (Dynlink.error_message a))
+
+let dir_ml_load s =
+  match !load with
+    | WithTop _ -> ml_load s
+    | WithoutTop ->
         let warn = Flags.is_verbose() in
         let _,gname = find_file_in_path ~warn !coq_mlpath_copy s in
-        try
-          Dynlink.loadfile gname;
-	with Dynlink.Error a ->
-          errorlabstrm "Mltop.load_object" (str (Dynlink.error_message a))
+        ml_load gname
 
 (* Dynamic interpretation of .ml *)
 let dir_ml_use s =
@@ -211,8 +220,11 @@ let file_of_name name =
   let suffix = get_ml_object_suffix name in
   let fail s =
     errorlabstrm "Mltop.load_object"
-      (str"File not found on loadpath : " ++ str s) in
-  if is_native then
+      (str"File not found on loadpath : " ++ str s ++ str"\n" ++
+       str"Loadpath: " ++ str(String.concat ":" !coq_mlpath_copy)) in
+  if not (Filename.is_relative name) then
+    if Sys.file_exists name then name else fail name
+  else if is_native then
     let name = match suffix with
       | Some ((".cmo"|".cma") as suffix) ->
           (Filename.chop_suffix name suffix) ^ ".cmxs"
@@ -245,24 +257,44 @@ let file_of_name name =
  * (linked or loaded with load_object). It is used not to load a
  * module twice. It is NOT the list of ML modules Coq knows. *)
 
-let known_loaded_modules = ref String.Set.empty
+let known_loaded_modules = ref String.Map.empty
 
-let add_known_module mname =
-  known_loaded_modules := String.Set.add mname !known_loaded_modules
+let add_known_module mname path =
+  if not (String.Map.mem mname !known_loaded_modules) ||
+     String.Map.find mname !known_loaded_modules = None then
+    known_loaded_modules := String.Map.add mname path !known_loaded_modules
 
 let module_is_known mname =
-  String.Set.mem mname !known_loaded_modules
+  String.Map.mem mname !known_loaded_modules
+
+let known_module_path mname =
+  String.Map.find mname !known_loaded_modules
 
 (** A plugin is just an ML module with an initialization function. *)
 
 let known_loaded_plugins = ref String.Map.empty
 
 let add_known_plugin init name =
-  add_known_module name;
+  add_known_module name None;
   known_loaded_plugins := String.Map.add name init !known_loaded_plugins
 
 let init_known_plugins () =
   String.Map.iter (fun _ f -> f()) !known_loaded_plugins
+
+(** Registering functions to be used at caching time, that is when the Declare
+    ML module command is issued. *)
+
+let cache_objs = ref String.Map.empty
+
+let declare_cache_obj f name =
+  let objs = try String.Map.find name !cache_objs with Not_found -> [] in
+  let objs = f :: objs in
+  cache_objs := String.Map.add name objs !cache_objs
+
+let perform_cache_obj name =
+  let objs = try String.Map.find name !cache_objs with Not_found -> [] in
+  let objs = List.rev objs in
+  List.iter (fun f -> f ()) objs
 
 (** ml object = ml module or plugin *)
 
@@ -270,10 +302,23 @@ let init_ml_object mname =
   try String.Map.find mname !known_loaded_plugins ()
   with Not_found -> ()
 
-let load_ml_object mname fname=
-  dir_ml_load fname;
-  add_known_module mname;
-  init_ml_object mname
+let load_ml_object mname ?path fname=
+  let path = match path with
+    | None -> dir_ml_load fname
+    | Some p -> ml_load p in
+  add_known_module mname (Some path);
+  init_ml_object mname;
+  path
+
+let dir_ml_load m = ignore(dir_ml_load m)
+let add_known_module m = add_known_module m None
+let load_ml_object_raw fname = dir_ml_load (file_of_name fname)
+let load_ml_objects_raw_rex rex =
+  List.iter (fun (_,fp) ->
+    let name = file_of_name (Filename.basename fp) in
+    try dir_ml_load name
+    with e -> prerr_endline (Printexc.to_string e))
+    (System.where_in_path_rex !coq_mlpath_copy rex)
 
 (* Summary of declared ML Modules *)
 
@@ -281,16 +326,19 @@ let load_ml_object mname fname=
 
 let loaded_modules = ref []
 let get_loaded_modules () = List.rev !loaded_modules
-let add_loaded_module md = loaded_modules := md :: !loaded_modules
+let add_loaded_module md path =
+  if not (List.mem_assoc md !loaded_modules) then
+    loaded_modules := (md,path) :: !loaded_modules
 let reset_loaded_modules () = loaded_modules := []
 
-let if_verbose_load verb f name fname =
-  if not verb then f name fname
+let if_verbose_load verb f name ?path fname =
+  if not verb then f name ?path fname
   else
     let info = "[Loading ML file "^fname^" ..." in
     try
-      f name fname;
+      let path = f name ?path fname in
       msg_info (str (info^" done]"));
+      path
     with reraise ->
       msg_info (str (info^" failed]"));
       raise reraise
@@ -299,21 +347,27 @@ let if_verbose_load verb f name fname =
     or simulate its reload (i.e. doing nothing except maybe
     an initialization function). *)
 
-let cache_ml_object verb reinit name =
-  begin
-    if module_is_known name then
-      (if reinit then init_ml_object name)
-    else if not has_dynlink then
-      error ("Dynamic link not supported (module "^name^")")
-    else
-      if_verbose_load (verb && is_verbose ())
-	load_ml_object name (file_of_name name)
-  end;
-  add_loaded_module name
+let trigger_ml_object verb cache reinit ?path name =
+  if module_is_known name then begin
+    if reinit then init_ml_object name;
+    add_loaded_module name (known_module_path name);
+    if cache then perform_cache_obj name
+  end else if not has_dynlink then
+    error ("Dynamic link not supported (module "^name^")")
+  else begin
+    let file = file_of_name (Option.default name path) in
+    let path =
+      if_verbose_load (verb && is_verbose ()) load_ml_object name ?path file in
+    add_loaded_module name (Some path);
+    if cache then perform_cache_obj name
+  end
+
+let load_ml_object n m = ignore(load_ml_object n m)
 
 let unfreeze_ml_modules x =
   reset_loaded_modules ();
-  List.iter (cache_ml_object false false) x
+  List.iter
+    (fun (name,path) -> trigger_ml_object false false false ?path name) x
 
 let _ =
   Summary.declare_summary Summary.ml_modules
@@ -329,7 +383,12 @@ type ml_module_object = {
 }
 
 let cache_ml_objects (_,{mnames=mnames}) =
-  List.iter (cache_ml_object true true) mnames
+  let iter obj = trigger_ml_object true true true obj in
+  List.iter iter mnames
+
+let load_ml_objects _ (_,{mnames=mnames}) =
+  let iter obj = trigger_ml_object true false true obj in
+  List.iter iter mnames
 
 let classify_ml_objects ({mlocal=mlocal} as o) =
   if mlocal then Dispose else Substitute o
@@ -337,8 +396,8 @@ let classify_ml_objects ({mlocal=mlocal} as o) =
 let inMLModule : ml_module_object -> obj =
   declare_object
     {(default_object "ML-MODULE") with
-      load_function = (fun _ -> cache_ml_objects);
       cache_function = cache_ml_objects;
+      load_function = load_ml_objects;
       subst_function = (fun (_,o) -> o);
       classify_function = classify_ml_objects }
 
@@ -355,7 +414,7 @@ let print_ml_path () =
 
 let print_ml_modules () =
   let l = get_loaded_modules () in
-  str"Loaded ML Modules: " ++ pr_vertical_list str l
+  str"Loaded ML Modules: " ++ pr_vertical_list str (List.map fst l)
 
 let print_gc () =
   let stat = Gc.stat () in

@@ -1,6 +1,6 @@
 (************************************************************************)
 (*  v      *   The Coq Proof Assistant  /  The Coq Development Team     *)
-(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2012     *)
+(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2015     *)
 (*   \VV/  **************************************************************)
 (*    //   *      This file is distributed under the terms of the       *)
 (*         *       GNU Lesser General Public License Version 2.1        *)
@@ -11,6 +11,10 @@
 type locality = Discharge | Local | Global
 
 type binding_kind = Explicit | Implicit
+
+type polymorphic = bool
+
+type private_flag = bool 
 
 type theorem_kind =
   | Theorem
@@ -45,9 +49,9 @@ type assumption_object_kind = Definitional | Logical | Conjectural
    Logical      |  Hypothesis | Axiom
 
 *)
-type assumption_kind = locality * assumption_object_kind
+type assumption_kind = locality * polymorphic * assumption_object_kind
 
-type definition_kind = locality * definition_object_kind
+type definition_kind = locality * polymorphic * definition_object_kind
 
 (** Kinds used in proofs *)
 
@@ -55,7 +59,7 @@ type goal_object_kind =
   | DefinitionBody of definition_object_kind
   | Proof of theorem_kind
 
-type goal_kind = locality * goal_object_kind
+type goal_kind = locality * polymorphic * goal_object_kind
 
 (** Kinds used in library *)
 

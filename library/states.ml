@@ -1,14 +1,17 @@
 (************************************************************************)
 (*  v      *   The Coq Proof Assistant  /  The Coq Development Team     *)
-(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2012     *)
+(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2015     *)
 (*   \VV/  **************************************************************)
 (*    //   *      This file is distributed under the terms of the       *)
 (*         *       GNU Lesser General Public License Version 2.1        *)
 (************************************************************************)
 
+open Util
 open System
 
 type state = Lib.frozen * Summary.frozen
+
+let summary_of_state = snd
 
 let freeze ~marshallable =
   (Lib.freeze ~marshallable, Summary.freeze_summaries ~marshallable)
@@ -38,6 +41,6 @@ let with_state_protection f x =
     let a = f x in unfreeze st; a
   with reraise ->
     let reraise = Errors.push reraise in
-    (unfreeze st; raise reraise)
+    (unfreeze st; iraise reraise)
 
 let with_state_protection_on_exception = Future.transactify

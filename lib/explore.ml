@@ -1,6 +1,6 @@
 (************************************************************************)
 (*  v      *   The Coq Proof Assistant  /  The Coq Development Team     *)
-(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2012     *)
+(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2015     *)
 (*   \VV/  **************************************************************)
 (*    //   *      This file is distributed under the terms of the       *)
 (*         *       GNU Lesser General Public License Version 2.1        *)
@@ -50,7 +50,7 @@ module Make = functor(S : SearchProblem) -> struct
     in
     explore [1] s
 
-  (*s Breadth first search. We use functional FIFOS à la Okasaki. *)
+  (*s Breadth first search. We use functional FIFOS Ã  la Okasaki. *)
 
   type 'a queue = 'a list * 'a list
 

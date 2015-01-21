@@ -1,6 +1,6 @@
 (************************************************************************)
 (*  v      *   The Coq Proof Assistant  /  The Coq Development Team     *)
-(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2012     *)
+(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2015     *)
 (*   \VV/  **************************************************************)
 (*    //   *      This file is distributed under the terms of the       *)
 (*         *       GNU Lesser General Public License Version 2.1        *)
@@ -49,11 +49,25 @@ val proof : proof ->
   * Goal.goal list
   * Evd.evar_map
 
+(* Generic records structured like the return type of proof *)
+type 'a pre_goals = {
+  fg_goals : 'a list;
+  (** List of the focussed goals *)
+  bg_goals : ('a list * 'a list) list;
+  (** Zipper representing the unfocussed background goals *)
+  shelved_goals : 'a list;
+  (** List of the goals on the shelf. *)
+  given_up_goals : 'a list;
+  (** List of the goals that have been given up *)
+}
+
+val map_structured_proof : proof -> (Evd.evar_map -> Goal.goal -> 'a) -> ('a pre_goals)
+
+
 (*** General proof functions ***)
 
 val start : Evd.evar_map -> (Environ.env * Term.types) list -> proof
-val dependent_start : Evd.evar_map -> Proofview.telescope -> proof
-
+val dependent_start : Proofview.telescope -> proof
 val initial_goals : proof -> (Term.constr * Term.types) list
 
 (* Returns [true] if the considered proof is completed, that is if no goal remain
@@ -62,6 +76,8 @@ val is_done : proof -> bool
 
 (* Returns the list of partial proofs to initial goals. *)
 val partial_proof : proof -> Term.constr list
+
+val compact : proof -> proof
 
 (* Returns the proofs (with their type) of the initial goals.
     Raises [UnfinishedProof] is some goals remain to be considered.
@@ -116,6 +132,14 @@ val focus : 'a focus_condition -> 'a -> int -> proof -> proof
 
 exception FullyUnfocused
 exception CannotUnfocusThisWay
+
+(* This is raised when trying to focus on non-existing subgoals. It is
+   handled by an error message but one may need to catched it and
+   settle a better error message in some case (suggesting a better
+   bullet for example), see proof_global.ml function Bullet.pop and
+   Bullet.push. *)
+exception NoSuchGoals of int * int
+
 (* Unfocusing command.
    Raises [FullyUnfocused] if the proof is not focused.
    Raises [CannotUnfocusThisWay] if the proof the unfocusing condition
@@ -141,9 +165,8 @@ val no_focused_goal : proof -> bool
 
 (* the returned boolean signal whether an unsafe tactic has been
    used. In which case it is [false]. *)
-val run_tactic : Environ.env -> unit Proofview.tactic -> proof -> proof*bool
-
-val emit_side_effects : Declareops.side_effects -> proof -> proof
+val run_tactic : Environ.env ->
+  unit Proofview.tactic -> proof -> proof*(bool*Proofview_monad.Info.tree)
 
 val maximal_unfocus : 'a focus_kind -> proof -> proof
 

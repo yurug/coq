@@ -1,6 +1,6 @@
 (************************************************************************)
 (*  v      *   The Coq Proof Assistant  /  The Coq Development Team     *)
-(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2012     *)
+(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2015     *)
 (*   \VV/  **************************************************************)
 (*    //   *      This file is distributed under the terms of the       *)
 (*         *       GNU Lesser General Public License Version 2.1        *)
@@ -196,6 +196,11 @@ let rec msig_of_ms = function
 
 let signature_of_structure s =
   List.map (fun (mp,ms) -> mp,msig_of_ms ms) s
+
+let rec mtyp_of_mexpr = function
+  | MEfunctor (id,ty,e) -> MTfunsig (id,ty, mtyp_of_mexpr e)
+  | MEstruct (mp,str) -> MTsig (mp, msig_of_ms str)
+  | _ -> assert false
 
 
 (*s Searching one [ml_decl] in a [ml_structure] by its [global_reference] *)

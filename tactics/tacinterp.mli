@@ -1,6 +1,6 @@
 (************************************************************************)
 (*  v      *   The Coq Proof Assistant  /  The Coq Development Team     *)
-(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2012     *)
+(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2015     *)
 (*   \VV/  **************************************************************)
 (*    //   *      This file is distributed under the terms of the       *)
 (*         *       GNU Lesser General Public License Version 2.1        *)
@@ -22,6 +22,7 @@ sig
   val of_int : int -> t
   val to_int : t -> int option
   val to_list : t -> t list option
+  val of_closure : Geninterp.interp_sign -> glob_tactic_expr -> t
 end
 
 (** Values for interpretation *)
@@ -66,17 +67,18 @@ val interp_genarg : interp_sign -> Environ.env -> Evd.evar_map -> Term.constr ->
   glob_generic_argument -> Evd.evar_map * typed_generic_argument
 
 (** Interprets any expression *)
-val val_interp : interp_sign -> glob_tactic_expr -> [ `NF ] Proofview.Goal.t -> value Proofview.tactic
+val val_interp : interp_sign -> glob_tactic_expr -> (value -> unit Proofview.tactic) -> unit Proofview.tactic
 
 (** Interprets an expression that evaluates to a constr *)
-val interp_ltac_constr : interp_sign -> glob_tactic_expr -> [ `NF ] Proofview.Goal.t -> constr Proofview.tactic
+val interp_ltac_constr : interp_sign -> glob_tactic_expr -> (constr -> unit Proofview.tactic) -> unit Proofview.tactic
 
 (** Interprets redexp arguments *)
 val interp_redexp : Environ.env -> Evd.evar_map -> raw_red_expr -> Evd.evar_map * red_expr
 
 (** Interprets tactic expressions *)
 
-val interp_hyp :  interp_sign -> Environ.env -> Id.t Loc.located -> Id.t
+val interp_hyp : interp_sign -> Environ.env -> Evd.evar_map ->
+  Id.t Loc.located -> Id.t
 
 val interp_bindings : interp_sign -> Environ.env -> Evd.evar_map ->
  glob_constr_and_expr bindings -> Evd.evar_map * constr bindings
@@ -102,14 +104,22 @@ val interp : raw_tactic_expr -> unit Proofview.tactic
 
 val hide_interp : bool -> raw_tactic_expr -> unit Proofview.tactic option -> unit Proofview.tactic
 
-(** Declare the xml printer *)
-val declare_xml_printer :
-  (out_channel -> Environ.env -> Evd.evar_map -> constr -> unit) -> unit
-
 (** Internals that can be useful for syntax extensions. *)
 
-val interp_ltac_var : (value -> 'a) -> interp_sign -> Environ.env option -> Id.t Loc.located -> 'a
+val interp_ltac_var : (value -> 'a) -> interp_sign ->
+  (Environ.env * Evd.evar_map) option -> Id.t Loc.located -> 'a
 
 val interp_int : interp_sign -> Id.t Loc.located -> int
 
-val error_ltac_variable : Loc.t -> Id.t -> Environ.env option -> value -> string -> 'a
+val interp_int_or_var : interp_sign -> int or_var -> int
+
+val error_ltac_variable : Loc.t -> Id.t ->
+  (Environ.env * Evd.evar_map) option -> value -> string -> 'a
+
+(** Transforms a constr-expecting tactic into a tactic finding its arguments in
+    the Ltac environment according to the given names. *)
+val lift_constr_tac_to_ml_tac : Id.t option list ->
+  (constr list -> Geninterp.interp_sign -> unit Proofview.tactic) -> Tacenv.ml_tactic
+
+val default_ist : unit -> Geninterp.interp_sign
+(** Empty ist with debug set on the current value. *)

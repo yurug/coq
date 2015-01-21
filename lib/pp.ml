@@ -1,6 +1,6 @@
 (************************************************************************)
 (*  v      *   The Coq Proof Assistant  /  The Coq Development Team     *)
-(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2012     *)
+(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2015     *)
 (*   \VV/  **************************************************************)
 (*    //   *      This file is distributed under the terms of the       *)
 (*         *       GNU Lesser General Public License Version 2.1        *)
@@ -16,12 +16,13 @@ module Glue : sig
      I.e. if the short list is the second argument
   *)
   type 'a t
-  
+
   val atom : 'a -> 'a t
   val glue : 'a t -> 'a t -> 'a t
   val empty : 'a t
   val is_empty : 'a t -> bool
   val iter : ('a -> unit) -> 'a t -> unit
+  val map : ('a -> 'b) -> 'a t -> 'b t
 
 end = struct
 
@@ -33,6 +34,37 @@ end = struct
   let is_empty x = x = []
 
   let iter f g = List.iter f (List.rev g)
+  let map = List.map
+end
+
+module Tag :
+sig
+  type t 
+  type 'a key
+  val create : string -> 'a key
+  val inj : 'a -> 'a key -> t
+  val prj : t -> 'a key -> 'a option
+end =
+struct
+  (** See module {Dyn} for more details. *)
+
+  type t = int * Obj.t
+
+  type 'a key = int
+
+  let dyntab = ref (Int.Map.empty : string Int.Map.t)
+
+  let create (s : string) =
+    let hash = Hashtbl.hash s in
+    let () = assert (not (Int.Map.mem hash !dyntab)) in
+    let () = dyntab := Int.Map.add hash s !dyntab in
+    hash
+
+  let inj x h = (h, Obj.repr x)
+
+  let prj (nh, rv) h =
+    if Int.equal h nh then Some (Obj.magic rv)
+    else None
 
 end
 
@@ -44,8 +76,6 @@ open Pp_control
    an option without creating a circularity: [Flags] -> [Util] ->
    [Pp] -> [Flags] *)
 let print_emacs = ref false
-let make_pp_emacs() = print_emacs:=true
-let make_pp_nonemacs() = print_emacs:=false
 
 (* The different kinds of blocks are:
    \begin{description}
@@ -95,6 +125,8 @@ type 'a ppcmd_token =
   | Ppcmd_close_box
   | Ppcmd_close_tbox
   | Ppcmd_comment of int
+  | Ppcmd_open_tag of Tag.t
+  | Ppcmd_close_tag
 
 type 'a ppdir_token =
   | Ppdir_ppcmds of 'a ppcmd_token Glue.t
@@ -113,13 +145,27 @@ let app = Glue.glue
 
 let is_empty g = Glue.is_empty g
 
+let rewrite f p =
+  let strtoken = function
+    | Str_len (s, n) ->
+      let s' = f s in
+      Str_len (s', String.length s')
+    | Str_def s ->
+      Str_def (f s)
+  in
+  let rec ppcmd_token = function
+    | Ppcmd_print x -> Ppcmd_print (strtoken x)
+    | Ppcmd_box (bt, g) -> Ppcmd_box (bt, Glue.map ppcmd_token g)
+    | p -> p
+  in
+  Glue.map ppcmd_token p
 
 (* Compute length of an UTF-8 encoded string
    Rem 1 : utf8_length <= String.length (equal if pure ascii)
    Rem 2 : if used for an iso8859_1 encoded string, the result is
    wrong in very rare cases. Such a wrong case corresponds to any
    sequence of a character in range 192..253 immediately followed by a
-   character in range 128..191 (typical case in french is "déçu" which
+   character in range 128..191 (typical case in french is "dÃ©Ã§u" which
    is counted 3 instead of 4); then no real harm to use always
    utf8_length even if using an iso8859_1 encoding *)
 
@@ -133,18 +179,18 @@ let utf8_length s =
       match s.[!p] with
       | '\000'..'\127' -> nc := 0 (* ascii char *)
       | '\128'..'\191' -> nc := 0 (* cannot start with a continuation byte *)
-      |	'\192'..'\223' -> nc := 1 (* expect 1 continuation byte *)
-      |	'\224'..'\239' -> nc := 2 (* expect 2 continuation bytes *)
-      |	'\240'..'\247' -> nc := 3 (* expect 3 continuation bytes *)
-      |	'\248'..'\251' -> nc := 4 (* expect 4 continuation bytes *)
-      |	'\252'..'\253' -> nc := 5 (* expect 5 continuation bytes *)
-      |	'\254'..'\255' -> nc := 0 (* invalid byte *)
+      | '\192'..'\223' -> nc := 1 (* expect 1 continuation byte *)
+      | '\224'..'\239' -> nc := 2 (* expect 2 continuation bytes *)
+      | '\240'..'\247' -> nc := 3 (* expect 3 continuation bytes *)
+      | '\248'..'\251' -> nc := 4 (* expect 4 continuation bytes *)
+      | '\252'..'\253' -> nc := 5 (* expect 5 continuation bytes *)
+      | '\254'..'\255' -> nc := 0 (* invalid byte *)
     end ;
     incr p ;
     while !p < len && !nc > 0 do
       match s.[!p] with
-      |	'\128'..'\191' (* next continuation byte *) -> incr p ; decr nc
-      |	_ (* not a continuation byte *) -> nc := 0
+      | '\128'..'\191' (* next continuation byte *) -> incr p ; decr nc
+      | _ (* not a continuation byte *) -> nc := 0
     done ;
     incr cnt
   done ;
@@ -173,8 +219,8 @@ let strbrk s =
   let rec aux p n =
     if n < String.length s then
       if s.[n] = ' ' then
-	if p = n then spc() :: aux (n+1) (n+1)
-	else str (String.sub s p (n-p)) :: spc () :: aux (n+1) (n+1)
+        if p = n then spc() :: aux (n+1) (n+1)
+        else str (String.sub s p (n-p)) :: spc () :: aux (n+1) (n+1)
       else aux p (n + 1)
     else if p = n then [] else [str (String.sub s p (n-p))]
   in List.fold_left (++) Glue.empty (aux 0 0)
@@ -197,6 +243,10 @@ let tb () = Glue.atom(Ppcmd_open_box Pp_tbox)
 let close () = Glue.atom(Ppcmd_close_box)
 let tclose () = Glue.atom(Ppcmd_close_tbox)
 
+(* Opening and closed of tags *)
+let open_tag t = Glue.atom(Ppcmd_open_tag t)
+let close_tag () = Glue.atom(Ppcmd_close_tag)
+let tag t s = open_tag t ++ s ++ close_tag ()
 let eval_ppcmds l = l
 
 (* In new syntax only double quote char is escaped by repeating it *)
@@ -241,8 +291,10 @@ let rec pr_com ft s =
           (Format.pp_force_newline ft (); pr_com ft s2)
     | None -> ()
 
+type tag_handler = Tag.t -> Format.tag
+
 (* pretty printing functions *)
-let pp_dirs ft =
+let pp_dirs ?pp_tag ft =
   let pp_open_box = function
     | Pp_hbox n   -> Format.pp_open_hbox ft ()
     | Pp_vbox n   -> Format.pp_open_vbox ft n
@@ -283,6 +335,16 @@ let pp_dirs ft =
 (*        Format.pp_open_hvbox ft 0;*)
         List.iter (pr_com ft) coms(*;
         Format.pp_close_box ft ()*)
+    | Ppcmd_open_tag tag ->
+      begin match pp_tag with
+      | None -> ()
+      | Some f -> Format.pp_open_tag ft (f tag)
+      end
+    | Ppcmd_close_tag ->
+      begin match pp_tag with
+      | None -> ()
+      | Some _ -> Format.pp_close_tag ft ()
+      end
   in
   let pp_dir = function
     | Ppdir_ppcmds cmdstream -> Glue.iter pp_cmd cmdstream
@@ -296,7 +358,8 @@ let pp_dirs ft =
     with reraise ->
       let reraise = Backtrace.add_backtrace reraise in
       let () = Format.pp_print_flush ft () in
-      raise reraise
+      Exninfo.iraise reraise
+
 
 
 (* pretty print on stdout and stderr *)
@@ -305,14 +368,21 @@ let pp_dirs ft =
 let emacs_quote_start = String.make 1 (Char.chr 254)
 let emacs_quote_end = String.make 1 (Char.chr 255)
 
+let emacs_quote_info_start = "<infomsg>"
+let emacs_quote_info_end = "</infomsg>"
+
 let emacs_quote g =
   if !print_emacs then str emacs_quote_start ++ hov 0 g ++ str emacs_quote_end
   else hov 0 g
 
+let emacs_quote_info g =
+  if !print_emacs then str emacs_quote_info_start++fnl() ++ hov 0 g ++ str emacs_quote_info_end
+  else hov 0 g
+
 
 (* pretty printing functions WITHOUT FLUSH *)
-let pp_with ft strm =
-  pp_dirs ft (Glue.atom (Ppdir_ppcmds strm))
+let pp_with ?pp_tag ft strm =
+  pp_dirs ?pp_tag ft (Glue.atom (Ppdir_ppcmds strm))
 
 let ppnl_with ft strm =
   pp_dirs ft (Glue.atom (Ppdir_ppcmds (strm ++ fnl ())))
@@ -345,65 +415,100 @@ let msgerrnl x = msgnl_with !err_ft x
 
 (* Logging management *)
 
-type level = Interface.message_level =
-| Debug of string
-| Info
-| Notice
-| Warning
-| Error
+type message_level =  Feedback.message_level =
+  | Debug of string
+  | Info
+  | Notice
+  | Warning
+  | Error
 
-type logger = level -> std_ppcmds -> unit
+type message = Feedback.message = {
+  message_level : message_level;
+  message_content : string;
+}
 
-let print_color s x = x
-(* FIXME *)
-(*   if Flags.is_term_color () then *)
-(*     (str ("\027[" ^ s ^ "m")) ++ x ++ (str "\027[0m") *)
-(*   else x *)
+let of_message = Feedback.of_message
+let to_message = Feedback.to_message
+let is_message = Feedback.is_message
 
-let make_body color info s =
-  emacs_quote (print_color color (print_color "1" (hov 0 (info ++ spc () ++ s))))
+type logger = message_level -> std_ppcmds -> unit
 
-let debugbody strm = print_color "36" (hov 0 (str "Debug:" ++ spc () ++ strm)) (* cyan *)
-let warnbody strm = make_body "93" (str "Warning:") strm (* bright yellow *)
-let errorbody strm = make_body "31" (str "Error:") strm (* bright red *)
+let make_body info s =
+  emacs_quote (hov 0 (info ++ spc () ++ s))
 
-let std_logger level msg = match level with
-| Debug _ -> msgnl (debugbody msg) (* cyan *)
-| Info -> msgnl (print_color "37" (hov 0 msg)) (* gray *)
+let debugbody strm = hov 0 (str "Debug:" ++ spc () ++ strm)
+let warnbody strm = make_body (str "Warning:") strm
+let errorbody strm = make_body (str "Error:") strm
+let infobody strm = emacs_quote_info strm
+
+let std_logger ~id:_ level msg = match level with
+| Debug _ -> msgnl (debugbody msg)
+| Info -> msgnl (hov 0 msg)
 | Notice -> msgnl msg
-| Warning -> Flags.if_warn (fun () -> msgnl_with !err_ft (warnbody msg)) () (* bright yellow *)
-| Error -> msgnl_with !err_ft (errorbody msg) (* bright red *)
+| Warning -> Flags.if_warn (fun () -> msgnl_with !err_ft (warnbody msg)) ()
+| Error -> msgnl_with !err_ft (errorbody msg)
+
+let emacs_logger ~id:_ level mesg = match level with
+| Debug _ -> msgnl (debugbody mesg)
+| Info -> msgnl (infobody mesg)
+| Notice -> msgnl mesg
+| Warning -> Flags.if_warn (fun () -> msgnl_with !err_ft (warnbody mesg)) ()
+| Error -> msgnl_with !err_ft (errorbody mesg)
 
 let logger = ref std_logger
 
-let msg_info x = !logger Info x
-let msg_notice x = !logger Notice x
-let msg_warning x = !logger Warning x
-let msg_error x = !logger Error x
-let msg_debug x = !logger (Debug "_") x
+let make_pp_emacs() = print_emacs:=true; logger:=emacs_logger
+let make_pp_nonemacs() = print_emacs:=false; logger := std_logger
 
-let set_logger l = logger := l
+
+let feedback_id = ref (Feedback.Edit 0)
+let feedback_route = ref Feedback.default_route
+
+(* If mixing some output and a goal display, please use msg_warning,
+   so that interfaces (proofgeneral for example) can easily dispatch
+   them to different windows. *)
+
+let msg_info x = !logger ~id:!feedback_id Info x
+let msg_notice x = !logger ~id:!feedback_id Notice x
+let msg_warning x = !logger ~id:!feedback_id Warning x
+let msg_error x = !logger ~id:!feedback_id Error x
+let msg_debug x = !logger ~id:!feedback_id (Debug "_") x
+
+let set_logger l = logger := (fun ~id:_ lvl msg -> l lvl msg)
+
+let std_logger lvl msg = std_logger ~id:!feedback_id lvl msg
 
 (** Feedback *)
 
 let feeder = ref ignore
-let feedback_id = ref (Interface.Edit 0)
-let set_id_for_feedback i = feedback_id := i
-let feedback ?state_id what =
+let set_id_for_feedback ?(route=Feedback.default_route) i =
+  feedback_id := i; feedback_route := route
+let feedback ?state_id ?edit_id ?route what =
   !feeder {
-     Interface.content = what;
-     Interface.id =
-       match state_id with
-       | Some id -> Interface.State id
-       | None -> !feedback_id;
+     Feedback.contents = what;
+     Feedback.route = Option.default !feedback_route route;
+     Feedback.id =
+       match state_id, edit_id with
+       | Some id, _ -> Feedback.State id
+       | None, Some eid -> Feedback.Edit eid
+       | None, None -> !feedback_id;
   }
 let set_feeder f = feeder := f
+let get_id_for_feedback () = !feedback_id, !feedback_route
 
 (** Utility *)
 
 let string_of_ppcmds c =
   msg_with Format.str_formatter c;
   Format.flush_str_formatter ()
+
+let log_via_feedback () = logger := (fun ~id lvl msg ->
+  !feeder {
+     Feedback.contents = Feedback.Message {
+       message_level = lvl;
+       message_content = string_of_ppcmds msg };
+     Feedback.route = !feedback_route;
+     Feedback.id = id })
 
 (* Copy paste from Util *)
 
@@ -430,16 +535,16 @@ let prlist_sep_lastsep no_empty sep lastsep elem =
     |[] -> mt ()
     |[e] -> elem e
     |h::t -> let e = elem h in
-	if no_empty && ismt e then start t else
-	  let rec aux = function
-	    |[] -> mt ()
-	    |h::t ->
-	       let e = elem h and r = aux t in
-		 if no_empty && ismt e then r else
-		   if ismt r
-		   then let s = lastsep () in s ++ e
-		   else let s = sep () in s ++ e ++ r
-	  in let r = aux t in e ++ r
+        if no_empty && ismt e then start t else
+          let rec aux = function
+            |[] -> mt ()
+            |h::t ->
+               let e = elem h and r = aux t in
+                 if no_empty && ismt e then r else
+                   if ismt r
+                   then let s = lastsep () in s ++ e
+                   else let s = sep () in s ++ e ++ r
+          in let r = aux t in e ++ r
   in start
 
 let prlist_strict pr l = prlist_sep_lastsep true mt mt pr l

@@ -8,7 +8,6 @@ fourier/fourier_plugin.cma
 romega/romega_plugin.cma
 omega/omega_plugin.cma
 micromega/micromega_plugin.cma
-xml/xml_plugin.cma
 cc/cc_plugin.cma
 nsatz/nsatz_plugin.cma
 funind/recdef_plugin.cma
@@ -19,5 +18,5 @@ syntax/r_syntax_plugin.cma
 syntax/string_syntax_plugin.cma
 syntax/z_syntax_plugin.cma
 quote/quote_plugin.cma
-Derive/derive_plugin.cma
 mtac2/mtac2_plugin.cma
+derive/derive_plugin.cma

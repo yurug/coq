@@ -1,6 +1,6 @@
 (************************************************************************)
 (*  v      *   The Coq Proof Assistant  /  The Coq Development Team     *)
-(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2012     *)
+(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2015     *)
 (*   \VV/  **************************************************************)
 (*    //   *      This file is distributed under the terms of the       *)
 (*         *       GNU Lesser General Public License Version 2.1        *)
@@ -143,18 +143,16 @@ val has_type : 'co generic_argument -> ('a, 'co) abstract_argument_type -> bool
 
 (** {6 Destructors} *)
 
-type 'r raw_unpack =
-  { raw_unpack : 'a 'b 'c. ('a, 'b, 'c) genarg_type -> 'a -> 'r }
+type ('a, 'b, 'c, 'l) cast
 
-type 'r glb_unpack =
-  { glb_unpack : 'a 'b 'c. ('a, 'b, 'c) genarg_type -> 'b -> 'r }
+val raw : ('a, 'b, 'c, rlevel) cast -> 'a
+val glb : ('a, 'b, 'c, glevel) cast -> 'b
+val top : ('a, 'b, 'c, tlevel) cast -> 'c
 
-type 'r top_unpack =
-  { top_unpack : 'a 'b 'c. ('a, 'b, 'c) genarg_type -> 'c -> 'r }
+type ('r, 'l) unpacker =
+  { unpacker : 'a 'b 'c. ('a, 'b, 'c) genarg_type -> ('a, 'b, 'c, 'l) cast -> 'r }
 
-val raw_unpack : 'r raw_unpack -> rlevel generic_argument -> 'r
-val glb_unpack : 'r glb_unpack -> glevel generic_argument -> 'r
-val top_unpack : 'r top_unpack -> tlevel generic_argument -> 'r
+val unpack : ('r, 'l) unpacker -> 'l generic_argument -> 'r
 (** Existential-type destructors. *)
 
 (** {6 Manipulation of generic arguments}
@@ -162,39 +160,24 @@ val top_unpack : 'r top_unpack -> tlevel generic_argument -> 'r
 Those functions fail if they are applied to an argument which has not the right
 dynamic type. *)
 
-val fold_list :
- ('a generic_argument -> 'c -> 'c) -> 'a generic_argument -> 'c -> 'c
+type ('r, 'l) list_unpacker =
+  { list_unpacker : 'a 'b 'c. ('a, 'b, 'c) genarg_type ->
+    ('a list, 'b list, 'c list, 'l) cast -> 'r }
 
-val fold_opt :
- ('a generic_argument -> 'c) -> 'c -> 'a generic_argument -> 'c
+val list_unpack : ('r, 'l) list_unpacker -> 'l generic_argument -> 'r
 
-val fold_pair :
- ('a generic_argument -> 'a generic_argument -> 'c) ->
-      'a generic_argument -> 'c
+type ('r, 'l) opt_unpacker =
+  { opt_unpacker : 'a 'b 'c. ('a, 'b, 'c) genarg_type ->
+    ('a option, 'b option, 'c option, 'l) cast -> 'r }
 
-(** [app_list0] fails if applied to an argument not of tag [List0 t]
-    for some [t]; it's the responsability of the caller to ensure it *)
+val opt_unpack : ('r, 'l) opt_unpacker -> 'l generic_argument -> 'r
 
-val app_list : ('a generic_argument -> 'b generic_argument) ->
-'a generic_argument -> 'b generic_argument
+type ('r, 'l) pair_unpacker =
+  { pair_unpacker : 'a1 'a2 'b1 'b2 'c1 'c2.
+    ('a1, 'b1, 'c1) genarg_type -> ('a2, 'b2, 'c2) genarg_type ->
+    (('a1 * 'a2), ('b1 * 'b2), ('c1 * 'c2), 'l) cast -> 'r }
 
-val app_opt : ('a generic_argument -> 'b generic_argument) ->
-'a generic_argument -> 'b generic_argument
-
-val app_pair :
-  ('a generic_argument -> 'b generic_argument) ->
-      ('a generic_argument -> 'b generic_argument)
-   -> 'a generic_argument -> 'b generic_argument
-
-module Monadic (M:Monad.S) : sig
-
-  (** [Monadic.app_list f x] maps the monadic computation [f] on
-      elements of [x], provided [x] has the tag [List0 t] for some [t]. It
-      fails otherwise. *)
-  val app_list : ('a generic_argument -> 'b generic_argument M.t) ->
-    'a generic_argument -> 'b generic_argument M.t
-
-end
+val pair_unpack : ('r, 'l) pair_unpacker -> 'l generic_argument -> 'r
 
 (** {6 Type reification} *)
 

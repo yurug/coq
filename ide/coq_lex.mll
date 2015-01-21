@@ -1,6 +1,6 @@
 (************************************************************************)
 (*  v      *   The Coq Proof Assistant  /  The Coq Development Team     *)
-(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2012     *)
+(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2015     *)
 (*   \VV/  **************************************************************)
 (*    //   *      This file is distributed under the terms of the       *)
 (*         *       GNU Lesser General Public License Version 2.1        *)
@@ -17,7 +17,7 @@
 
 let space = [' ' '\n' '\r' '\t' '\012'] (* '\012' is form-feed *)
 
-let undotted_sep = [ '{' '}' '-' '+' '*' ]
+let undotted_sep = '{' | '}' | '-'+ | '+'+ | '*'+
 
 let dot_sep = '.' (space | eof)
 
@@ -33,7 +33,7 @@ rule coq_string = parse
 and comment = parse
   | "(*" { let _  = comment lexbuf in comment lexbuf }
   | "\"" { let () = coq_string lexbuf in comment lexbuf }
-  | "*)" { Some (utf8_lexeme_start lexbuf + 1) }
+  | "*)" { Some (utf8_lexeme_start lexbuf) }
   | eof { None }
   | utf8_extra_byte { incr utf8_adjust; comment lexbuf }
   | _ { comment lexbuf }
@@ -68,7 +68,7 @@ and sentence initial stamp = parse
   | undotted_sep {
       (* Separators like { or } and bullets * - + are only active
 	 at the start of a sentence *)
-      if initial then stamp (utf8_lexeme_start lexbuf) Tags.Script.sentence;
+      if initial then stamp (utf8_lexeme_start lexbuf + String.length (Lexing.lexeme lexbuf) - 1) Tags.Script.sentence;
       sentence initial stamp lexbuf
     }
   | space+ {

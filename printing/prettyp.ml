@@ -1,6 +1,6 @@
 (************************************************************************)
 (*  v      *   The Coq Proof Assistant  /  The Coq Development Team     *)
-(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2012     *)
+(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2015     *)
 (*   \VV/  **************************************************************)
 (*    //   *      This file is distributed under the terms of the       *)
 (*         *       GNU Lesser General Public License Version 2.1        *)
@@ -38,7 +38,7 @@ type object_pr = {
   print_named_decl          : Id.t * constr option * types -> std_ppcmds;
   print_library_entry       : bool -> (object_name * Lib.node) -> std_ppcmds option;
   print_context             : bool -> int option -> Lib.library_segment -> std_ppcmds;
-  print_typed_value_in_env  : Environ.env -> Term.constr * Term.types -> Pp.std_ppcmds;
+  print_typed_value_in_env  : Environ.env -> Evd.evar_map -> Term.constr * Term.types -> Pp.std_ppcmds;
   print_eval                : Reductionops.reduction_function -> env -> Evd.evar_map -> Constrexpr.constr_expr -> unsafe_judgment -> std_ppcmds;
 }
 
@@ -66,27 +66,28 @@ let int_or_no n = if Int.equal n 0 then str "no" else int n
 let print_basename sp = pr_global (ConstRef sp)
 
 let print_ref reduce ref =
-  let typ = Global.type_of_global ref in
+  let typ = Global.type_of_global_unsafe ref in
   let typ =
     if reduce then
       let ctx,ccl = Reductionops.splay_prod_assum (Global.env()) Evd.empty typ
       in it_mkProd_or_LetIn ccl ctx
     else typ in
-  hov 0 (pr_global ref ++ str " :" ++ spc () ++ pr_ltype typ)
+  let univs = Global.universes_of_global ref in
+  hov 0 (pr_global ref ++ str " :" ++ spc () ++ pr_ltype typ ++ 
+  	   Printer.pr_universe_ctx univs)
 
 (********************************)
 (** Printing implicit arguments *)
-
-let conjugate_verb_to_be = function [_] -> "is" | _ -> "are"
 
 let pr_impl_name imp = pr_id (name_of_implicit imp)
 
 let print_impargs_by_name max = function
   | []  -> []
   | impls ->
-     [hov 0 (str (String.plural (List.length impls) "Argument") ++ spc() ++
+     let n = List.length impls in
+     [hov 0 (str (String.plural n "Argument") ++ spc() ++
       prlist_with_sep pr_comma pr_impl_name impls ++ spc() ++
-      str (conjugate_verb_to_be impls) ++ str" implicit" ++
+      str (String.conjugate_verb_to_be n) ++ str" implicit" ++
       (if max then strbrk " and maximally inserted" else mt()))]
 
 let print_one_impargs_list l =
@@ -122,7 +123,7 @@ let print_renames_list prefix l =
     hv 2 (prlist_with_sep pr_comma (fun x -> x) (List.map pr_name l))]
 
 let need_expansion impl ref =
-  let typ = Global.type_of_global ref in
+  let typ = Global.type_of_global_unsafe ref in
   let ctx = prod_assum typ in
   let nprods = List.length (List.filter (fun (_,b,_) -> Option.is_empty b) ctx) in
   not (List.is_empty impl) && List.length impl >= nprods &&
@@ -193,7 +194,29 @@ let print_opacity ref =
 (*******************)
 (* *)
 
+let print_polymorphism ref =
+  let poly = Global.is_polymorphic ref in
+  let template_poly = Global.is_template_polymorphic ref in
+    pr_global ref ++ str " is " ++ str 
+      (if poly then "universe polymorphic"
+       else if template_poly then
+	 "template universe polymorphic"
+       else "not universe polymorphic")
+
+let print_primitive_record mipv = function
+  | Some (Some (_, ps,_)) ->
+    [pr_id mipv.(0).mind_typename ++ str" is primitive and has eta conversion."]
+  | _ -> []
+    
+let print_primitive ref =
+  match ref with 
+  | IndRef ind -> 
+    let mib,_ = Global.lookup_inductive ind in
+      print_primitive_record mib.mind_packets mib.mind_record
+  | _ -> []
+    
 let print_name_infos ref =
+  let poly = print_polymorphism ref in
   let impls = implicits_of_global ref in
   let scopes = Notation.find_arguments_scope ref in
   let renames =
@@ -205,6 +228,7 @@ let print_name_infos ref =
        print_ref true ref; blankline]
     else
       [] in
+  poly :: print_primitive ref @
   type_info_for_implicit @
   print_renames_list (mt()) renames @
   print_impargs_list (mt()) impls @
@@ -249,7 +273,8 @@ type logical_name =
   | Term of global_reference
   | Dir of global_dir_reference
   | Syntactic of kernel_name
-  | ModuleType of qualid * module_path
+  | ModuleType of module_path
+  | Tactic of Nametab.ltac_constant
   | Undefined of qualid
 
 let locate_any_name ref =
@@ -260,7 +285,7 @@ let locate_any_name ref =
   with Not_found ->
   try Dir (Nametab.locate_dir qid)
   with Not_found ->
-  try ModuleType (qid, Nametab.locate_modtype qid)
+  try ModuleType (Nametab.locate_modtype qid)
   with Not_found -> Undefined qid
 
 let pr_located_qualid = function
@@ -282,41 +307,108 @@ let pr_located_qualid = function
 	| DirClosedSection dir -> "Closed Section", dir
       in
       str s ++ spc () ++ pr_dirpath dir
-  | ModuleType (qid,_) ->
-      str "Module Type" ++ spc () ++ pr_path (Nametab.full_name_modtype qid)
+  | ModuleType mp ->
+      str "Module Type" ++ spc () ++ pr_path (Nametab.path_of_modtype mp)
+  | Tactic kn ->
+      str "Ltac" ++ spc () ++ pr_path (Nametab.path_of_tactic kn)
   | Undefined qid ->
       pr_qualid qid ++ spc () ++ str "not a defined object."
 
-let print_located_qualid ref =
-  let (loc,qid) = qualid_of_reference ref in
+let canonize_ref = function
+  | ConstRef c ->
+    let kn = Constant.canonical c in
+    if KerName.equal (Constant.user c) kn then None
+    else Some (ConstRef (Constant.make1 kn))
+  | IndRef (ind,i) ->
+    let kn = MutInd.canonical ind in
+    if KerName.equal (MutInd.user ind) kn then None
+    else Some (IndRef (MutInd.make1 kn, i))
+  | ConstructRef ((ind,i),j) ->
+    let kn = MutInd.canonical ind in
+    if KerName.equal (MutInd.user ind) kn then None
+    else Some (ConstructRef ((MutInd.make1 kn, i),j))
+  | VarRef _ -> None
+
+let display_alias = function
+  | Term r ->
+    begin match canonize_ref r with
+    | None -> mt ()
+    | Some r' ->
+      let q' = Nametab.shortest_qualid_of_global Id.Set.empty r' in
+      spc () ++ str "(alias of " ++ pr_qualid q' ++ str ")"
+    end
+  | _ -> mt ()
+
+let locate_term qid =
   let expand = function
     | TrueGlobal ref ->
-	Term ref, Nametab.shortest_qualid_of_global Id.Set.empty ref
+        Term ref, Nametab.shortest_qualid_of_global Id.Set.empty ref
     | SynDef kn ->
-	Syntactic kn, Nametab.shortest_qualid_of_syndef Id.Set.empty kn in
-  match List.map expand (Nametab.locate_extended_all qid) with
+        Syntactic kn, Nametab.shortest_qualid_of_syndef Id.Set.empty kn
+  in
+  List.map expand (Nametab.locate_extended_all qid)
+
+let locate_tactic qid =
+  let all = Nametab.locate_extended_all_tactic qid in
+  List.map (fun kn -> (Tactic kn, Nametab.shortest_qualid_of_tactic kn)) all
+
+let locate_module qid =
+  let all = Nametab.locate_extended_all_dir qid in
+  let map dir = match dir with
+  | DirModule (_, (mp, _)) -> Some (Dir dir, Nametab.shortest_qualid_of_module mp)
+  | DirOpenModule _ -> Some (Dir dir, qid)
+  | _ -> None
+  in
+  List.map_filter map all
+
+let locate_modtype qid =
+  let all = Nametab.locate_extended_all_modtype qid in
+  let map mp = ModuleType mp, Nametab.shortest_qualid_of_modtype mp in
+  let modtypes = List.map map all in
+  (** Don't forget the opened module types: they are not part of the same name tab. *)
+  let all = Nametab.locate_extended_all_dir qid in
+  let map dir = match dir with
+  | DirOpenModtype _ -> Some (Dir dir, qid)
+  | _ -> None
+  in
+  modtypes @ List.map_filter map all
+
+let print_located_qualid name flags ref =
+  let (loc,qid) = qualid_of_reference ref in
+  let located = [] in
+  let located = if List.mem `LTAC flags then locate_tactic qid @ located else located in
+  let located = if List.mem `MODTYPE flags then locate_modtype qid @ located else located in
+  let located = if List.mem `MODULE flags then locate_module qid @ located else located in
+  let located = if List.mem `TERM flags then locate_term qid @ located else located in
+  match located with
     | [] ->
 	let (dir,id) = repr_qualid qid in
 	if DirPath.is_empty dir then
-	  str "No object of basename " ++ pr_id id
+	  str ("No " ^ name ^ " of basename") ++ spc () ++ pr_id id
 	else
-	  str "No object of suffix " ++ pr_qualid qid
+	  str ("No " ^ name ^ " of suffix") ++ spc () ++ pr_qualid qid
     | l ->
 	prlist_with_sep fnl
 	(fun (o,oqid) ->
 	  hov 2 (pr_located_qualid o ++
 	  (if not (qualid_eq oqid qid) then
-	    spc() ++ str "(shorter name to refer to it in current context is " ++ pr_qualid oqid ++ str")"
-	  else
-	    mt ()))) l
+	    spc() ++ str "(shorter name to refer to it in current context is "
+            ++ pr_qualid oqid ++ str")"
+	   else mt ()) ++
+          display_alias o)) l
+
+let print_located_term ref = print_located_qualid "term" [`TERM] ref
+let print_located_tactic ref = print_located_qualid "tactic" [`LTAC] ref
+let print_located_module ref = print_located_qualid "module" [`MODULE; `MODTYPE] ref
+let print_located_qualid ref = print_located_qualid "object" [`TERM; `LTAC; `MODULE; `MODTYPE] ref
 
 (******************************************)
 (**** Printing declarations and judgments *)
 (****  Gallina layer                  *****)
 
-let gallina_print_typed_value_in_env env (trm,typ) =
-  (pr_lconstr_env env trm ++ fnl () ++
-     str "     : " ++ pr_ltype_env env typ)
+let gallina_print_typed_value_in_env env sigma (trm,typ) =
+  (pr_lconstr_env env sigma trm ++ fnl () ++
+     str "     : " ++ pr_ltype_env env sigma typ)
 
 (* To be improved; the type should be used to provide the types in the
    abstractions. This should be done recursively inside pr_lconstr, so that
@@ -353,7 +445,8 @@ let gallina_print_inductive sp =
   let mipv = mib.mind_packets in
   pr_mutual_inductive_body env sp mib ++
   with_line_skip
-    (print_inductive_renames sp mipv @
+    (print_primitive_record mipv mib.mind_record @
+     print_inductive_renames sp mipv @
      print_inductive_implicit_args sp mipv @
      print_inductive_argument_scopes sp mipv)
 
@@ -371,25 +464,28 @@ let print_body = function
 let print_typed_body (val_0,typ) =
   (print_body val_0 ++ fnl () ++ str "     : " ++ pr_ltype typ)
 
-let ungeneralized_type_of_constant_type = function
-  | PolymorphicArity (ctx,a) -> mkArity (ctx, Type a.poly_level)
-  | NonPolymorphicType t -> t
+let ungeneralized_type_of_constant_type t = 
+  Typeops.type_of_constant_type (Global.env ()) t
 
 let print_constant with_values sep sp =
   let cb = Global.lookup_constant sp in
-  let val_0 = Declareops.body_of_constant cb in
-  let typ = ungeneralized_type_of_constant_type cb.const_type in
-  hov 0 (
+  let val_0 = Global.body_of_constant_body cb in
+  let typ = Declareops.type_of_constant cb in
+  let typ = ungeneralized_type_of_constant_type typ in
+  let univs = Univ.instantiate_univ_context 
+    (Global.universes_of_constant_body cb)
+  in
+  hov 0 (pr_polymorphic cb.const_polymorphic ++
     match val_0 with
     | None ->
 	str"*** [ " ++
 	print_basename sp ++ str " : " ++ cut () ++ pr_ltype typ ++
 	str" ]" ++
-	Printer.pr_univ_cstr (Declareops.constraints_of_constant cb)
+	Printer.pr_universe_ctx univs
     | _ ->
 	print_basename sp ++ str sep ++ cut () ++
 	(if with_values then print_typed_body (val_0,typ) else pr_ltype typ)++
-        Printer.pr_univ_cstr (Declareops.constraints_of_constant cb))
+        Printer.pr_universe_ctx univs)
 
 let gallina_print_constant_with_infos sp =
   print_constant true " = " sp ++
@@ -459,9 +555,9 @@ let gallina_print_context with_values =
   in
   prec
 
-let gallina_print_eval red_fun env evmap _ {uj_val=trm;uj_type=typ} =
-  let ntrm = red_fun env evmap trm in
-  (str "     = " ++ gallina_print_typed_value_in_env env (ntrm,typ))
+let gallina_print_eval red_fun env sigma _ {uj_val=trm;uj_type=typ} =
+  let ntrm = red_fun env sigma trm in
+  (str "     = " ++ gallina_print_typed_value_in_env env sigma (ntrm,typ))
 
 (******************************************)
 (**** Printing abstraction layer          *)
@@ -499,15 +595,15 @@ let print_eval x = !object_pr.print_eval x
 (**** Printing declarations and judgments *)
 (****  Abstract layer                 *****)
 
-let print_typed_value x = print_typed_value_in_env (Global.env ()) x
+let print_typed_value x = print_typed_value_in_env (Global.env ()) Evd.empty x
 
-let print_judgment env {uj_val=trm;uj_type=typ} =
-  print_typed_value_in_env env (trm, typ)
+let print_judgment env sigma {uj_val=trm;uj_type=typ} =
+  print_typed_value_in_env env sigma (trm, typ)
 
-let print_safe_judgment env j =
+let print_safe_judgment env sigma j =
   let trm = Safe_typing.j_val j in
   let typ = Safe_typing.j_type j in
-  print_typed_value_in_env env (trm, typ)
+  print_typed_value_in_env env sigma (trm, typ)
 
 (*********************)
 (* *)
@@ -531,7 +627,7 @@ let print_full_pure_context () =
 	      | OpaqueDef lc ->
 		str "Theorem " ++ print_basename con ++ cut () ++
 		str " : " ++ pr_ltype typ ++ str "." ++ fnl () ++
-		str "Proof " ++ pr_lconstr (Opaqueproof.force_proof lc)
+		str "Proof " ++ pr_lconstr (Opaqueproof.force_proof (Global.opaque_tables ()) lc)
 	      | Def c ->
 		str "Definition " ++ print_basename con ++ cut () ++
 		str "  : " ++ pr_ltype typ ++ cut () ++ str " := " ++
@@ -595,7 +691,8 @@ let print_any_name = function
   | Syntactic kn -> print_syntactic_def kn
   | Dir (DirModule(dirpath,(mp,_))) -> print_module (printable_body dirpath) mp
   | Dir _ -> mt ()
-  | ModuleType (_,kn) -> print_modtype kn
+  | ModuleType mp -> print_modtype mp
+  | Tactic kn -> mt () (** TODO *)
   | Undefined qid ->
   try  (* Var locale de but, pas var de section... donc pas d'implicits *)
     let dir,str = repr_qualid qid in
@@ -625,8 +722,8 @@ let print_opaque_name qid =
 	  error "Not a defined constant."
     | IndRef (sp,_) ->
         print_inductive sp
-    | ConstructRef cstr ->
-	let ty = Inductiveops.type_of_constructor env cstr in
+    | ConstructRef cstr as gr ->
+	let ty = Universes.unsafe_type_of_global gr in
 	print_typed_value (mkConstruct cstr, ty)
     | VarRef id ->
         let (_,c,ty) = lookup_named id env in
@@ -650,7 +747,7 @@ let print_about_any loc k =
       v 0 (
       print_syntactic_def kn ++ fnl () ++
       hov 0 (str "Expands to: " ++ pr_located_qualid k))
-  | Dir _ | ModuleType _ | Undefined _ ->
+  | Dir _ | ModuleType _ | Tactic _ | Undefined _ ->
       hov 0 (pr_located_qualid k)
 
 let print_about = function

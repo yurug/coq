@@ -1,6 +1,6 @@
 (************************************************************************)
 (*  v      *   The Coq Proof Assistant  /  The Coq Development Team     *)
-(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2012     *)
+(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2015     *)
 (*   \VV/  **************************************************************)
 (*    //   *      This file is distributed under the terms of the       *)
 (*         *       GNU Lesser General Public License Version 2.1        *)
@@ -627,7 +627,7 @@ Module Make (NN:NType)(ZZ:ZType)(Import NZ:NType_ZType NN ZZ) <: QType.
  assert (Hz := spec_irred_zero nx dy).
  assert (Hz':= spec_irred_zero ny dx).
  destruct irred as (n1,d1); destruct irred as (n2,d2).
- simpl snd in *; destruct Hg as [Hg1 Hg2]; destruct Hg' as [Hg1' Hg2'].
+ simpl @snd in *; destruct Hg as [Hg1 Hg2]; destruct Hg' as [Hg1' Hg2'].
  rewrite spec_norm_denum.
  qsimpl.
 
@@ -665,7 +665,7 @@ Module Make (NN:NType)(ZZ:ZType)(Import NZ:NType_ZType NN ZZ) <: QType.
  assert (Hgc := strong_spec_irred nx dy).
  assert (Hgc' := strong_spec_irred ny dx).
  destruct irred as (n1,d1); destruct irred as (n2,d2).
- simpl snd in *; destruct Hg as [Hg1 Hg2]; destruct Hg' as [Hg1' Hg2'].
+ simpl @snd in *; destruct Hg as [Hg1 Hg2]; destruct Hg' as [Hg1' Hg2'].
 
  unfold norm_denum; qsimpl.
 
@@ -1031,7 +1031,7 @@ Module Make (NN:NType)(ZZ:ZType)(Import NZ:NType_ZType NN ZZ) <: QType.
 
  Definition of_Qc q := of_Q (this q).
 
- Definition to_Qc q := !! [q].
+ Definition to_Qc q := Q2Qc [q].
 
  Notation "[[ x ]]" := (to_Qc x).
 
@@ -1083,7 +1083,7 @@ Module Make (NN:NType)(ZZ:ZType)(Import NZ:NType_ZType NN ZZ) <: QType.
   [[add x y]] = [[x]] + [[y]].
  Proof.
  unfold to_Qc.
- transitivity (!! ([x] + [y])).
+ transitivity (Q2Qc ([x] + [y])).
  unfold Q2Qc.
  apply Qc_decomp; intros _ _; unfold this.
  apply Qred_complete; apply spec_add; auto.
@@ -1097,7 +1097,7 @@ Module Make (NN:NType)(ZZ:ZType)(Import NZ:NType_ZType NN ZZ) <: QType.
   [[add_norm x y]] = [[x]] + [[y]].
  Proof.
  unfold to_Qc.
- transitivity (!! ([x] + [y])).
+ transitivity (Q2Qc ([x] + [y])).
  unfold Q2Qc.
  apply Qc_decomp; intros _ _; unfold this.
  apply Qred_complete; apply spec_add_norm; auto.
@@ -1145,7 +1145,7 @@ Module Make (NN:NType)(ZZ:ZType)(Import NZ:NType_ZType NN ZZ) <: QType.
   [[mul x y]] = [[x]] * [[y]].
  Proof.
  unfold to_Qc.
- transitivity (!! ([x] * [y])).
+ transitivity (Q2Qc ([x] * [y])).
  unfold Q2Qc.
  apply Qc_decomp; intros _ _; unfold this.
  apply Qred_complete; apply spec_mul; auto.
@@ -1159,7 +1159,7 @@ Module Make (NN:NType)(ZZ:ZType)(Import NZ:NType_ZType NN ZZ) <: QType.
    [[mul_norm x y]] = [[x]] * [[y]].
  Proof.
  unfold to_Qc.
- transitivity (!! ([x] * [y])).
+ transitivity (Q2Qc ([x] * [y])).
  unfold Q2Qc.
  apply Qc_decomp; intros _ _; unfold this.
  apply Qred_complete; apply spec_mul_norm; auto.
@@ -1183,7 +1183,7 @@ Module Make (NN:NType)(ZZ:ZType)(Import NZ:NType_ZType NN ZZ) <: QType.
    [[inv x]] =  /[[x]].
  Proof.
  unfold to_Qc.
- transitivity (!! (/[x])).
+ transitivity (Q2Qc (/[x])).
  unfold Q2Qc.
  apply Qc_decomp; intros _ _; unfold this.
  apply Qred_complete; apply spec_inv; auto.
@@ -1197,7 +1197,7 @@ Module Make (NN:NType)(ZZ:ZType)(Import NZ:NType_ZType NN ZZ) <: QType.
    [[inv_norm x]] =  /[[x]].
  Proof.
  unfold to_Qc.
- transitivity (!! (/[x])).
+ transitivity (Q2Qc (/[x])).
  unfold Q2Qc.
  apply Qc_decomp; intros _ _; unfold this.
  apply Qred_complete; apply spec_inv_norm; auto.
@@ -1245,12 +1245,12 @@ Module Make (NN:NType)(ZZ:ZType)(Import NZ:NType_ZType NN ZZ) <: QType.
  Theorem spec_squarec x: [[square x]] = [[x]]^2.
  Proof.
  unfold to_Qc.
- transitivity (!! ([x]^2)).
+ transitivity (Q2Qc ([x]^2)).
  unfold Q2Qc.
  apply Qc_decomp; intros _ _; unfold this.
  apply Qred_complete; apply spec_square; auto.
  simpl Qcpower.
- replace (!! [x] * 1) with (!![x]); try ring.
+ replace (Q2Qc [x] * 1) with (Q2Qc [x]); try ring.
  simpl.
  unfold Qcmult, Q2Qc.
  apply Qc_decomp; intros _ _; unfold this.
@@ -1262,7 +1262,7 @@ Module Make (NN:NType)(ZZ:ZType)(Import NZ:NType_ZType NN ZZ) <: QType.
    [[power_pos x p]] = [[x]] ^ Pos.to_nat p.
  Proof.
  unfold to_Qc.
- transitivity (!! ([x]^Zpos p)).
+ transitivity (Q2Qc ([x]^Zpos p)).
  unfold Q2Qc.
  apply Qc_decomp; intros _ _; unfold this.
  apply Qred_complete; apply spec_power_pos; auto.

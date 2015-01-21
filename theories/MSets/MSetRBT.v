@@ -31,7 +31,7 @@ Additional suggested reading:
 *)
 
 Require MSetGenTree.
-Require Import Bool List BinPos Pnat Setoid SetoidList NPeano.
+Require Import Bool List BinPos Pnat Setoid SetoidList PeanoNat.
 Local Open Scope list_scope.
 
 (* For nicer extraction, we create induction principles
@@ -398,7 +398,7 @@ Definition skip_black t :=
 Fixpoint compare_height (s1x s1 s2 s2x: tree) : comparison :=
  match skip_red s1x, skip_red s1, skip_red s2, skip_red s2x with
  | Node _ s1x' _ _, Node _ s1' _ _, Node _ s2' _ _, Node _ s2x' _ _ =>
-   compare_height (skip_black s2x') s1' s2' (skip_black s2x')
+   compare_height (skip_black s1x') s1' s2' (skip_black s2x')
  | _, Leaf, _, Node _ _ _ _ => Lt
  | Node _ _ _ _, _, Leaf, _ => Gt
  | Node _ s1x' _ _, Node _ s1' _ _, Node _ s2' _ _, Leaf =>
@@ -979,7 +979,7 @@ Proof.
   { transitivity size; trivial. subst. auto with arith. }
  destruct acc1 as [|x acc1].
   { exfalso. revert LE. apply Nat.lt_nge. subst.
-    rewrite <- app_nil_end, <- elements_cardinal; auto with arith. }
+    rewrite app_nil_r, <- elements_cardinal; auto with arith. }
  specialize (Hg acc1).
  destruct (g acc1) as (t2,acc2).
  destruct Hg as (Hg1,Hg2).
@@ -987,7 +987,7 @@ Proof.
     rewrite app_length, <- elements_cardinal. simpl.
     rewrite Nat.add_succ_r, <- Nat.succ_le_mono.
     apply Nat.add_le_mono_l. }
- simpl. rewrite elements_node, app_ass. now subst.
+ rewrite elements_node, app_ass. now subst.
 Qed.
 
 Lemma treeify_aux_spec n (p:bool) :
@@ -1012,7 +1012,7 @@ Qed.
 Lemma plength_aux_spec l p :
   Pos.to_nat (plength_aux l p) = length l + Pos.to_nat p.
 Proof.
- revert p. induction l; simpl; trivial.
+ revert p. induction l; trivial. simpl plength_aux.
  intros. now rewrite IHl, Pos2Nat.inj_succ, Nat.add_succ_r.
 Qed.
 
@@ -1058,7 +1058,7 @@ Lemma filter_aux_elements s f acc :
  filter_aux f s acc = List.filter f (elements s) ++ acc.
 Proof.
  revert acc.
- induction s as [|c l IHl x r IHr]; simpl; trivial.
+ induction s as [|c l IHl x r IHr]; trivial.
  intros acc.
  rewrite elements_node, filter_app. simpl.
  destruct (f x); now rewrite IHl, IHr, app_ass.
@@ -1196,7 +1196,7 @@ Lemma INV_rev l1 l2 acc :
 Proof.
  intros. rewrite rev_append_rev.
  apply SortA_app with X.eq; eauto with *.
- intros x y. inA. eapply l1_lt_acc; eauto.
+ intros x y. inA. eapply @l1_lt_acc; eauto.
 Qed.
 
 (** ** union *)
@@ -1566,7 +1566,7 @@ Proof.
 Qed.
 
 Lemma maxdepth_upperbound s : Rbt s ->
- maxdepth s <= 2 * log2 (S (cardinal s)).
+ maxdepth s <= 2 * Nat.log2 (S (cardinal s)).
 Proof.
  intros (n,H).
  eapply Nat.le_trans; [eapply rb_maxdepth; eauto|].
@@ -1581,7 +1581,7 @@ Proof.
 Qed.
 
 Lemma maxdepth_lowerbound s : s<>Leaf ->
- log2 (cardinal s) < maxdepth s.
+ Nat.log2 (cardinal s) < maxdepth s.
 Proof.
  apply maxdepth_log_cardinal.
 Qed.

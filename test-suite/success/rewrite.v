@@ -129,3 +129,22 @@ intros.
 Fail rewrite H in H0.
 Abort.
 
+(* Test subst in the presence of a dependent let-in *)
+(* Was not working prior to May 2014 *)
+
+Goal forall x y, x=y+0 -> let z := x+1 in x+1=y -> z=z -> z=x.
+intros.
+subst x. (* was failing *)
+subst z. 
+rewrite H0.
+auto with arith.
+Qed.
+
+(* Check that evars are instantiated when the term to rewrite is
+   closed, like in the case it is open *)
+
+Goal exists x, S 0 = 0 -> S x = 0.
+eexists. intro H.
+rewrite H.
+reflexivity.
+Abort.

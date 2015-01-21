@@ -1,6 +1,6 @@
 (************************************************************************)
 (*  v      *   The Coq Proof Assistant  /  The Coq Development Team     *)
-(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2012     *)
+(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2015     *)
 (*   \VV/  **************************************************************)
 (*    //   *      This file is distributed under the terms of the       *)
 (*         *       GNU Lesser General Public License Version 2.1        *)
@@ -104,9 +104,9 @@ let glob_constr_of_notation_constr_with_binders loc g f e = function
       GRec (loc,fk,idl,dll,Array.map (f e) tl,Array.map (f e') bl)
   | NCast (c,k) -> GCast (loc,f e c,Miscops.map_cast_type (f e) k)
   | NSort x -> GSort (loc,x)
-  | NHole (x, arg)  -> GHole (loc, x, arg)
+  | NHole (x, naming, arg)  -> GHole (loc, x, naming, arg)
   | NPatVar n -> GPatVar (loc,(false,n))
-  | NRef x -> GRef (loc,x)
+  | NRef x -> GRef (loc,x,None)
 
 let glob_constr_of_notation_constr loc x =
   let rec aux () x =
@@ -146,7 +146,7 @@ let split_at_recursive_part c =
 let on_true_do b f c = if b then (f c; b) else b
 
 let compare_glob_constr f add t1 t2 = match t1,t2 with
-  | GRef (_,r1), GRef (_,r2) -> eq_gr r1 r2
+  | GRef (_,r1,_), GRef (_,r2,_) -> eq_gr r1 r2
   | GVar (_,v1), GVar (_,v2) -> on_true_do (Id.equal v1 v2) add (Name v1)
   | GApp (_,f1,l1), GApp (_,f2,l2) -> f f1 f2 && List.for_all2eq f l1 l2
   | GLambda (_,na1,bk1,ty1,c1), GLambda (_,na2,bk2,ty2,c2)
@@ -287,8 +287,8 @@ let notation_constr_and_vars_of_glob_constr a =
       NRec (fk,idl,dll,Array.map aux tl,Array.map aux bl)
   | GCast (_,c,k) -> NCast (aux c,Miscops.map_cast_type aux k)
   | GSort (_,s) -> NSort s
-  | GHole (_,w,arg) -> NHole (w, arg)
-  | GRef (_,r) -> NRef r
+  | GHole (_,w,naming,arg) -> NHole (w, naming, arg)
+  | GRef (_,r,_) -> NRef r
   | GPatVar (_,(_,n)) -> NPatVar n
   | GEvar _ ->
       error "Existential variables not allowed in notations."
@@ -353,7 +353,7 @@ let notation_constr_of_glob_constr nenv a =
 (* Substitution of kernel names, avoiding a list of bound identifiers *)
 
 let notation_constr_of_constr avoiding t =
-  let t = Detyping.detype false avoiding [] t in
+  let t = Detyping.detype false avoiding (Global.env()) Evd.empty t in
   let nenv = {
     ninterp_var_type = Id.Map.empty;
     ninterp_rec_vars = Id.Map.empty;
@@ -365,7 +365,7 @@ let rec subst_pat subst pat =
   match pat with
   | PatVar _ -> pat
   | PatCstr (loc,((kn,i),j),cpl,n) ->
-      let kn' = subst_ind subst kn
+      let kn' = subst_mind subst kn
       and cpl' = List.smartmap (subst_pat subst) cpl in
         if kn' == kn && cpl' == cpl then pat else
           PatCstr (loc,((kn',i),j),cpl',n)
@@ -421,7 +421,7 @@ let rec subst_notation_constr subst bound raw =
         (fun (a,(n,signopt) as x) ->
 	  let a' = subst_notation_constr subst bound a in
 	  let signopt' = Option.map (fun ((indkn,i),nal as z) ->
-	    let indkn' = subst_ind subst indkn in
+	    let indkn' = subst_mind subst indkn in
 	    if indkn == indkn' then z else ((indkn',i),nal)) signopt in
 	  if a' == a && signopt' == signopt then x else (a',(n,signopt')))
         rl
@@ -465,7 +465,7 @@ let rec subst_notation_constr subst bound raw =
 
   | NPatVar _ | NSort _ -> raw
 
-  | NHole (knd, solve) ->
+  | NHole (knd, naming, solve) ->
     let nknd = match knd with
     | Evar_kinds.ImplicitArg (ref, i, b) ->
       let nref, _ = subst_global subst ref in
@@ -474,7 +474,7 @@ let rec subst_notation_constr subst bound raw =
     in
     let nsolve = Option.smartmap (Genintern.generic_substitute subst) solve in
     if nsolve == solve && nknd == knd then raw
-    else NHole (nknd, nsolve)
+    else NHole (nknd, naming, nsolve)
 
   | NCast (r1,k) ->
       let r1' = subst_notation_constr subst bound r1 in
@@ -498,11 +498,11 @@ let abstract_return_type_context pi mklam tml rtno =
 let abstract_return_type_context_glob_constr =
   abstract_return_type_context (fun (_,_,nal) -> nal)
     (fun na c ->
-      GLambda(Loc.ghost,na,Explicit,GHole(Loc.ghost,Evar_kinds.InternalHole,None),c))
+      GLambda(Loc.ghost,na,Explicit,GHole(Loc.ghost,Evar_kinds.InternalHole,Misctypes.IntroAnonymous,None),c))
 
 let abstract_return_type_context_notation_constr =
   abstract_return_type_context snd
-    (fun na c -> NLambda(na,NHole (Evar_kinds.InternalHole, None),c))
+    (fun na c -> NLambda(na,NHole (Evar_kinds.InternalHole, Misctypes.IntroAnonymous, None),c))
 
 exception No_match
 
@@ -555,7 +555,7 @@ let match_names metas (alp,sigma) na1 na2 = match (na1,na2) with
   | (_,Name id2) when Id.List.mem id2 (fst metas) ->
       let rhs = match na1 with
       | Name id1 -> GVar (Loc.ghost,id1)
-      | Anonymous -> GHole (Loc.ghost,Evar_kinds.InternalHole,None) in
+      | Anonymous -> GHole (Loc.ghost,Evar_kinds.InternalHole,Misctypes.IntroAnonymous,None) in
       alp, bind_env alp sigma id2 rhs
   | (Name id1,Name id2) -> (id1,id2)::alp,sigma
   | (Anonymous,Anonymous) -> alp,sigma
@@ -579,7 +579,7 @@ let rec match_iterated_binders islambda decls = function
       match_iterated_binders islambda ((na,bk,None,t)::decls) b
   | GLetIn (loc,na,c,b) when glue_letin_with_decls ->
       match_iterated_binders islambda
-	((na,Explicit (*?*), Some c,GHole(loc,Evar_kinds.BinderType na,None))::decls) b
+	((na,Explicit (*?*), Some c,GHole(loc,Evar_kinds.BinderType na,Misctypes.IntroAnonymous,None))::decls) b
   | b -> (decls,b)
 
 let remove_sigma x (sigmavar,sigmalist,sigmabinders) =
@@ -658,7 +658,7 @@ let rec match_ inner u alp (tmetas,blmetas as metas) sigma a1 a2 =
 
   (* Matching compositionally *)
   | GVar (_,id1), NVar id2 when alpha_var id1 id2 alp -> sigma
-  | GRef (_,r1), NRef r2 when (eq_gr r1 r2) -> sigma
+  | GRef (_,r1,_), NRef r2 when (eq_gr r1 r2) -> sigma
   | GPatVar (_,(_,n1)), NPatVar n2 when Id.equal n1 n2 -> sigma
   | GApp (loc,f1,l1), NApp (f2,l2) ->
       let n1 = List.length l1 and n2 = List.length l2 in
@@ -720,7 +720,7 @@ let rec match_ inner u alp (tmetas,blmetas as metas) sigma a1 a2 =
       match_in u alp metas (match_in u alp metas sigma c1 c2) t1 t2
   | GCast(_,c1, CastCoerce), NCast(c2, CastCoerce) ->
       match_in u alp metas sigma c1 c2
-  | GSort (_,GType _), NSort (GType None) when not u -> sigma
+  | GSort (_,GType _), NSort (GType _) when not u -> sigma
   | GSort (_,s1), NSort s2 when Miscops.glob_sort_eq s1 s2 -> sigma
   | GPatVar _, NHole _ -> (*Don't hide Metas, they bind in ltac*) raise No_match
   | a, NHole _ -> sigma
@@ -733,7 +733,7 @@ let rec match_ inner u alp (tmetas,blmetas as metas) sigma a1 a2 =
      to print "{x:_ & P x}" knowing that notation "{x & P x}" is not defined. *)
   | b1, NLambda (Name id,(NHole _ | NVar _ as t2),b2) when inner ->
       let id' = Namegen.next_ident_away id (free_glob_vars b1) in
-      let t1 = GHole(Loc.ghost,Evar_kinds.BinderType (Name id'),None) in
+      let t1 = GHole(Loc.ghost,Evar_kinds.BinderType (Name id'),Misctypes.IntroAnonymous,None) in
       let sigma = match t2 with
       | NHole _ -> sigma
       | NVar id2 -> bind_env alp sigma id2 t1

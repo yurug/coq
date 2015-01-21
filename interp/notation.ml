@@ -1,6 +1,6 @@
 (************************************************************************)
 (*  v      *   The Coq Proof Assistant  /  The Coq Development Team     *)
-(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2012     *)
+(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2015     *)
 (*   \VV/  **************************************************************)
 (*    //   *      This file is distributed under the terms of the       *)
 (*         *       GNU Lesser General Public License Version 2.1        *)
@@ -214,18 +214,6 @@ type interp_rule =
   | NotationRule of scope_name option * notation
   | SynDefRule of kernel_name
 
-let compare_interp_rule x y =
-  match x, y with
-  | NotationRule (sno1, n1), NotationRule (sno2, n2) ->
-      (match sno1, sno2 with
-      | None, None -> String.compare n1 n2
-      | None, Some _ -> -1
-      | Some sn1, Some sn2 -> String.compare sn1 sn2
-      | Some _, None -> 1)
-  | SynDefRule kn1, SynDefRule kn2 -> KerName.compare kn1 kn2
-  | NotationRule _, SynDefRule _ -> -1
-  | SynDefRule _, NotationRule _ -> 1
-
 (* We define keys for glob_constr and aconstr to split the syntax entries
    according to the key of the pattern (adapted from Chet Murthy by HH) *)
 
@@ -258,12 +246,12 @@ let notations_key_table = ref (KeyMap.empty : notation_rule list KeyMap.t)
 let prim_token_key_table = ref KeyMap.empty
 
 let glob_prim_constr_key = function
-  | GApp (_,GRef (_,ref),_) | GRef (_,ref) -> RefKey (canonical_gr ref)
+  | GApp (_,GRef (_,ref,_),_) | GRef (_,ref,_) -> RefKey (canonical_gr ref)
   | _ -> Oth
 
 let glob_constr_keys = function
-  | GApp (_,GRef (_,ref),_) -> [RefKey (canonical_gr ref); Oth]
-  | GRef (_,ref) -> [RefKey (canonical_gr ref)]
+  | GApp (_,GRef (_,ref,_),_) -> [RefKey (canonical_gr ref); Oth]
+  | GRef (_,ref,_) -> [RefKey (canonical_gr ref)]
   | _ -> [Oth]
 
 let cases_pattern_key = function
@@ -454,9 +442,9 @@ let interp_prim_token =
 
 let rec rcp_of_glob looked_for = function
   | GVar (loc,id) -> RCPatAtom (loc,Some id)
-  | GHole (loc,_,_) -> RCPatAtom (loc,None)
-  | GRef (loc,g) -> looked_for g; RCPatCstr (loc, g,[],[])
-  | GApp (loc,GRef (_,g),l) ->
+  | GHole (loc,_,_,_) -> RCPatAtom (loc,None)
+  | GRef (loc,g,_) -> looked_for g; RCPatCstr (loc, g,[],[])
+  | GApp (loc,GRef (_,g,_),l) ->
     looked_for g; RCPatCstr (loc, g, List.map (rcp_of_glob looked_for) l,[])
   | _ -> raise Not_found
 
@@ -502,7 +490,7 @@ let uninterp_prim_token_ind_pattern ind args =
     if not b then raise Notation_ops.No_match;
     let args' = List.map
       (fun x -> snd (glob_constr_of_closed_cases_pattern x)) args in
-    let ref = GRef (Loc.ghost,ref) in
+    let ref = GRef (Loc.ghost,ref,None) in
     match numpr (GApp (Loc.ghost,ref,args')) with
       | None -> raise Notation_ops.No_match
       | Some n -> (sc,n)
@@ -547,6 +535,7 @@ let compute_scope_class t =
   let t', _ = decompose_appvect (Reductionops.whd_betaiotazeta Evd.empty t) in
   match kind_of_term t' with
   | Var _ | Const _ | Ind _ -> ScopeRef (global_of_constr t')
+  | Proj (p, c) -> ScopeRef (ConstRef (Projection.constant p))
   | Sort _ -> ScopeSort
   |  _ -> raise Not_found
 
@@ -655,13 +644,13 @@ let rebuild_arguments_scope (req,r,l,_) =
   match req with
     | ArgsScopeNoDischarge -> assert false
     | ArgsScopeAuto ->
-        let scs,cls = compute_arguments_scope_full (Global.type_of_global r) in
+        let scs,cls = compute_arguments_scope_full (fst(Universes.type_of_global r)(*FIXME?*)) in
 	(req,r,scs,cls)
     | ArgsScopeManual ->
 	(* Add to the manually given scopes the one found automatically
            for the extra parameters of the section. Discard the classes
            of the manually given scopes to avoid further re-computations. *)
-	let l',cls = compute_arguments_scope_full (Global.type_of_global r) in
+	let l',cls = compute_arguments_scope_full (Global.type_of_global_unsafe r) in
         let nparams = List.length l' - List.length l in
 	let l1 = List.firstn nparams l' in
         let cls1 = List.firstn nparams cls in
@@ -705,7 +694,7 @@ let find_arguments_scope r =
   with Not_found -> []
 
 let declare_ref_arguments_scope ref =
-  let t = Global.type_of_global ref in
+  let t = Global.type_of_global_unsafe ref in
   declare_arguments_scope_gen ArgsScopeAuto ref (compute_arguments_scope_full t)
 
 
@@ -951,17 +940,28 @@ let pr_visibility prglob = function
 (* Mapping notations to concrete syntax *)
 
 type unparsing_rule = unparsing list * precedence
-
+type extra_unparsing_rules = (string * string) list
 (* Concrete syntax for symbolic-extension table *)
 let printing_rules =
-  ref (String.Map.empty : unparsing_rule String.Map.t)
+  ref (String.Map.empty : (unparsing_rule * extra_unparsing_rules) String.Map.t)
 
-let declare_notation_printing_rule ntn unpl =
-  printing_rules := String.Map.add ntn unpl !printing_rules
+let declare_notation_printing_rule ntn ~extra unpl =
+  printing_rules := String.Map.add ntn (unpl,extra) !printing_rules
 
 let find_notation_printing_rule ntn =
-  try String.Map.find ntn !printing_rules
+  try fst (String.Map.find ntn !printing_rules)
   with Not_found -> anomaly (str "No printing rule found for " ++ str ntn)
+let find_notation_extra_printing_rules ntn =
+  try snd (String.Map.find ntn !printing_rules)
+  with Not_found -> []
+let add_notation_extra_printing_rule ntn k v =
+  try
+    printing_rules := 
+      let p, pp = String.Map.find ntn !printing_rules in
+      String.Map.add ntn (p, (k,v) :: pp) !printing_rules
+  with Not_found ->
+    user_err_loc (Loc.ghost,"add_notation_extra_printing_rule",
+      str "No such Notation.")
 
 (**********************************************************************)
 (* Synchronisation with reset *)
@@ -1001,4 +1001,4 @@ let with_notation_protection f x =
   with reraise ->
     let reraise = Errors.push reraise in
     let () = unfreeze fs in
-    raise reraise
+    iraise reraise

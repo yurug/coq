@@ -1,6 +1,6 @@
 (************************************************************************)
 (*  v      *   The Coq Proof Assistant  /  The Coq Development Team     *)
-(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2012     *)
+(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2015     *)
 (*   \VV/  **************************************************************)
 (*    //   *      This file is distributed under the terms of the       *)
 (*         *       GNU Lesser General Public License Version 2.1        *)
@@ -80,3 +80,46 @@ let concrete_clause_of enum_hyps cl =
   if cl.concl_occs = NoOccurrences then hyps
   else
     OnConcl cl.concl_occs :: hyps
+
+(** Miscellaneous functions *)
+
+let out_arg = function
+  | Misctypes.ArgVar _ -> Errors.anomaly (Pp.str "Unevaluated or_var variable")
+  | Misctypes.ArgArg x -> x
+
+let occurrences_of_hyp id cls =
+  let rec hyp_occ = function
+      [] -> NoOccurrences, InHyp
+    | ((occs,id'),hl)::_ when Names.Id.equal id id' ->
+        occurrences_map (List.map out_arg) occs, hl
+    | _::l -> hyp_occ l in
+  match cls.onhyps with
+      None -> AllOccurrences,InHyp
+    | Some l -> hyp_occ l
+
+let occurrences_of_goal cls =
+  occurrences_map (List.map out_arg) cls.concl_occs
+
+let in_every_hyp cls = Option.is_empty cls.onhyps
+
+let clause_with_generic_occurrences cls =
+  let hyps = match cls.onhyps with
+  | None -> true
+  | Some hyps ->
+     List.for_all
+       (function ((AllOccurrences,_),_) -> true | _ -> false) hyps in
+  let concl = match cls.concl_occs with
+  | AllOccurrences | NoOccurrences -> true
+  | _ -> false in
+  hyps && concl
+
+let clause_with_generic_context_selection cls =
+  let hyps = match cls.onhyps with
+  | None -> true
+  | Some hyps ->
+     List.for_all
+       (function ((AllOccurrences,_),InHyp) -> true | _ -> false) hyps in
+  let concl = match cls.concl_occs with
+  | AllOccurrences | NoOccurrences -> true
+  | _ -> false in
+  hyps && concl

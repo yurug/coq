@@ -1,6 +1,6 @@
 (************************************************************************)
 (*  v      *   The Coq Proof Assistant  /  The Coq Development Team     *)
-(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2012     *)
+(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2015     *)
 (*   \VV/  **************************************************************)
 (*    //   *      This file is distributed under the terms of the       *)
 (*         *       GNU Lesser General Public License Version 2.1        *)
@@ -18,14 +18,24 @@ type engagement = ImpredicativeSet
 
 (** {6 Representation of constants (Definition/Axiom) } *)
 
-type polymorphic_arity = {
-  poly_param_levels : Univ.universe option list;
-  poly_level : Univ.universe;
+(** Non-universe polymorphic mode polymorphism (Coq 8.2+): inductives
+    and constants hiding inductives are implicitely polymorphic when
+    applied to parameters, on the universes appearing in the whnf of
+    their parameters and their conclusion, in a template style.
+    
+    In truely universe polymorphic mode, we always use RegularArity.
+*)
+
+type template_arity = {
+  template_param_levels : Univ.universe_level option list;
+  template_level : Univ.universe;
 }
 
-type constant_type =
-  | NonPolymorphicType of types
-  | PolymorphicArity of rel_context * polymorphic_arity
+type ('a, 'b) declaration_arity = 
+  | RegularArity of 'a
+  | TemplateArity of 'b
+
+type constant_type = (types, rel_context * template_arity) declaration_arity
 
 (** Inlining level of parameters at functor applications.
     None means no inlining *)
@@ -35,10 +45,24 @@ type inline = int option
 (** A constant can have no body (axiom/parameter), or a
     transparent body, or an opaque one *)
 
+(** Projections are a particular kind of constant: 
+    always transparent. *)
+
+type projection_body = {
+  proj_ind : mutual_inductive;
+  proj_npars : int;
+  proj_arg : int;
+  proj_type : types; (* Type under params *)
+  proj_eta : constr * types; (* Eta-expanded term and type *)
+  proj_body : constr; (* For compatibility with VMs only, the match version *)
+}
+
 type constant_def =
   | Undef of inline
   | Def of constr Mod_subst.substituted
   | OpaqueDef of Opaqueproof.opaque
+
+type constant_universes = Univ.universe_context
 
 (* some contraints are in constant_constraints, some other may be in
  * the OpaueDef *)
@@ -47,12 +71,16 @@ type constant_body = {
     const_body : constant_def;
     const_type : constant_type;
     const_body_code : Cemitcodes.to_patch_substituted;
-    const_constraints : Univ.constraints;
+    const_polymorphic : bool; (** Is it polymorphic or not *)
+    const_universes : constant_universes;
+    const_proj : projection_body option;
     const_inline_code : bool }
 
+type seff_env = [ `Nothing | `Opaque of Constr.t * Univ.universe_context_set ]
+
 type side_effect =
-  | SEsubproof of constant * constant_body
-  | SEscheme of (inductive * constant * constant_body) list * string
+  | SEsubproof of constant * constant_body * seff_env
+  | SEscheme of (inductive * constant * constant_body * seff_env) list * string
     
 (** {6 Representation of mutual inductive types in the kernel } *)
 
@@ -71,14 +99,21 @@ type wf_paths = recarg Rtree.t
 v}
 *)
 
-type monomorphic_inductive_arity = {
-  mind_user_arity : constr;
+(** Record information:
+    If the record is not primitive, then None
+    Otherwise, we get:
+    - The identifier for the binder name of the record in primitive projections.
+    - The constants associated to each projection.
+    - The checked projection bodies. *)
+
+type record_body = (Id.t * constant array * projection_body array) option
+
+type regular_inductive_arity = {
+  mind_user_arity : types;
   mind_sort : sorts;
 }
 
-type inductive_arity =
-| Monomorphic of monomorphic_inductive_arity
-| Polymorphic of polymorphic_arity
+type inductive_arity = (regular_inductive_arity, template_arity) declaration_arity
 
 type one_inductive_body = {
 (** {8 Primitive datas } *)
@@ -87,7 +122,7 @@ type one_inductive_body = {
 
     mind_arity_ctxt : rel_context; (** Arity context of [Ii] with parameters: [forall params, Ui] *)
 
-    mind_arity : inductive_arity; (** Arity sort and original user arity if monomorphic *)
+    mind_arity : inductive_arity; (** Arity sort and original user arity *)
 
     mind_consnames : Id.t array; (** Names of the constructors: [cij] *)
 
@@ -100,18 +135,18 @@ type one_inductive_body = {
 
     mind_nrealargs : int; (** Number of expected real arguments of the type (no let, no params) *)
 
-    mind_nrealargs_ctxt : int; (** Length of realargs context (with let, no params) *)
+    mind_nrealdecls : int; (** Length of realargs context (with let, no params) *)
 
     mind_kelim : sorts_family list; (** List of allowed elimination sorts *)
 
     mind_nf_lc : types array; (** Head normalized constructor types so that their conclusion is atomic *)
 
-    mind_consnrealdecls : int array;
- (** Length of the signature of the constructors (with let, w/o params)
+    mind_consnrealargs : int array;
+ (** Number of expected proper arguments of the constructors (w/o params)
     (not used in the kernel) *)
 
-    mind_consnrealargs : int array;
- (** Length of the signature of the constructors (w/o let, w/o params)
+    mind_consnrealdecls : int array;
+ (** Length of the signature of the constructors (with let, w/o params)
     (not used in the kernel) *)
 
     mind_recargs : wf_paths; (** Signature of recursive arguments in the constructors *)
@@ -129,9 +164,9 @@ type mutual_inductive_body = {
 
     mind_packets : one_inductive_body array;  (** The component of the mutual inductive block *)
 
-    mind_record : bool;  (** Whether the inductive type has been declared as a record *)
+    mind_record : record_body option; (** The record information *)
 
-    mind_finite : bool;  (** Whether the type is inductive or coinductive *)
+    mind_finite : Decl_kinds.recursivity_kind;  (** Whether the type is inductive or coinductive *)
 
     mind_ntypes : int;  (** Number of types in the block *)
 
@@ -143,9 +178,13 @@ type mutual_inductive_body = {
 
     mind_params_ctxt : rel_context;  (** The context of parameters (includes let-in declaration) *)
 
-    mind_constraints : Univ.constraints;  (** Universes constraints enforced by the inductive declaration *)
+    mind_polymorphic : bool; (** Is it polymorphic or not *)
 
-  }
+    mind_universes : Univ.universe_context; (** Local universe variables and constraints *)
+
+    mind_private : bool option; (** allow pattern-matching: Some true ok, Some false blocked *)
+  
+}
 
 (** {6 Module declarations } *)
 
@@ -212,17 +251,11 @@ and module_body =
     mod_delta : Mod_subst.delta_resolver;
     mod_retroknowledge : Retroknowledge.action list }
 
-(** A [module_type_body] is similar to a [module_body], with
-    no implementation and retroknowledge fields *)
+(** A [module_type_body] is just a [module_body] with no
+    implementation ([mod_expr] always [Abstract]) and also
+    an empty [mod_retroknowledge] *)
 
-and module_type_body =
-  { typ_mp : module_path; (** path of the module type *)
-    typ_expr : module_signature; (** expanded type *)
-    (** algebraic expression, kept if it's relevant for extraction  *)
-    typ_expr_alg : module_expression option;
-    typ_constraints : Univ.constraints;
-    (** quotiented set of equivalent constants and inductive names *)
-    typ_delta : Mod_subst.delta_resolver}
+and module_type_body = module_body
 
 (** Extra invariants :
 

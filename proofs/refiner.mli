@@ -1,6 +1,6 @@
 (************************************************************************)
 (*  v      *   The Coq Proof Assistant  /  The Coq Development Team     *)
-(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2012     *)
+(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2015     *)
 (*   \VV/  **************************************************************)
 (*    //   *      This file is distributed under the terms of the       *)
 (*         *       GNU Lesser General Public License Version 2.1        *)
@@ -33,6 +33,12 @@ val tclIDTAC_MESSAGE  : Pp.std_ppcmds -> tactic
 
 (** [tclEVARS sigma] changes the current evar map *)
 val tclEVARS : evar_map -> tactic
+val tclEVARUNIVCONTEXT : Evd.evar_universe_context -> tactic
+
+val tclPUSHCONTEXT : Evd.rigid -> Univ.universe_context_set -> tactic -> tactic
+val tclPUSHEVARUNIVCONTEXT : Evd.evar_universe_context -> tactic
+
+val tclPUSHCONSTRAINTS : Univ.constraints -> tactic
 
 (** [tclTHEN tac1 tac2 gls] applies the tactic [tac1] to [gls] and applies
    [tac2] to every resulting subgoals *)
@@ -96,7 +102,7 @@ exception FailError of int * Pp.std_ppcmds Lazy.t
 
 (** Takes an exception and either raise it at the next
    level or do nothing. *)
-val catch_failerror  : exn -> unit
+val catch_failerror  : Exninfo.iexn -> unit
 
 val tclORELSE0       : tactic -> tactic -> tactic
 val tclORELSE        : tactic -> tactic -> tactic
@@ -128,13 +134,3 @@ val tclIFTHENSVELSE   : tactic -> tactic array -> tactic ->tactic
    Equivalent to [(tac1;try tac2)||tac2] *)
 
 val tclIFTHENTRYELSEMUST : tactic -> tactic -> tactic
-
-(* Check that holes in arguments have been resolved *)
-(* spiwack: used in [tclWITHHOLES] both newer and older copy. *)
-val check_evars : Environ.env -> evar_map -> evar_map -> evar_map -> unit
-
-(** [tclWITHHOLES solve_holes tac (sigma,c)] applies [tac] to [c] which
-   may have unresolved holes; if [solve_holes] these holes must be
-   resolved after application of the tactic; [sigma] must be an
-   extension of the sigma of the goal *)
-val tclWITHHOLES : bool -> ('a -> tactic) -> evar_map -> 'a -> tactic

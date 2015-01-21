@@ -1,21 +1,9 @@
-<!DOCTYPE html 
-     PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN"
-    "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd">
 
-<html xmlns="http://www.w3.org/1999/xhtml" xml:lang="en" lang="en">
-<head>
-<meta http-equiv="Content-Type" content="text/html; charset=iso-8859-15"/>
-<link rel="stylesheet" href="css/context.css" type="text/css"/>
-<title>The Coq Standard Library</title>
-</head>
-
-<body>
-
-<H1>The Coq Standard Library</H1>
+<h1>The Coq Standard Library</h1>
 
 <p>Here is a short description of the Coq standard library, which is
 distributed with the system.
-It provides a set of modules directly available 
+It provides a set of modules directly available
 through the <tt>Require Import</tt> command.</p>
 
 <p>The standard library is composed of the following subdirectories:</p>
@@ -24,27 +12,26 @@ through the <tt>Require Import</tt> command.</p>
   <dt> <b>Init</b>:
     The core library (automatically loaded when starting Coq)
   </dt>
-  <dd> 
+  <dd>
     theories/Init/Notations.v
     theories/Init/Datatypes.v
     theories/Init/Logic.v
     theories/Init/Logic_Type.v
+    theories/Init/Nat.v
     theories/Init/Peano.v
     theories/Init/Specif.v
     theories/Init/Tactics.v
     theories/Init/Wf.v
     (theories/Init/Prelude.v)
   </dd>
-  
+
   <dt> <b>Logic</b>:
       Classical logic, dependent equality, extensionality, choice axioms
   </dt>
   <dd>
     theories/Logic/SetIsType.v
-    theories/Logic/Classical_Pred_Set.v
     theories/Logic/Classical_Pred_Type.v
     theories/Logic/Classical_Prop.v
-    theories/Logic/Classical_Type.v
     (theories/Logic/Classical.v)
     theories/Logic/ClassicalFacts.v
     theories/Logic/Decidable.v
@@ -69,10 +56,11 @@ through the <tt>Require Import</tt> command.</p>
     theories/Logic/IndefiniteDescription.v
     theories/Logic/FunctionalExtensionality.v
     theories/Logic/ExtensionalityFacts.v
-    theories/Logic/Fan.v
+    theories/Logic/WeakFan.v
+    theories/Logic/WKL.v
     theories/Logic/FinFun.v
   </dd>
-    
+
   <dt> <b>Structures</b>:
        Algebraic structures (types with equality, with order, ...).
        DecidableType* and OrderedType* are there only for compatibility.
@@ -97,7 +85,7 @@ through the <tt>Require Import</tt> command.</p>
   <dt> <b>Bool</b>:
        Booleans (basic functions and results)
   </dt>
-  <dd> 
+  <dd>
     theories/Bool/Bool.v
     theories/Bool/BoolEq.v
     theories/Bool/DecBool.v
@@ -106,12 +94,12 @@ through the <tt>Require Import</tt> command.</p>
     theories/Bool/Zerob.v
     theories/Bool/Bvector.v
   </dd>
-    
+
   <dt> <b>Arith</b>:
     Basic Peano arithmetic
   </dt>
-  <dd> 
-    theories/Arith/Arith_base.v
+  <dd>
+    theories/Arith/PeanoNat.v
     theories/Arith/Le.v
     theories/Arith/Lt.v
     theories/Arith/Plus.v
@@ -121,6 +109,7 @@ through the <tt>Require Import</tt> command.</p>
     theories/Arith/Between.v
     theories/Arith/Peano_dec.v
     theories/Arith/Compare_dec.v
+    (theories/Arith/Arith_base.v)
     (theories/Arith/Arith.v)
     theories/Arith/Min.v
     theories/Arith/Max.v
@@ -218,10 +207,13 @@ through the <tt>Require Import</tt> command.</p>
     theories/QArith/Qminmax.v
   </dd>
 
-  <dt> <b>Numbers</b>: 
+  <dt> <b>Numbers</b>:
     An experimental modular architecture for arithmetic
   </dt>
-    <dt> <b>&nbsp;&nbsp;Prelude</b>: 
+  <dd>
+    <dl>
+    <dt> <b>&nbsp;&nbsp;Prelude</b>:
+    </dt>
     <dd>
     theories/Numbers/BinNums.v
     theories/Numbers/NumPrelude.v
@@ -231,6 +223,7 @@ through the <tt>Require Import</tt> command.</p>
 
     <dt> <b>&nbsp;&nbsp;NatInt</b>:
        Abstract mixed natural/integer/cyclic arithmetic
+    </dt>
     <dd>
     theories/Numbers/NatInt/NZAdd.v
     theories/Numbers/NatInt/NZAddOrder.v
@@ -249,10 +242,10 @@ through the <tt>Require Import</tt> command.</p>
     theories/Numbers/NatInt/NZGcd.v
     theories/Numbers/NatInt/NZBits.v
     </dd>
-    </dt>
 
-    <dt> <b>&nbsp;&nbsp;Cyclic</b>: 
+    <dt> <b>&nbsp;&nbsp;Cyclic</b>:
        Abstract and 31-bits-based cyclic arithmetic
+    </dt>
     <dd>
     theories/Numbers/Cyclic/Abstract/CyclicAxioms.v
     theories/Numbers/Cyclic/Abstract/NZCyclic.v
@@ -271,10 +264,10 @@ through the <tt>Require Import</tt> command.</p>
     theories/Numbers/Cyclic/Int31/Int31.v
     theories/Numbers/Cyclic/ZModulo/ZModulo.v
     </dd>
-    </dt>
 
-    <dt> <b>&nbsp;&nbsp;Natural</b>: 
+    <dt> <b>&nbsp;&nbsp;Natural</b>:
        Abstract and 31-bits-words-based natural arithmetic
+    </dt>
     <dd>
     theories/Numbers/Natural/Abstract/NAdd.v
     theories/Numbers/Natural/Abstract/NAddOrder.v
@@ -305,10 +298,11 @@ through the <tt>Require Import</tt> command.</p>
     theories/Numbers/Natural/BigN/NMake.v
     theories/Numbers/Natural/BigN/NMake_gen.v
     </dd>
-    </dt>
 
-    <dt> <b>&nbsp;&nbsp;Integer</b>: 
-       Abstract and concrete (especially 31-bits-words-based) integer arithmetic
+    <dt> <b>&nbsp;&nbsp;Integer</b>:
+       Abstract and concrete (especially 31-bits-words-based) integer
+       arithmetic
+    </dt>
     <dd>
     theories/Numbers/Integer/Abstract/ZAdd.v
     theories/Numbers/Integer/Abstract/ZAddOrder.v
@@ -335,32 +329,32 @@ through the <tt>Require Import</tt> command.</p>
     theories/Numbers/Integer/BigZ/BigZ.v
     theories/Numbers/Integer/BigZ/ZMake.v
     </dd>
-    </dt>
 
     <dt><b>&nbsp;&nbsp;Rational</b>:
        Abstract and 31-bits-words-based rational arithmetic
+    </dt>
     <dd>
     theories/Numbers/Rational/SpecViaQ/QSig.v
     theories/Numbers/Rational/BigQ/BigQ.v
     theories/Numbers/Rational/BigQ/QMake.v
     </dd>
-    </dt>
-  </dt>
-  
+    </dl>
+  </dd>
+
   <dt> <b>Relations</b>:
        Relations (definitions and basic results)
   </dt>
-  <dd> 
+  <dd>
     theories/Relations/Relation_Definitions.v
     theories/Relations/Relation_Operators.v
     theories/Relations/Relations.v
     theories/Relations/Operators_Properties.v
   </dd>
-    
+
   <dt> <b>Sets</b>:
        Sets (classical, constructive, finite, infinite, powerset, etc.)
   </dt>
-  <dd> 
+  <dd>
     theories/Sets/Classical_sets.v
     theories/Sets/Constructive_sets.v
     theories/Sets/Cpo.v
@@ -384,15 +378,19 @@ through the <tt>Require Import</tt> command.</p>
     theories/Sets/Relations_3.v
     theories/Sets/Uniset.v
   </dd>
-    
+
   <dt> <b>Classes</b>:
-  <dd> 
+  </dt>
+  <dd>
     theories/Classes/Init.v
     theories/Classes/RelationClasses.v
     theories/Classes/Morphisms.v
     theories/Classes/Morphisms_Prop.v
     theories/Classes/Morphisms_Relations.v
     theories/Classes/Equivalence.v
+    theories/Classes/CRelationClasses.v
+    theories/Classes/CMorphisms.v
+    theories/Classes/CEquivalence.v
     theories/Classes/EquivDec.v
     theories/Classes/SetoidTactics.v
     theories/Classes/SetoidClass.v
@@ -402,14 +400,15 @@ through the <tt>Require Import</tt> command.</p>
   </dd>
 
   <dt> <b>Setoids</b>:
-  <dd> 
+  </dt>
+  <dd>
     theories/Setoids/Setoid.v
   </dd>
-    
+
   <dt> <b>Lists</b>:
     Polymorphic lists, Streams (infinite sequences)
   </dt>
-  <dd> 
+  <dd>
     theories/Lists/List.v
     theories/Lists/ListDec.v
     theories/Lists/ListSet.v
@@ -423,18 +422,18 @@ through the <tt>Require Import</tt> command.</p>
   <dt> <b>Vectors</b>:
     Dependent datastructures storing their length
   </dt>
-    <dd>
-      theories/Vectors/Fin.v
-      theories/Vectors/VectorDef.v
-      theories/Vectors/VectorSpec.v
-      theories/Vectors/VectorEq.v
-      (theories/Vectors/Vector.v)
-    </dd>
+  <dd>
+    theories/Vectors/Fin.v
+    theories/Vectors/VectorDef.v
+    theories/Vectors/VectorSpec.v
+    theories/Vectors/VectorEq.v
+    (theories/Vectors/Vector.v)
+  </dd>
 
   <dt> <b>Sorting</b>:
     Axiomatizations of sorts
   </dt>
-  <dd> 
+  <dd>
     theories/Sorting/Heap.v
     theories/Sorting/Permutation.v
     theories/Sorting/Sorting.v
@@ -447,7 +446,7 @@ through the <tt>Require Import</tt> command.</p>
   <dt> <b>Wellfounded</b>:
        Well-founded Relations
   </dt>
-  <dd> 
+  <dd>
     theories/Wellfounded/Disjoint_Union.v
     theories/Wellfounded/Inclusion.v
     theories/Wellfounded/Inverse_Image.v
@@ -515,11 +514,11 @@ through the <tt>Require Import</tt> command.</p>
     theories/Strings/Ascii.v
     theories/Strings/String.v
   </dd>
-    
+
   <dt> <b>Reals</b>:
     Formalization of real numbers
   </dt>
-  <dd> 
+  <dd>
     theories/Reals/Rdefinitions.v
     theories/Reals/Raxioms.v
     theories/Reals/RIneq.v
@@ -583,11 +582,11 @@ through the <tt>Require Import</tt> command.</p>
     theories/Reals/Rlogic.v
     (theories/Reals/Reals.v)
   </dd>
-    
+
   <dt> <b>Program</b>:
     Support for dependently-typed programming.
   </dt>
-  <dd> 
+  <dd>
     theories/Program/Basics.v
     theories/Program/Wf.v
     theories/Program/Subset.v

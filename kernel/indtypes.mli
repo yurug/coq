@@ -1,6 +1,6 @@
 (************************************************************************)
 (*  v      *   The Coq Proof Assistant  /  The Coq Development Team     *)
-(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2012     *)
+(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2015     *)
 (*   \VV/  **************************************************************)
 (*    //   *      This file is distributed under the terms of the       *)
 (*         *       GNU Lesser General Public License Version 2.1        *)
@@ -34,5 +34,14 @@ exception InductiveError of inductive_error
 
 (** The following function does checks on inductive declarations. *)
 
-val check_inductive :
-  env -> mutual_inductive -> mutual_inductive_entry -> mutual_inductive_body
+val check_inductive : env -> mutual_inductive -> mutual_inductive_entry -> mutual_inductive_body
+
+(** The following enforces a system compatible with the univalent model *)
+
+val enforce_indices_matter : unit -> unit
+val is_indices_matter : unit -> bool
+
+val compute_projections : pinductive -> Id.t -> Id.t ->
+  int -> Context.rel_context -> int array -> int array -> 
+  Context.rel_context -> 
+  (constant array * projection_body array)

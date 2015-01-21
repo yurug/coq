@@ -1,6 +1,6 @@
 (************************************************************************)
 (*  v      *   The Coq Proof Assistant  /  The Coq Development Team     *)
-(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2012     *)
+(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2015     *)
 (*   \VV/  **************************************************************)
 (*    //   *      This file is distributed under the terms of the       *)
 (*         *       GNU Lesser General Public License Version 2.1        *)
@@ -24,6 +24,13 @@ type sorts = Sorts.t =
 
 type sorts_family = Sorts.family = InProp | InSet | InType
 
+type 'a puniverses = 'a Univ.puniverses
+
+(** Simply type aliases *)
+type pconstant = constant puniverses
+type pinductive = inductive puniverses
+type pconstructor = constructor puniverses
+
 type constr = Constr.constr
 (** Alias types, for compatibility. *)
 
@@ -40,7 +47,7 @@ type case_style = Constr.case_style =
   LetStyle | IfStyle | LetPatternStyle | MatchStyle | RegularStyle
 
 type case_printing = Constr.case_printing =
-  { ind_nargs : int; style     : case_style }
+  { ind_tags : bool list; cstr_tags : bool list array; style : case_style }
 
 type case_info = Constr.case_info =
   { ci_ind        : inductive;
@@ -73,12 +80,13 @@ type ('constr, 'types) kind_of_term = ('constr, 'types) Constr.kind_of_term =
   | Lambda    of Name.t * 'types * 'constr
   | LetIn     of Name.t * 'constr * 'types * 'constr
   | App       of 'constr * 'constr array
-  | Const     of constant
-  | Ind       of inductive
-  | Construct of constructor
+  | Const     of constant puniverses
+  | Ind       of inductive puniverses
+  | Construct of constructor puniverses
   | Case      of case_info * 'constr * 'constr * 'constr array
   | Fix       of ('constr, 'types) pfixpoint
   | CoFix     of ('constr, 'types) pcofixpoint
+  | Proj      of projection * 'constr
 
 type values = Constr.values
 
@@ -104,6 +112,7 @@ val isConstruct : constr -> bool
 val isFix : constr -> bool
 val isCoFix : constr -> bool
 val isCase : constr -> bool
+val isProj : constr -> bool
 
 val is_Prop : constr -> bool
 val is_Set  : constr -> bool
@@ -157,16 +166,16 @@ val decompose_app : constr -> constr * constr list
 val decompose_appvect : constr -> constr * constr array
 
 (** Destructs a constant *)
-val destConst : constr -> constant
+val destConst : constr -> constant puniverses
 
 (** Destructs an existential variable *)
 val destEvar : constr -> existential
 
 (** Destructs a (co)inductive type *)
-val destInd : constr -> inductive
+val destInd : constr -> inductive puniverses
 
 (** Destructs a constructor *)
-val destConstruct : constr -> constructor
+val destConstruct : constr -> constructor puniverses
 
 (** Destructs a [match c as x in I args return P with ... |
 Ci(...yij...) => ti | ... end] (or [let (..y1i..) := c as x in I args
@@ -174,6 +183,9 @@ return P in t1], or [if c then t1 else t2])
 @return [(info,c,fun args x => P,[|...|fun yij => ti| ...|])]
 where [info] is pretty-printing information *)
 val destCase : constr -> case_info * constr * constr * constr array
+
+(** Destructs a projection *)
+val destProj : constr -> projection * constr
 
 (** Destructs the {% $ %}i{% $ %}th function of the block
    [Fixpoint f{_ 1} ctx{_ 1} = b{_ 1}
@@ -397,8 +409,13 @@ val mkLambda : Name.t * types * constr -> constr
 val mkLetIn : Name.t * constr * types * constr -> constr
 val mkApp : constr * constr array -> constr
 val mkConst : constant -> constr
+val mkProj : projection * constr -> constr
 val mkInd : inductive -> constr
 val mkConstruct : constructor -> constr
+val mkConstU : constant puniverses -> constr
+val mkIndU : inductive puniverses -> constr
+val mkConstructU : constructor puniverses -> constr
+val mkConstructUi : (pinductive * int) -> constr
 val mkCase : case_info * constr * constr * constr array -> constr
 val mkFix : fixpoint -> constr
 val mkCoFix : cofixpoint -> constr
@@ -407,6 +424,18 @@ val mkCoFix : cofixpoint -> constr
 
 val eq_constr : constr -> constr -> bool
 (** Alias for [Constr.equal] *)
+
+(** [eq_constr_univs u a b] is [true] if [a] equals [b] modulo alpha, casts,
+   application grouping and the universe constraints in [u]. *)
+val eq_constr_univs : constr Univ.check_function
+
+(** [leq_constr_univs u a b] is [true] if [a] is convertible to [b] modulo 
+    alpha, casts, application grouping and the universe constraints in [u]. *)
+val leq_constr_univs : constr Univ.check_function
+
+(** [eq_constr_univs a b] [true, c] if [a] equals [b] modulo alpha, casts,
+   application grouping and ignoring universe instances. *)
+val eq_constr_nounivs : constr -> constr -> bool
 
 val kind_of_term : constr -> (constr, types) kind_of_term
 (** Alias for [Constr.kind] *)
@@ -424,6 +453,10 @@ val map_constr_with_binders :
   ('a -> 'a) -> ('a -> constr -> constr) -> 'a -> constr -> constr
 (** Alias for [Constr.map_with_binders] *)
 
+val map_puniverses : ('a -> 'b) -> 'a puniverses -> 'b puniverses
+val univ_of_sort : sorts -> Univ.universe
+val sort_of_univ : Univ.universe -> sorts
+
 val iter_constr : (constr -> unit) -> constr -> unit
 (** Alias for [Constr.iter] *)
 
@@ -436,6 +469,8 @@ val compare_constr : (constr -> constr -> bool) -> constr -> constr -> bool
 
 val hash_constr : constr -> int
 (** Alias for [Constr.hash] *)
+
+(*********************************************************************)
 
 val hcons_sorts : sorts -> sorts
 (** Alias for [Constr.hashcons_sorts] *)

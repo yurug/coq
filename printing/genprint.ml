@@ -1,6 +1,6 @@
 (************************************************************************)
 (*  v      *   The Coq Proof Assistant  /  The Coq Development Team     *)
-(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2012     *)
+(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2015     *)
 (*   \VV/  **************************************************************)
 (*    //   *      This file is distributed under the terms of the       *)
 (*         *       GNU Lesser General Public License Version 2.1        *)
@@ -40,6 +40,6 @@ let raw_print wit v = (Print.obj wit).raw v
 let glb_print wit v = (Print.obj wit).glb v
 let top_print wit v = (Print.obj wit).top v
 
-let generic_raw_print v = raw_unpack { raw_unpack = raw_print; } v
-let generic_glb_print v = glb_unpack { glb_unpack = glb_print; } v
-let generic_top_print v = top_unpack { top_unpack = top_print; } v
+let generic_raw_print v = unpack { unpacker = fun w v -> raw_print w (raw v); } v
+let generic_glb_print v = unpack { unpacker = fun w v -> glb_print w (glb v); } v
+let generic_top_print v = unpack { unpacker = fun w v -> top_print w (top v); } v

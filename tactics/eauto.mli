@@ -1,6 +1,6 @@
 (************************************************************************)
 (*  v      *   The Coq Proof Assistant  /  The Coq Development Team     *)
-(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2012     *)
+(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2015     *)
 (*   \VV/  **************************************************************)
 (*    //   *      This file is distributed under the terms of the       *)
 (*         *       GNU Lesser General Public License Version 2.1        *)
@@ -10,6 +10,7 @@ open Term
 open Proof_type
 open Auto
 open Evd
+open Hints
 
 val hintbases : hint_db_name list option Pcoq.Gram.entry
 
@@ -33,6 +34,6 @@ val gen_eauto : ?debug:Tacexpr.debug -> bool * int -> open_constr list ->
 val eauto_with_bases :
   ?debug:Tacexpr.debug ->
   bool * int ->
-  open_constr list -> Auto.hint_db list -> Proof_type.tactic
+  open_constr list -> hint_db list -> Proof_type.tactic
 
 val autounfold : hint_db_name list -> Locus.clause -> tactic

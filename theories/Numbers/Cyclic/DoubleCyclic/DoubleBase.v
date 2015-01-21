@@ -1,6 +1,6 @@
 (************************************************************************)
 (*  v      *   The Coq Proof Assistant  /  The Coq Development Team     *)
-(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2012     *)
+(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2015     *)
 (*   \VV/  **************************************************************)
 (*    //   *      This file is distributed under the terms of the       *)
 (*         *       GNU Lesser General Public License Version 2.1        *)
@@ -149,9 +149,9 @@ Section DoubleBase.
   Notation "[| x |]" := (w_to_Z x)  (at level 0, x at level 99).
   Notation "[[ x ]]" := (ww_to_Z x)  (at level 0, x at level 99).
   Notation "[+[ c ]]" :=
-   (interp_carry 1 wwB ww_to_Z c) (at level 0, x at level 99).
+   (interp_carry 1 wwB ww_to_Z c) (at level 0, c at level 99).
   Notation "[-[ c ]]" :=
-   (interp_carry (-1) wwB ww_to_Z c) (at level 0, x at level 99).
+   (interp_carry (-1) wwB ww_to_Z c) (at level 0, c at level 99).
   Notation "[! n | x !]" := (double_to_Z n x) (at level 0, x at level 99).
 
   Variable spec_w_0   : [|w_0|] = 0.

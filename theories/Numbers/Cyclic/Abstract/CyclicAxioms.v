@@ -1,6 +1,6 @@
 (************************************************************************)
 (*  v      *   The Coq Proof Assistant  /  The Coq Development Team     *)
-(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2012     *)
+(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2015     *)
 (*   \VV/  **************************************************************)
 (*    //   *      This file is distributed under the terms of the       *)
 (*         *       GNU Lesser General Public License Version 2.1        *)
@@ -93,7 +93,7 @@ Module ZnZ.
     lor         : t -> t -> t;
     land        : t -> t -> t;
     lxor        : t -> t -> t }.
-
+ 
  Section Specs.
  Context {t : Type}{ops : Ops t}.
 
@@ -102,10 +102,10 @@ Module ZnZ.
  Let wB := base digits.
 
  Notation "[+| c |]" :=
-   (interp_carry 1 wB to_Z c)  (at level 0, x at level 99).
+   (interp_carry 1 wB to_Z c)  (at level 0, c at level 99).
 
  Notation "[-| c |]" :=
-   (interp_carry (-1) wB to_Z c)  (at level 0, x at level 99).
+   (interp_carry (-1) wB to_Z c)  (at level 0, c at level 99).
 
  Notation "[|| x ||]" :=
    (zn2z_to_Z wB to_Z x)  (at level 0, x at level 99).
@@ -290,7 +290,7 @@ Module ZnZ.
  intros p Hp.
  generalize (spec_of_pos p).
  case (of_pos p); intros n w1; simpl.
- case n; simpl Npos; auto with zarith.
+ case n; auto with zarith.
  intros p1 Hp1; contradict Hp; apply Z.le_ngt.
  replace (base digits) with (1 * base digits + 0) by ring.
  rewrite Hp1.

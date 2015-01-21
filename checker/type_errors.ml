@@ -1,6 +1,6 @@
 (************************************************************************)
 (*  v      *   The Coq Proof Assistant  /  The Coq Development Team     *)
-(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2012     *)
+(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2015     *)
 (*   \VV/  **************************************************************)
 (*    //   *      This file is distributed under the terms of the       *)
 (*         *       GNU Lesser General Public License Version 2.1        *)
@@ -33,6 +33,7 @@ type guard_error =
   | RecCallInCaseArg of constr
   | RecCallInCasePred of constr
   | NotGuardedForm of constr
+  | ReturnPredicateNotCoInductive of constr
 
 type arity_error =
   | NonInformativeToInformative
@@ -45,7 +46,7 @@ type type_error =
   | NotAType of unsafe_judgment
   | BadAssumption of unsafe_judgment
   | ReferenceVariables of constr
-  | ElimArity of inductive * sorts_family list * constr * unsafe_judgment
+  | ElimArity of pinductive * sorts_family list * constr * unsafe_judgment
       * (sorts_family * sorts_family * arity_error) option
   | CaseNotInductive of unsafe_judgment
   | WrongCaseInfo of inductive * case_info
@@ -59,6 +60,7 @@ type type_error =
   | IllFormedRecBody of guard_error * name array * int
   | IllTypedRecBody of
       int * name array * unsafe_judgment array * constr array
+  | UnsatisfiedConstraints of Univ.constraints
 
 exception TypeError of env * type_error
 
@@ -107,4 +109,5 @@ let error_ill_formed_rec_body env why lna i =
 let error_ill_typed_rec_body env i lna vdefj vargs =
   raise (TypeError (env, IllTypedRecBody (i,lna,vdefj,vargs)))
 
-
+let error_unsatisfied_constraints env c =
+  raise (TypeError (env, UnsatisfiedConstraints c))

@@ -1,6 +1,6 @@
 (************************************************************************)
 (*  v      *   The Coq Proof Assistant  /  The Coq Development Team     *)
-(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2012     *)
+(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2015     *)
 (*   \VV/  **************************************************************)
 (*    //   *      This file is distributed under the terms of the       *)
 (*         *       GNU Lesser General Public License Version 2.1        *)
@@ -85,9 +85,9 @@ Notation "x < y" := (rlt x y).
 
 
 Add Relation R req
-  reflexivity proved by sor.(SORsetoid).(@Equivalence_Reflexive _ _ )
-  symmetry proved by sor.(SORsetoid).(@Equivalence_Symmetric _ _ )
-  transitivity proved by sor.(SORsetoid).(@Equivalence_Transitive _ _ )
+  reflexivity proved by sor.(SORsetoid).(@Equivalence_Reflexive _ _)
+  symmetry proved by sor.(SORsetoid).(@Equivalence_Symmetric _ _)
+  transitivity proved by sor.(SORsetoid).(@Equivalence_Transitive _ _)
 as sor_setoid.
 
 

@@ -1,6 +1,6 @@
 (************************************************************************)
 (*  v      *   The Coq Proof Assistant  /  The Coq Development Team     *)
-(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2012     *)
+(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2015     *)
 (*   \VV/  **************************************************************)
 (*    //   *      This file is distributed under the terms of the       *)
 (*         *       GNU Lesser General Public License Version 2.1        *)
@@ -19,6 +19,8 @@ let pr_pat mpat = Ppconstr.pr_cases_pattern_expr mpat.pat_expr
 let pr_label = function
     Anonymous -> mt ()
   | Name id -> pr_id id ++ spc () ++ str ":" ++ spc ()
+
+let pr_constr env c = pr_constr env Evd.empty c
 
 let pr_justification_items env = function
     Some [] -> mt ()

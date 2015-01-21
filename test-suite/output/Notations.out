@@ -2,10 +2,8 @@ true ? 0; 1
      : nat
 if true as x return (x ? nat; bool) then 0 else true
      : nat
-Identifier 'proj1' now a keyword
 fun e : nat * nat => proj1 e
      : nat * nat -> nat
-Identifier 'decomp' now a keyword
 decomp (true, true) as t, u in (t, u)
      : bool * bool
 ! (0 = 0)
@@ -28,18 +26,14 @@ forall n n0 : nat, ### (n = n0)
      : list nat
 (1; 2, 4)
      : nat * nat * nat
-Identifier 'ifzero' now a keyword
 ifzero 3
      : bool
-Identifier 'pred' now a keyword
 pred 3
      : nat
 fun n : nat => pred n
      : nat -> nat
 fun n : nat => pred n
      : nat -> nat
-Identifier 'ifn' now a keyword
-Identifier 'is' now a keyword
 fun x : nat => ifn x is succ n then n else 0
      : nat -> nat
 1 -
@@ -53,8 +47,6 @@ The command has indeed failed with message:
 term position as part of a recursive pattern.
 The command has indeed failed with message:
 => Error: The reference w was not found in the current environment.
-The command has indeed failed with message:
-=> Error: x is unbound in the right-hand side.
 The command has indeed failed with message:
 => Error: in the right-hand side, y and z should appear in
 term position as part of a recursive pattern.
@@ -80,7 +72,6 @@ Nil
      : forall A : Type, list A
 NIL:list nat
      : list nat
-Identifier 'I' now a keyword
 (false && I 3)%bool /\ I 6
      : Prop
 [|1, 2, 3; 4, 5, 6|]
@@ -89,11 +80,11 @@ Identifier 'I' now a keyword
      : Z * Z * (Z * Z) * (Z * Z) * (Z * bool * (Z * bool) * (Z * bool))
 fun f : Z -> Z -> Z -> Z => {|f; 0; 1; 2|}:Z
      : (Z -> Z -> Z -> Z) -> Z
-plus
+Init.Nat.add
      : nat -> nat -> nat
 S
      : nat -> nat
-mult
+Init.Nat.mul
      : nat -> nat -> nat
 le
      : nat -> nat -> Prop
@@ -101,7 +92,7 @@ plus
      : nat -> nat -> nat
 succ
      : nat -> nat
-mult
+Init.Nat.mul
      : nat -> nat -> nat
 le
      : nat -> nat -> Prop
@@ -120,19 +111,20 @@ fun x : option Z => match x with
                     | NONE2 => 0
                     end
      : option Z -> Z
-fun x : list ?95 => match x with
+fun x : list ?T1 => match x with
                     | NIL => NONE2
                     | (_ :') t => SOME2 t
                     end
-     : list ?95 -> option (list ?95)
+     : list ?T1 -> option (list ?T1)
+where
+?T1 : [x : list ?T1  x1 : list ?T1  x0 := x1 : list ?T1 |- Type] (x, x1,
+      x0 cannot be used)
 s
      : s
-Identifier 'foo' now a keyword
 10
      : nat
 fun _ : nat => 9
      : nat -> nat
-Identifier 'ONE' now a keyword
 fun (x : nat) (p : x = x) => match p with
                              | ONE => ONE
                              end = p

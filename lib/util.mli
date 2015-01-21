@@ -1,6 +1,6 @@
 (************************************************************************)
 (*  v      *   The Coq Proof Assistant  /  The Coq Development Team     *)
-(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2012     *)
+(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2015     *)
 (*   \VV/  **************************************************************)
 (*    //   *      This file is distributed under the terms of the       *)
 (*         *       GNU Lesser General Public License Version 2.1        *)
@@ -95,17 +95,18 @@ type 'a delayed = unit -> 'a
 
 val delayed_force : 'a delayed -> 'a
 
+(** {6 Enriched exceptions} *)
+
+type iexn = Exninfo.iexn
+
+val iraise : iexn -> 'a
+
 (** {6 Misc. } *)
 
 type ('a, 'b) union = ('a, 'b) CSig.union = Inl of 'a | Inr of 'b
 (** Union type *)
 
+val map_union : ('a -> 'c) -> ('b -> 'd) -> ('a, 'b) union -> ('c, 'd) union
+
 type 'a until = 'a CSig.until = Stop of 'a | Cont of 'a
 (** Used for browsable-until structures. *)
-
-(** {6 ... } *)
-(** Coq interruption: set the following boolean reference to interrupt Coq
-    (it eventually raises [Break], simulating a Ctrl-C) *)
-
-val interrupt : bool ref
-val check_for_interrupt : unit -> unit

@@ -1,6 +1,6 @@
 (************************************************************************)
 (*  v      *   The Coq Proof Assistant  /  The Coq Development Team     *)
-(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2012     *)
+(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2015     *)
 (*   \VV/  **************************************************************)
 (*    //   *      This file is distributed under the terms of the       *)
 (*         *       GNU Lesser General Public License Version 2.1        *)
@@ -17,10 +17,13 @@ val struct_type_search : (ml_type -> bool) -> ml_structure -> bool
 
 type do_ref = global_reference -> unit
 
+val ast_iter_references : do_ref -> do_ref -> do_ref -> ml_ast -> unit
 val decl_iter_references : do_ref -> do_ref -> do_ref -> ml_decl -> unit
 val spec_iter_references : do_ref -> do_ref -> do_ref -> ml_spec -> unit
 
 val signature_of_structure : ml_structure -> ml_signature
+
+val mtyp_of_mexpr : ml_module_expr -> ml_module_type
 
 val msid_of_mt : ml_module_type -> module_path
 

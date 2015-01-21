@@ -1,6 +1,6 @@
 (************************************************************************)
 (*  v      *   The Coq Proof Assistant  /  The Coq Development Team     *)
-(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2012     *)
+(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2015     *)
 (*   \VV/  **************************************************************)
 (*    //   *      This file is distributed under the terms of the       *)
 (*         *       GNU Lesser General Public License Version 2.1        *)
@@ -23,6 +23,7 @@ Require Import ZArith_base.
 Require Import ZArithRing.
 Require Import Zdiv.
 Require Import Znumtheory.
+Require Import Omega.
 
 Open Scope Z_scope.
 
@@ -104,8 +105,7 @@ Open Scope Z_scope.
 
  Lemma fibonacci_pos : forall n, 0 <= fibonacci n.
  Proof.
-   cut (forall N n, (n<N)%nat -> 0<=fibonacci n).
-   eauto.
+   enough (forall N n, (n<N)%nat -> 0<=fibonacci n) by eauto.
    induction N.
    inversion 1.
    intros.

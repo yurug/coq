@@ -148,6 +148,69 @@ type {\tt T}, the commands {\tt Proof using a} and
 \variant {\tt Proof using} {\ident$_1$} {\ldots} {\ident$_n$} {\tt with} {\tac}{\tt .} 
 in Section~\ref{ProofWith}.
 
+\variant {\tt Proof using All.} 
+
+  Use all section variables.
+
+\variant {\tt Proof using Type.} 
+\variant {\tt Proof using.} 
+  
+  Use only section variables occurring in the statement.
+
+\variant {\tt Proof using -(} {\ident$_1$} {\ldots} {\ident$_n$} {\tt ).}
+  
+  Use all section variables except {\ident$_1$} {\ldots} {\ident$_n$}.
+
+\variant {\tt Proof using }  {\emph collection$_1$} {\tt + } {\emph collection$_2$} {\tt .}
+\variant {\tt Proof using }  {\emph collection$_1$} {\tt - } {\emph collection$_2$} {\tt .}
+\variant {\tt Proof using }  {\emph collection$_1$} {\tt - (} {\ident$_1$} {\ldots} {\ident$_n$} {\tt ).}
+
+  Use section variables being in the set union or set difference of the two
+  colelctions.  See Section~\ref{Collection} to know how to form a named
+  collection.
+
+\subsubsection{{\tt Proof using} options}
+\comindex{Default Proof Using}
+\comindex{Suggest Proof Using}
+
+The following options modify the behavior of {\tt Proof using}.
+
+\variant {\tt Set Default Proof Using "expression".} 
+
+  Use {\tt expression} as the default {\tt Proof using} value.
+  E.g. {\tt Set Default Proof Using "a b".} will complete all {\tt Proof }
+  commands not followed by a {\tt using} part with {\tt using a b}.
+
+\variant {\tt Set Suggest Proof Using.}
+
+  When {\tt Qed} is performed, suggest a {\tt using} annotation if
+  the user did not provide one.
+
+\subsubsection[\tt Collection]{Name a set of section hypotheses for {\tt Proof using}}
+\comindex{Collection}\label{Collection}
+
+The command {\tt Collection} can be used to name a set of section hypotheses,
+with the purpose of making {\tt Proof using} annotations more compat.
+
+\variant {\tt Collection Some := x y z.}
+
+  Define the collection named "Some" containing {\tt x y} and {\tt z} 
+
+\variant {\tt Collection Fewer := Some - x.} 
+  
+  Define the collection named "Fewer" containing only {\tt x y} 
+
+\variant {\tt Collection Many := Fewer + Some.} 
+\variant {\tt Collection Many := Fewer - Some.} 
+  
+  Define the collection named "Many" containing the set union or set difference
+  of "Fewer" and "Some".
+
+\variant {\tt Collection Many := Fewer - (x y).}
+
+  Define the collection named "Many" containing the set difference
+  of "Fewer" and the unamed collection {\tt x y}.
+
 \subsection[\tt Abort.]{\tt Abort.\comindex{Abort}}
 
 This command cancels the current proof development, switching back to
@@ -174,7 +237,7 @@ proof was edited.
 \subsection[\tt Existential {\num} := {\term}.]{\tt Existential  {\num} := {\term}.\comindex{Existential}
 \label{Existential}}
 
-This command allows to instantiate an existential variable. {\tt \num}
+This command instantiates an existential variable. {\tt \num}
 is an index in the list of uninstantiated existential variables
 displayed by {\tt Show Existentials.} (described in Section~\ref{Show})
 
@@ -199,12 +262,8 @@ and turns it into a goal.
 
 \subsection[\tt Undo.]{\tt Undo.\comindex{Undo}}
 
-This command cancels the effect of the last tactic command.  Thus, it
+This command cancels the effect of the last command.  Thus, it
 backtracks one step.
-
-\begin{ErrMsgs}
-\item \errindex{No focused proof (No proof-editing in progress)}
-\end{ErrMsgs}
 
 \begin{Variants}
 
@@ -248,14 +307,19 @@ only be unfocused when it has been fully solved (\emph{i.e.} when
 there is no focused goal left). Unfocusing is then handled by {\tt \}}
 (again, without a terminating period). See also example in next section.
 
+Note that when a focused goal is proved a message is displayed
+together with a suggestion about the right bullet or {\tt \}} to
+unfocus it or focus the next one.
+
 \begin{ErrMsgs}
 \item \errindex{Error: This proof is focused, but cannot be unfocused
-      this way}
-  You are trying to use a bullet that is already in use or a {\tt \}} but the current
-  subproof has not been fully solved.
+    this way} You are trying to use {\tt \}} but the current subproof
+  has not been fully solved.
+\item see also error message about bullets below.
 \end{ErrMsgs}
 
-\subsection[Bullets]{Bullets\comindex{+ (command)}\comindex{- (command)}\comindex{* (command)}\index{Bullets}}
+\subsection[Bullets]{Bullets\comindex{+ (command)}
+  \comindex{- (command)}\comindex{* (command)}\index{Bullets}}
 Alternatively to {\tt \{} and {\tt \}}, proofs can be structured with
 bullets. The use of a bullet $b$ for the first time focuses on the
 first goal $g$, the same bullet cannot be used again until the proof
@@ -266,8 +330,18 @@ focused with the same bullet $b$. See the example below.
 Different bullets can be used to nest levels. The scope of bullet does
 not go beyond enclosing {\tt \{} and {\tt \}}, so bullets can be
 reused as further nesting levels provided they are delimited by these.
-Available bullets are {\tt -}, {\tt +} and {\tt *} (without a
+Available bullets are {\tt -}, {\tt +}, {\tt *}, {\tt --}, {\tt ++}, {\tt **},
+{\tt ---}, {\tt +++}, {\tt ***}, ... (without a
 terminating period).
+
+Note again that when a focused goal is proved a message is displayed
+together with a suggestion about the right bullet or {\tt \}} to
+unfocus it or focus the next one.
+
+Remark: In {\ProofGeneral} (Emacs interface to {\Coq}), you must use
+bullets with the priority ordering shown above to have a correct
+indentation. For example {\tt -} must be the outer bullet and {\tt **}
+the inner one in the example below.
 
 The following example script illustrates all these features:
 \begin{coq_example*}
@@ -276,32 +350,40 @@ Proof.
   split.
   - split.
     + split.
-      * { split.
+      ** { split.
           - trivial.
           - trivial.
         }
-      * trivial.
+      ** trivial.
     + trivial.
   - assert True.
     { trivial. }
     assumption.
 \end{coq_example*}
 
-Remark: In ProofGeneral (emacs interface to coq), you must use bullets
-with this priority ordering to have a correct indentation: {\tt -},
-{\tt +}, {\tt *}. That is {\tt -} must be the outer bullet and {\tt *}
-the inner one, like in the example above.
 
 \begin{ErrMsgs}
-\item \errindex{Error: No such unproven subgoal} there is no proof
-      under focus (because it has just been solved), so the command
-      you are trying to use cannot be applied. You need to first focus
-      the next proof by using the bullet corresponding to the right
-      level (using an incorrect bullet also generates this message).
-\item \errindex{Error: This proof is focused, but cannot be unfocused
-      this way}
-  You are trying to use a bullet that is already in use or a {\tt \}} but the current
-  subproof has not been fully solved.
+\item \errindex{Error: Wrong bullet {\abullet}1 : Current bullet
+    {\abullet}2 is not finished.}
+
+  Before using bullet {\abullet}1 again, you should first finish
+  proving the current focused goal. Note that {\abullet}1 and
+  {\abullet}2 may be the same.
+
+\item \errindex{Error: Wrong bullet {\abullet}1 : Bullet {\abullet}2
+    is mandatory here.} You must put {\abullet}2 to focus next goal.
+  No other bullet is allowed here.
+
+
+\item \errindex{Error: No such goal. Focus next goal with bullet
+    {\abullet}.}
+
+  You tried to applied a tactic but no goal where under focus. Using
+  {\abullet} is mandatory here.
+
+\item \errindex{Error: No such goal. Try unfocusing with "{\tt \}}".} You
+  just finished a goal focused by {\tt \{}, you must unfocus it with "{\tt \}}".
+
 \end{ErrMsgs}
 
 
@@ -331,18 +413,18 @@ This command displays the current goals.
   This tactics script may contain some holes (subgoals not yet proved).
   They are printed under the form \verb!<Your Tactic Text here>!.
 
-\item {\tt Show Tree.}\comindex{Show Tree}\\
-This command can be seen as a more structured way of
-displaying the state of the proof than that 
-provided by {\tt Show Script}. Instead of just giving
-the list of tactics that have been applied, it 
-shows the derivation tree constructed by then. 
-Each node of the tree contains the conclusion
-of the corresponding sub-derivation (i.e. a
-goal with its corresponding local context) and 
-the tactic that has generated all the 
-sub-derivations. The leaves of this tree are
-the goals which still remain to be proved.
+%% \item {\tt Show Tree.}\comindex{Show Tree}\\
+%% This command can be seen as a more structured way of
+%% displaying the state of the proof than that 
+%% provided by {\tt Show Script}. Instead of just giving
+%% the list of tactics that have been applied, it 
+%% shows the derivation tree constructed by then. 
+%% Each node of the tree contains the conclusion
+%% of the corresponding sub-derivation (i.e. a
+%% goal with its corresponding local context) and 
+%% the tactic that has generated all the 
+%% sub-derivations. The leaves of this tree are
+%% the goals which still remain to be proved.
 
 %\item {\tt Show Node}\comindex{Show Node}\\
 %        Not yet documented
@@ -370,7 +452,7 @@ If the current goal begins by at least one product, this command
 prints the name of the first product, as it would be generated by 
 an anonymous {\tt Intro}. The aim of this command is to ease the
 writing of more robust scripts. For example, with an appropriate 
-Proof General macro, it is possible to transform any anonymous {\tt
+{\ProofGeneral} macro, it is possible to transform any anonymous {\tt
   Intro} into a qualified one such as {\tt Intro y13}.
 In the case of a non-product goal, it prints nothing. 
 
@@ -394,7 +476,7 @@ of interactive proof construction, the check of the termination (or
 guardedness) of the recursive calls in the fixpoint or cofixpoint
 constructions is postponed to the time of the completion of the proof.
 
-The command \verb!Guarded! allows to verify if the guard condition for
+The command \verb!Guarded! allows checking if the guard condition for
 fixpoint and cofixpoint is violated at some time of the construction
 of the proof without having to wait the completion of the proof."
 
@@ -425,6 +507,23 @@ When the option is unset, {\binders} are discharged on the statement
 to be proved and a tactic such as {\tt intro} (see
 Section~\ref{intro}) has to be used to move the assumptions to the
 local context.
+
+\section{Controlling memory usage\comindex{Optimize Proof}\comindex{Optimize Heap}}
+
+When experiencing high memory usage the following commands can be
+used to force Coq to optimize some of its internal data structures.
+
+\subsection[\tt Optimize Proof.]{\tt Optimize Proof.}
+
+This command forces Coq to shrink the data structure used to represent
+the ongoing proof.
+
+\subsection[\tt Optimize Heap.]{\tt Optimize Heap.}
+
+This command forces the OCaml runtime to perform a heap compaction.
+This is in general an expensive operation.  See:
+  \url{http://caml.inria.fr/pub/docs/manual-ocaml/libref/Gc.html#VALcompact}
+
 
 %%% Local Variables: 
 %%% mode: latex

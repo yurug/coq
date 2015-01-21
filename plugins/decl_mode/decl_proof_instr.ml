@@ -1,6 +1,6 @@
 (************************************************************************)
 (*  v      *   The Coq Proof Assistant  /  The Coq Development Team     *)
-(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2012     *)
+(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2015     *)
 (*   \VV/  **************************************************************)
 (*    //   *      This file is distributed under the terms of the       *)
 (*         *       GNU Lesser General Public License Version 2.1        *)
@@ -109,7 +109,7 @@ let clean_tmp gls =
     clean_all (tmp_ids gls) gls
 
 let assert_postpone id t =
-  assert_tac (Name id) t
+  assert_before (Name id) t
 
 (* start a proof *)
 
@@ -222,7 +222,7 @@ let add_justification_hyps keep items gls =
 	  let id=pf_get_new_id local_hyp_prefix gls in
 	    keep:=Id.Set.add id !keep;
 	    tclTHEN (Proofview.V82.of_tactic (letin_tac None (Names.Name id) c None Locusops.nowhere))
-              (thin_body [id]) gls in
+              (Proofview.V82.of_tactic (clear_body [id])) gls in
     tclMAP add_aux items gls
 
 let prepare_goal items gls =
@@ -292,13 +292,13 @@ let rec replace_in_list m l = function
 let enstack_subsubgoals env se stack gls=
   let hd,params = decompose_app (special_whd gls se.se_type) in
     match kind_of_term hd with
-	Ind ind when is_good_inductive env ind ->
+	Ind (ind,u as indu) when is_good_inductive env ind -> (* MS: FIXME *)
 	  let mib,oib=
 	    Inductive.lookup_mind_specif env ind in
           let gentypes=
-            Inductive.arities_of_constructors ind (mib,oib) in
+            Inductive.arities_of_constructors indu (mib,oib) in
 	  let process i gentyp =
-	    let constructor = mkConstruct(ind,succ i)
+	    let constructor = mkConstructU ((ind,succ i),u)
 	      (* constructors numbering*) in
 	    let appterm = applist (constructor,params) in
 	    let apptype = prod_applist gentyp params in
@@ -357,7 +357,7 @@ let find_subsubgoal c ctyp skip submetas gls =
       try
 	let unifier =
 	  Unification.w_unify env se.se_evd Reduction.CUMUL
-	    ~flags:Unification.elim_flags ctyp se.se_type in
+	    ~flags:(Unification.elim_flags ()) ctyp se.se_type in
 	  if n <= 0 then
 	      {se with
 		 se_evd=meta_assign se.se_meta
@@ -378,7 +378,7 @@ let concl_refiner metas body gls =
   let concl = pf_concl gls in
   let evd = sig_sig gls in
   let env = pf_env gls in
-  let sort = family_of_sort (Typing.sort_of env evd concl) in
+  let sort = family_of_sort (Typing.sort_of env (ref evd) concl) in
   let rec aux env avoid subst = function
       [] -> anomaly ~label:"concl_refiner" (Pp.str "cannot happen")
     | (n,typ)::rest ->
@@ -386,7 +386,7 @@ let concl_refiner metas body gls =
 	let x = id_of_name_using_hdchar env _A Anonymous in
 	let _x = fresh_id avoid x gls in
 	let nenv = Environ.push_named (_x,None,_A) env in
-	let asort = family_of_sort (Typing.sort_of nenv evd _A) in
+	let asort = family_of_sort (Typing.sort_of nenv (ref evd) _A) in
 	let nsubst = (n,mkVar _x)::subst in
 	  if List.is_empty rest then
 	    asort,_A,mkNamedLambda _x _A (subst_meta nsubst body)
@@ -437,7 +437,7 @@ let thus_tac c ctyp submetas gls =
     with Not_found ->
       error "I could not relate this statement to the thesis." in
   if List.is_empty list then
-    exact_check proof gls
+    Proofview.V82.of_tactic (exact_check proof) gls
   else
     let refiner = concl_refiner list proof gls in
       Tactics.refine refiner gls
@@ -488,14 +488,14 @@ let instr_cut mkstat _thus _then cut gls0 =
 
 
 (* iterated equality *)
-let _eq = Globnames.constr_of_global (Coqlib.glob_eq)
+let _eq = lazy (Universes.constr_of_global (Coqlib.glob_eq))
 
 let decompose_eq id gls =
   let typ = pf_get_hyp_typ gls id in
   let whd =  (special_whd gls typ) in
     match kind_of_term whd with
 	App (f,args)->
-	  if eq_constr f _eq && Int.equal (Array.length args) 3
+	  if eq_constr f (Lazy.force _eq) && Int.equal (Array.length args) 3
 	  then (args.(0),
 		args.(1),
 		args.(2))
@@ -530,18 +530,18 @@ let instr_rew _thus rew_side cut gls0 =
     else tclIDTAC gls in
     match rew_side with
 	Lhs ->
-	  let new_eq = mkApp(_eq,[|typ;cut.cut_stat.st_it;rhs|]) in
+	  let new_eq = mkApp(Lazy.force _eq,[|typ;cut.cut_stat.st_it;rhs|]) in
 	    tclTHENS (Proofview.V82.of_tactic (assert_postpone c_id new_eq))
 	      [tclTHEN tcl_erase_info
 		 (tclTHENS (Proofview.V82.of_tactic (transitivity lhs))
-		    [just_tac;exact_check (mkVar last_id)]);
+		    [just_tac;Proofview.V82.of_tactic (exact_check (mkVar last_id))]);
 	       thus_tac new_eq] gls0
       | Rhs ->
-	  let new_eq = mkApp(_eq,[|typ;lhs;cut.cut_stat.st_it|]) in
+	  let new_eq = mkApp(Lazy.force _eq,[|typ;lhs;cut.cut_stat.st_it|]) in
 	    tclTHENS (Proofview.V82.of_tactic (assert_postpone c_id new_eq))
 	      [tclTHEN tcl_erase_info
 		 (tclTHENS (Proofview.V82.of_tactic (transitivity rhs))
-		    [exact_check (mkVar last_id);just_tac]);
+		    [Proofview.V82.of_tactic (exact_check (mkVar last_id));just_tac]);
 	       thus_tac new_eq] gls0
 
 
@@ -580,7 +580,7 @@ let assume_tac hyps gls =
        tclTHEN
 	 (push_intro_tac
 	    (fun id ->
-	       convert_hyp (id,None,st.st_it)) st.st_label))
+	       Proofview.V82.of_tactic (convert_hyp (id,None,st.st_it))) st.st_label))
 	 hyps tclIDTAC gls
 
 let assume_hyps_or_theses hyps gls =
@@ -590,7 +590,7 @@ let assume_hyps_or_theses hyps gls =
 	   tclTHEN
 	     (push_intro_tac
 		(fun id ->
-		   convert_hyp (id,None,c)) nam)
+		   Proofview.V82.of_tactic (convert_hyp (id,None,c))) nam)
        | Hprop {st_label=nam;st_it=Thesis (tk)} ->
 	   tclTHEN
 	     (push_intro_tac
@@ -602,7 +602,7 @@ let assume_st hyps gls =
     (fun st ->
        tclTHEN
 	 (push_intro_tac
-	    (fun id -> convert_hyp (id,None,st.st_it)) st.st_label))
+	    (fun id -> Proofview.V82.of_tactic (convert_hyp (id,None,st.st_it))) st.st_label))
 	 hyps tclIDTAC gls
 
 let assume_st_letin hyps gls =
@@ -611,7 +611,7 @@ let assume_st_letin hyps gls =
        tclTHEN
 	 (push_intro_tac
 	    (fun id ->
-	       convert_hyp (id,Some (fst st.st_it),snd st.st_it)) st.st_label))
+	       Proofview.V82.of_tactic (convert_hyp (id,Some (fst st.st_it),snd st.st_it))) st.st_label))
 	 hyps tclIDTAC gls
 
 (* suffices *)
@@ -663,11 +663,11 @@ let conjunction_arity id gls =
   let hd,params = decompose_app (special_whd gls typ) in
   let env =pf_env gls in
     match kind_of_term hd with
-	Ind ind when is_good_inductive env ind ->
+	Ind (ind,u as indu) when is_good_inductive env ind ->
 	  let mib,oib=
 	    Inductive.lookup_mind_specif env ind in
           let gentypes=
-            Inductive.arities_of_constructors ind (mib,oib) in
+            Inductive.arities_of_constructors indu (mib,oib) in
 	  let _ = if not (Int.equal (Array.length gentypes) 1) then raise Not_found in
 	  let apptype = prod_applist gentypes.(0) params in
 	  let rc,_ = Reduction.dest_prod env apptype in
@@ -705,14 +705,14 @@ let rec consider_match may_intro introduced available expected gls =
 	  error "Not enough sub-hypotheses to match statements."
 	    (* should tell which ones *)
     | id::rest_ids,(Hvar st | Hprop st)::rest ->
-	tclIFTHENELSE (convert_hyp (id,None,st.st_it))
+	tclIFTHENELSE (Proofview.V82.of_tactic (convert_hyp (id,None,st.st_it)))
 	  begin
 	    match st.st_label with
 		Anonymous ->
 		  consider_match may_intro ((id,false)::introduced) rest_ids rest
 	      | Name hid ->
 		  tclTHENLIST
-		    [rename_hyp [id,hid];
+		    [Proofview.V82.of_tactic (rename_hyp [id,hid]);
 		     consider_match may_intro ((hid,true)::introduced) rest_ids rest]
 	  end
 	  begin
@@ -721,7 +721,7 @@ let rec consider_match may_intro introduced available expected gls =
 		 try conjunction_arity id gls with
 		     Not_found -> error "Matching hypothesis not found." in
 		 tclTHENLIST
-		   [Proofview.V82.of_tactic (general_case_analysis false (mkVar id,NoBindings));
+		   [Proofview.V82.of_tactic (simplest_case (mkVar id));
 		    intron_then nhyps []
 		      (fun l -> consider_match may_intro introduced
 			 (List.rev_append l rest_ids) expected)] gls)
@@ -735,7 +735,7 @@ let consider_tac c hyps gls =
     | _ ->
 	let id = pf_get_new_id (Id.of_string "_tmp") gls in
 	tclTHEN
-	  (Proofview.V82.of_tactic (forward None (Some (Loc.ghost, IntroIdentifier id)) c))
+	  (Proofview.V82.of_tactic (pose_proof (Name id) c))
  	  (consider_match false [] [id] hyps) gls
 
 
@@ -774,11 +774,11 @@ let cast_tac id_or_thesis typ gls =
   match id_or_thesis with
       This id ->
 	let (_,body,_) = pf_get_hyp gls id in
-	  convert_hyp (id,body,typ) gls
+	  Proofview.V82.of_tactic (convert_hyp (id,body,typ)) gls
     | Thesis (For _ ) ->
 	error "\"thesis for ...\" is not applicable here."
     | Thesis Plain ->
-          convert_concl typ DEFAULTcast gls
+          Proofview.V82.of_tactic (convert_concl typ DEFAULTcast) gls
 
 (* per cases *)
 
@@ -832,7 +832,7 @@ let build_per_info etype casee gls =
   let ctyp=pf_type_of gls casee in
   let is_dep = dependent casee concl in
   let hd,args = decompose_app (special_whd gls ctyp) in
-  let ind =
+  let (ind,u) =
     try
       destInd hd
     with DestKO ->
@@ -1031,15 +1031,15 @@ let rec st_assoc id = function
 let thesis_for obj typ per_info env=
   let rc,hd1=decompose_prod typ in
   let cind,all_args=decompose_app typ in
-  let ind = destInd cind in
+  let ind,u = destInd cind in
   let _ = if not (eq_ind ind per_info.per_ind) then
     errorlabstrm "thesis_for"
-      ((Printer.pr_constr_env env obj) ++ spc () ++
+      ((Printer.pr_constr_env env Evd.empty obj) ++ spc () ++
 	 str"cannot give an induction hypothesis (wrong inductive type).") in
   let params,args = List.chop per_info.per_nparams all_args in
   let _ = if not (List.for_all2 eq_constr params per_info.per_params) then
     errorlabstrm "thesis_for"
-      ((Printer.pr_constr_env env obj) ++ spc () ++
+      ((Printer.pr_constr_env env Evd.empty obj) ++ spc () ++
 	 str "cannot give an induction hypothesis (wrong parameters).") in
   let hd2 = (applist ((lift (List.length rc) per_info.per_pred),args@[obj])) in
     compose_prod rc (Reductionops.whd_beta Evd.empty hd2)
@@ -1166,7 +1166,7 @@ let hrec_for fix_id per_info gls obj_id =
   let typ=pf_get_hyp_typ gls obj_id in
   let rc,hd1=decompose_prod typ in
   let cind,all_args=decompose_app typ in
-  let ind = destInd cind in assert (eq_ind ind per_info.per_ind);
+  let ind,u = destInd cind in assert (eq_ind ind per_info.per_ind);
   let params,args= List.chop per_info.per_nparams all_args in
   assert begin
     try List.for_all2 eq_constr params per_info.per_params with
@@ -1205,7 +1205,8 @@ let rec execute_cases fix_name per_info tacnext args objs nhrec tree gls =
 	let env=pf_env gls in
 	let ctyp=pf_type_of gls casee in
 	let hd,all_args = decompose_app (special_whd gls ctyp) in
-	let _ = assert (eq_ind (destInd hd) ind) in (* just in case *)
+	let ind', u = destInd hd in
+	let _ = assert (eq_ind ind' ind) in (* just in case *)
 	let params,real_args = List.chop nparams all_args in
 	let abstract_obj c body =
 	  let typ=pf_type_of gls c in
@@ -1213,7 +1214,7 @@ let rec execute_cases fix_name per_info tacnext args objs nhrec tree gls =
 	let elim_pred = List.fold_right abstract_obj
 	  real_args (lambda_create env (ctyp,subst_term casee concl)) in
 	let case_info = Inductiveops.make_case_info env ind RegularStyle in
-	let gen_arities = Inductive.arities_of_constructors ind spec in
+	let gen_arities = Inductive.arities_of_constructors (ind,u) spec in
 	let f_ids typ =
 	  let sign =
 	    (prod_assum (prod_applist typ params)) in
@@ -1269,18 +1270,17 @@ let rec execute_cases fix_name per_info tacnext args objs nhrec tree gls =
     | End_patt (_,_) , _ :: _  ->
 	anomaly ~label:"execute_cases " (Pp.str "End of branch with garbage left")
 
-let understand_my_constr c gls =
-  let env = pf_env gls in
-  let nc = names_of_rel_context env in
-  let rawc = Detyping.detype false [] nc c in
+let understand_my_constr env sigma c concl =
+  let env = env in
+  let rawc = Detyping.detype false [] env Evd.empty c in
   let rec frob = function
-    | GEvar _ -> GHole (Loc.ghost,Evar_kinds.QuestionMark Evar_kinds.Expand,None)
+    | GEvar _ -> GHole (Loc.ghost,Evar_kinds.QuestionMark Evar_kinds.Expand,Misctypes.IntroAnonymous,None)
     | rc ->  map_glob_constr frob rc
   in
-  Pretyping.understand_tcc (sig_sig gls) env ~expected_type:(Pretyping.OfType (pf_concl gls)) (frob rawc)
+  Pretyping.understand_tcc env sigma ~expected_type:(Pretyping.OfType concl) (frob rawc)
 
 let my_refine c gls =
-  let oc = understand_my_constr c gls in
+  let oc sigma = understand_my_constr (pf_env gls) sigma c (pf_concl gls) in
   Proofview.V82.of_tactic (Tactics.New.refine oc) gls
 
 (* end focus/claim *)
@@ -1312,7 +1312,7 @@ let end_tac et2 gls =
 	      tclSOLVE [Proofview.V82.of_tactic (simplest_elim pi.per_casee)]
 	  | ET_Case_analysis,EK_nodep ->
 	      tclTHEN
-		(Proofview.V82.of_tactic (general_case_analysis false (pi.per_casee,NoBindings)))
+		(Proofview.V82.of_tactic (simplest_case pi.per_casee))
 		(default_justification (List.map mkVar clauses))
 	  | ET_Induction,EK_nodep ->
 	      tclTHENLIST
@@ -1457,12 +1457,13 @@ let do_instr raw_instr pts =
       let ist = {ltacvars = Id.Set.empty; ltacrecvars = Id.Map.empty; genv = env} in
       let glob_instr = intern_proof_instr ist raw_instr in
       let instr =
-	interp_proof_instr (get_its_info gl) sigma env glob_instr in
+	interp_proof_instr (get_its_info gl) env sigma glob_instr in
       ignore (Pfedit.by (Proofview.V82.tactic (tclTHEN (eval_instr instr) clean_tmp)))
     else () end;
   postprocess pts raw_instr.instr;
   (* spiwack: this should restore a compatible semantics with
      v8.3 where we never stayed focused on 0 goal. *)
+  Proof_global.set_proof_mode "Declarative" ;
   Decl_mode.maximal_unfocus ()
 
 let proof_instr raw_instr =

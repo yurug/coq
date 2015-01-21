@@ -1,6 +1,6 @@
 (************************************************************************)
 (*  v      *   The Coq Proof Assistant  /  The Coq Development Team     *)
-(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2012     *)
+(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2015     *)
 (*   \VV/  **************************************************************)
 (*    //   *      This file is distributed under the terms of the       *)
 (*         *       GNU Lesser General Public License Version 2.1        *)
@@ -67,14 +67,14 @@ type inversion_status = Dep of constr option | NoDep
 let compute_eqn env sigma n i ai =
   (mkRel (n-i),get_type_of env sigma (mkRel (n-i)))
 
-let make_inv_predicate env sigma indf realargs id status concl =
+let make_inv_predicate env evd indf realargs id status concl =
   let nrealargs = List.length realargs in
   let (hyps,concl) =
     match status with
       | NoDep ->
 	  (* We push the arity and leave concl unchanged *)
 	  let hyps_arity,_ = get_arity env indf in
-	  (hyps_arity,concl)
+	    (hyps_arity,concl)
       | Dep dflt_concl ->
 	  if not (occur_var env id concl) then
 	    errorlabstrm "make_inv_predicate"
@@ -86,11 +86,12 @@ let make_inv_predicate env sigma indf realargs id status concl =
             match dflt_concl with
               | Some concl -> concl (*assumed it's some [x1..xn,H:I(x1..xn)]C*)
               | None ->
-		let sort = get_sort_family_of env sigma concl in
-		let p = make_arity env true indf (new_sort_in_family sort) in
-		fst (Unification.abstract_list_all env
-                       (Evd.create_evar_defs sigma)
-		       p concl (realargs@[mkVar id])) in
+		let sort = get_sort_family_of env !evd concl in
+		let sort = Evarutil.evd_comb1 (Evd.fresh_sort_in_family env) evd sort in
+		let p = make_arity env true indf sort in
+		let evd',(p,ptyp) = Unification.abstract_list_all env
+                  !evd p concl (realargs@[mkVar id])
+		in evd := evd'; p in
 	  let hyps,bodypred = decompose_lam_n_assum (nrealargs+1) pred in
 	  (* We lift to make room for the equations *)
 	  (hyps,lift nrealargs bodypred)
@@ -102,27 +103,33 @@ let make_inv_predicate env sigma indf realargs id status concl =
   (* Now, we can recurse down this list, for each ai,(mkRel k) whether to
      push <Ai>(mkRel k)=ai (when   Ai is closed).
    In any case, we carry along the rest of pairs *)
+  let eqdata = Coqlib.build_coq_eq_data () in
   let rec build_concl eqns args n = function
     | [] -> it_mkProd concl eqns, Array.rev_of_list args
     | ai :: restlist ->
         let ai = lift nhyps ai in
-        let (xi, ti) = compute_eqn env' sigma nhyps n ai in
+        let (xi, ti) = compute_eqn env' !evd nhyps n ai in
         let (lhs,eqnty,rhs) =
           if closed0 ti then
 	    (xi,ti,ai)
           else
-	    make_iterated_tuple env' sigma ai (xi,ti)
+	    let sigma, res = make_iterated_tuple env' !evd ai (xi,ti) in
+	      evd := sigma; res
 	in
-        let eq_term = Coqlib.build_coq_eq () in
-        let eqn = applist (eq_term ,[eqnty;lhs;rhs]) in
+        let eq_term = eqdata.Coqlib.eq in
+	let eq = Evarutil.evd_comb1 (Evd.fresh_global env) evd eq_term in
+        let eqn = applist (eq,[eqnty;lhs;rhs]) in
         let eqns = (Anonymous, lift n eqn) :: eqns in
-        let refl_term = Coqlib.build_coq_eq_refl () in
+        let refl_term = eqdata.Coqlib.refl in
+	let refl_term = Evarutil.evd_comb1 (Evd.fresh_global env) evd refl_term in
         let refl = mkApp (refl_term, [|eqnty; rhs|]) in
+	let _ = Evarutil.evd_comb1 (Typing.e_type_of env) evd refl in
         let args = refl :: args in
         build_concl eqns args (succ n) restlist
   in
   let (newconcl, args) = build_concl [] [] 0 realargs in
   let predicate = it_mkLambda_or_LetIn_name env newconcl hyps in
+  let _ = Evarutil.evd_comb1 (Typing.e_type_of env) evd predicate in
   (* OK - this predicate should now be usable by res_elimination_then to
      do elimination on the conclusion. *)
   predicate, args
@@ -171,13 +178,13 @@ let make_inv_predicate env sigma indf realargs id status concl =
    and introduces generalized hypotheis.
    Precondition: t=(mkVar id) *)
 
-let dependent_hyps id idlist gl =
+let dependent_hyps env id idlist gl =
   let rec dep_rec =function
     | [] -> []
     | (id1,_,_)::l ->
 	(* Update the type of id1: it may have been subject to rewriting *)
 	let d = pf_get_hyp id1 gl in
-	if occur_var_in_decl (Global.env()) id d
+	if occur_var_in_decl env id d
         then d :: dep_rec l
         else dep_rec l
   in
@@ -260,20 +267,60 @@ Summary: nine useless hypotheses!
 Nota: with Inversion_clear, only four useless hypotheses
 *)
 
-let generalizeRewriteIntros tac depids id =
-  Proofview.Goal.enter begin fun gl ->
-  let dids = dependent_hyps id depids gl in
+let generalizeRewriteIntros as_mode tac depids id =
+  Proofview.tclENV >>= fun env ->
+  Proofview.Goal.nf_enter begin fun gl ->
+  let dids = dependent_hyps env id depids gl in
+  let reintros = if as_mode then intros_replacing else intros_possibly_replacing in
   (tclTHENLIST
     [bring_hyps dids; tac;
      (* may actually fail to replace if dependent in a previous eq *)
-     intros_replacing (ids_of_named_context dids)])
+     reintros (ids_of_named_context dids)])
   end
 
-let rec tclMAP_i n tacfun = function
-  | [] -> tclDO n (tacfun None)
-  | a::l ->
-      if Int.equal n 0 then Proofview.tclZERO (Errors.UserError ("", Pp.str"Too many names."))
-      else tclTHEN (tacfun (Some a)) (tclMAP_i (n-1) tacfun l)
+let error_too_many_names pats =
+  let loc = Loc.join_loc (fst (List.hd pats)) (fst (List.last pats)) in
+  Proofview.tclENV >>= fun env ->
+  tclZEROMSG ~loc (
+    str "Unexpected " ++
+    str (String.plural (List.length pats) "introduction pattern") ++
+    str ": " ++ pr_enum (Miscprint.pr_intro_pattern (fun c -> Printer.pr_constr (snd (c env Evd.empty)))) pats ++
+    str ".")
+
+let rec get_names (allow_conj,issimple) (loc,pat as x) = match pat with
+  | IntroNaming IntroAnonymous | IntroForthcoming _ ->
+      error "Anonymous pattern not allowed for inversion equations."
+  | IntroNaming (IntroFresh _) ->
+      error "Fresh pattern not allowed for inversion equations."
+  | IntroAction IntroWildcard ->
+      error "Discarding pattern not allowed for inversion equations."
+  | IntroAction (IntroRewrite _) ->
+      error "Rewriting pattern not allowed for inversion equations."
+  | IntroAction (IntroOrAndPattern [[]]) when allow_conj -> (None, [])
+  | IntroAction (IntroOrAndPattern [(_,IntroNaming (IntroIdentifier id)) :: _ as l])
+      when allow_conj -> (Some id,l)
+  | IntroAction (IntroOrAndPattern [_]) ->
+      if issimple then
+        error"Conjunctive patterns not allowed for simple inversion equations."
+      else
+        error"Nested conjunctive patterns not allowed for inversion equations."
+  | IntroAction (IntroInjection l) ->
+      error "Injection patterns not allowed for inversion equations."
+  | IntroAction (IntroOrAndPattern l) ->
+      error "Disjunctive patterns not allowed for inversion equations."
+  | IntroAction (IntroApplyOn (c,pat)) ->
+      error "Apply patterns not allowed for inversion equations."
+  | IntroNaming (IntroIdentifier id) ->
+      (Some id,[x])
+
+let rec tclMAP_i allow_conj n tacfun = function
+  | [] -> tclDO n (tacfun (None,[]))
+  | a::l as l' ->
+      if Int.equal n 0 then error_too_many_names l'
+      else
+        tclTHEN
+          (tacfun (get_names allow_conj a))
+          (tclMAP_i allow_conj (n-1) tacfun l)
 
 let remember_first_eq id x = if !x == MoveLast then x := MoveAfter id
 
@@ -285,144 +332,88 @@ let remember_first_eq id x = if !x == MoveLast then x := MoveAfter id
    If it can discriminate then the goal is proved, if not tries to use it as
    a rewrite rule. It erases the clause which is given as input *)
 
-let projectAndApply thin id eqname names depids =
+let projectAndApply as_mode thin avoid id eqname names depids =
   let subst_hyp l2r id =
     tclTHEN (tclTRY(rewriteInConcl l2r (mkVar id)))
       (if thin then clear [id] else (remember_first_eq id eqname; tclIDTAC))
   in
   let substHypIfVariable tac id =
-    Proofview.Goal.raw_enter begin fun gl ->
+    Proofview.Goal.nf_enter begin fun gl ->
     (** We only look at the type of hypothesis "id" *)
     let hyp = pf_nf_evar gl (pf_get_hyp_typ id (Proofview.Goal.assume gl)) in
     let (t,t1,t2) = Hipattern.dest_nf_eq gl hyp in
     match (kind_of_term t1, kind_of_term t2) with
-    | Var id1, _ -> generalizeRewriteIntros (subst_hyp true id) depids id1
-    | _, Var id2 -> generalizeRewriteIntros (subst_hyp false id) depids id2
+    | Var id1, _ -> generalizeRewriteIntros as_mode (subst_hyp true id) depids id1
+    | _, Var id2 -> generalizeRewriteIntros as_mode (subst_hyp false id) depids id2
     | _ -> tac id
     end
   in
-  let deq_trailer id _ neqns =
+  let deq_trailer id clear_flag _ neqns =
+    assert (clear_flag == None);
     tclTHENLIST
-      [(if not (List.is_empty names) then clear [id] else tclIDTAC);
-       (tclMAP_i neqns (fun idopt ->
+      [if as_mode then clear [id] else tclIDTAC;
+       (tclMAP_i (false,false) neqns (function (idopt,_) ->
 	 tclTRY (tclTHEN
-	   (intro_move idopt MoveLast)
+	   (intro_move_avoid idopt avoid MoveLast)
 	   (* try again to substitute and if still not a variable after *)
 	   (* decomposition, arbitrarily try to rewrite RL !? *)
 	   (tclTRY (onLastHypId (substHypIfVariable (fun id -> subst_hyp false id))))))
 	 names);
-       (if List.is_empty names then clear [id] else tclIDTAC)]
+       (if as_mode then tclIDTAC else clear [id])]
+          (* Doing the above late breaks the computation of dids in 
+             generalizeRewriteIntros, and hence breaks proper intros_replacing
+             but it is needed for compatibility *)
   in
   substHypIfVariable
     (* If no immediate variable in the equation, try to decompose it *)
     (* and apply a trailer which again try to substitute *)
     (fun id ->
       dEqThen false (deq_trailer id)
-	(Some (ElimOnConstr (mkVar id,NoBindings))))
+	(Some (None,ElimOnConstr (mkVar id,NoBindings))))
     id
 
 let nLastDecls i tac =
-  Proofview.Goal.enter (fun gl -> tac (nLastDecls gl i))
-
-(* Inversion qui n'introduit pas les hypotheses, afin de pouvoir les nommer
-   soi-meme (proposition de Valerie). *)
-let rewrite_equations_gene othin neqns ba =
-  Proofview.Goal.enter begin fun gl ->
-  let (depids,nodepids) = split_dep_and_nodep ba.Tacticals.assums gl in
-  let rewrite_eqns =
-    match othin with
-      | Some thin ->
-          onLastHypId
-            (fun last ->
-              tclTHENLIST
-                [tclDO neqns
-                     (tclTHEN intro
-                        (onLastHypId
-                           (fun id ->
-                              tclTRY
-			        (projectAndApply thin id (ref MoveLast)
-				  [] depids))));
-
-                  afterHyp last (fun ctx -> bring_hyps (List.rev ctx));
-                  afterHyp last (fun ctx -> clear (ids_of_named_context ctx)) ])
-      | None -> tclIDTAC
-  in
-  (tclTHENLIST
-    [tclDO neqns intro;
-     bring_hyps nodepids;
-     clear (ids_of_named_context nodepids);
-     (nLastDecls neqns (fun ctx -> bring_hyps (List.rev ctx)));
-     (nLastDecls neqns (fun ctx -> clear (ids_of_named_context ctx)));
-     rewrite_eqns;
-     (tclMAP (fun (id,_,_ as d) ->
-               (tclORELSE (clear [id])
-                 (tclTHEN (bring_hyps [d]) (clear [id]))))
-       depids)])
-  end
+  Proofview.Goal.nf_enter (fun gl -> tac (nLastDecls gl i))
 
 (* Introduction of the equations on arguments
    othin: discriminates Simple Inversion, Inversion and Inversion_clear
      None: the equations are introduced, but not rewritten
      Some thin: the equations are rewritten, and cleared if thin is true *)
 
-let rec get_names allow_conj (loc,pat) = match pat with
-  | IntroWildcard ->
-      error "Discarding pattern not allowed for inversion equations."
-  | IntroAnonymous | IntroForthcoming _ ->
-      error "Anonymous pattern not allowed for inversion equations."
-  | IntroFresh _ ->
-      error "Fresh pattern not allowed for inversion equations."
-  | IntroRewrite _->
-      error "Rewriting pattern not allowed for inversion equations."
-  | IntroOrAndPattern [l] ->
-      let get_name id = Option.get (fst (get_names false id)) in
-      if allow_conj then begin match l with
-      | [] -> (None, [])
-      | id :: l ->
-        let n = get_name id in
-        (Some n, n :: List.map get_name l)
-      end else
-	error"Nested conjunctive patterns not allowed for inversion equations."
-  | IntroInjection l ->
-      error "Injection patterns not allowed for inversion equations."
-  | IntroOrAndPattern l ->
-      error "Disjunctive patterns not allowed for inversion equations."
-  | IntroIdentifier id ->
-      (Some id,[id])
-
-let extract_eqn_names = function
-  | None -> None,[]
-  | Some x -> x
-
-let rewrite_equations othin neqns names ba =
-  Proofview.Goal.enter begin fun gl ->
-  let names = List.map (get_names true) names in
+let rewrite_equations as_mode othin neqns names ba =
+  Proofview.Goal.nf_enter begin fun gl ->
   let (depids,nodepids) = split_dep_and_nodep ba.Tacticals.assums gl in
-  let rewrite_eqns =
-    let first_eq = ref MoveLast in
-    match othin with
-      | Some thin ->
-          tclTHENLIST
-            [(nLastDecls neqns (fun ctx -> bring_hyps (List.rev ctx)));
+  let first_eq = ref MoveLast in
+  let avoid = if as_mode then List.map pi1 nodepids else [] in
+  match othin with
+    | Some thin ->
+        tclTHENLIST
+            [tclDO neqns intro;
+             bring_hyps nodepids;
+             clear (ids_of_named_context nodepids);
+             (nLastDecls neqns (fun ctx -> bring_hyps (List.rev ctx)));
              (nLastDecls neqns (fun ctx -> clear (ids_of_named_context ctx)));
-	     tclMAP_i neqns (fun o ->
-	       let idopt,names = extract_eqn_names o in
+	     tclMAP_i (true,false) neqns (fun (idopt,names) ->
                (tclTHEN
-		 (intro_move idopt MoveLast)
+		 (intro_move_avoid idopt avoid MoveLast)
 		 (onLastHypId (fun id ->
-		   tclTRY (projectAndApply thin id first_eq names depids)))))
+		   tclTRY (projectAndApply as_mode thin avoid id first_eq names depids)))))
 	       names;
 	     tclMAP (fun (id,_,_) -> tclIDTAC >>= fun () -> (* delay for [first_eq]. *)
-	       intro_move None (if thin then MoveLast else !first_eq))
+               let idopt = if as_mode then Some id else None in
+	       intro_move idopt (if thin then MoveLast else !first_eq))
 	       nodepids;
 	     (tclMAP (fun (id,_,_) -> tclTRY (clear [id])) depids)]
-      | None -> tclIDTAC
-  in
-  (tclTHENLIST
-    [tclDO neqns intro;
-     bring_hyps nodepids;
-     clear (ids_of_named_context nodepids);
-     rewrite_eqns])
+    | None ->
+        (* simple inversion *)
+        if as_mode then
+          tclMAP_i (false,true) neqns (fun (idopt,_) ->
+	    intro_move idopt MoveLast) names
+        else
+          (tclTHENLIST
+             [tclDO neqns intro;
+              bring_hyps nodepids;
+              clear (ids_of_named_context nodepids)])
   end
 
 let interp_inversion_kind = function
@@ -430,20 +421,17 @@ let interp_inversion_kind = function
   | FullInversion -> Some false
   | FullInversionClear -> Some true
 
-let rewrite_equations_tac (gene, othin) id neqns names ba =
+let rewrite_equations_tac as_mode othin id neqns names ba =
   let othin = interp_inversion_kind othin in
-  let tac =
-    if gene then rewrite_equations_gene othin neqns ba
-    else rewrite_equations othin neqns names ba in
+  let tac = rewrite_equations as_mode othin neqns names ba in
   match othin with
   | Some true (* if Inversion_clear, clear the hypothesis *) ->
     tclTHEN tac (tclTRY (clear [id]))
   | _ ->
     tac
 
-
 let raw_inversion inv_kind id status names =
-  Proofview.Goal.enter begin fun gl ->
+  Proofview.Goal.nf_enter begin fun gl ->
     let sigma = Proofview.Goal.sigma gl in
     let env = Proofview.Goal.env gl in
     let concl = Proofview.Goal.concl gl in
@@ -455,8 +443,10 @@ let raw_inversion inv_kind id status names =
         Errors.errorlabstrm "" msg
     in
     let IndType (indf,realargs) = find_rectype env sigma t in
+    let evdref = ref sigma in
     let (elim_predicate, args) =
-      make_inv_predicate env sigma indf realargs id status concl in
+      make_inv_predicate env evdref indf realargs id status concl in
+    let sigma = !evdref in
     let (cut_concl,case_tac) =
       if status != NoDep && (dependent c concl) then
         Reduction.beta_appvect elim_predicate (Array.of_list (realargs@[c])),
@@ -470,24 +460,28 @@ let raw_inversion inv_kind id status names =
       Proofview.Refine.refine (fun h -> h, prf)
     in
     let neqns = List.length realargs in
-    tclTHENS
-        (assert_tac Anonymous cut_concl)
+    let as_mode = names != None in
+    tclTHEN (Proofview.Unsafe.tclEVARS sigma)
+      (tclTHENS
+        (assert_before Anonymous cut_concl)
         [case_tac names
-            (introCaseAssumsThen (rewrite_equations_tac inv_kind id neqns))
+            (introCaseAssumsThen
+               (rewrite_equations_tac as_mode inv_kind id neqns))
             (Some elim_predicate) ind (c, t);
-        onLastHypId (fun id -> tclTHEN (refined id) reflexivity)]
+        onLastHypId (fun id -> tclTHEN (refined id) reflexivity)])
   end
 
 (* Error messages of the inversion tactics *)
-let wrap_inv_error id = function
+let wrap_inv_error id = function (e, info) -> match e with
   | Indrec.RecursionSchemeError
       (Indrec.NotAllowedCaseAnalysis (_,(Type _ | Prop Pos as k),i)) ->
-      Proofview.tclZERO (Errors.UserError ("",
+      Proofview.tclENV >>= fun env ->
+      tclZEROMSG (
 	(strbrk "Inversion would require case analysis on sort " ++
-	pr_sort k ++
+	pr_sort Evd.empty k ++
 	strbrk " which is not allowed for inductive definition " ++
-	pr_inductive (Global.env()) i ++ str ".")))
-  | e -> Proofview.tclZERO e
+	pr_inductive env (fst i) ++ str "."))
+  | e -> Proofview.tclZERO ~info e
 
 (* The most general inversion tactic *)
 let inversion inv_kind status names id =
@@ -497,17 +491,17 @@ let inversion inv_kind status names id =
 
 (* Specializing it... *)
 
-let inv_gen gene thin status names =
-  try_intros_until (inversion (gene,thin) status names)
+let inv_gen thin status names =
+  try_intros_until (inversion thin status names)
 
 open Tacexpr
 
-let inv k = inv_gen false k NoDep
+let inv k = inv_gen k NoDep
 
 let inv_tac id       = inv FullInversion None (NamedHyp id)
 let inv_clear_tac id = inv FullInversionClear None (NamedHyp id)
 
-let dinv k c = inv_gen false k (Dep c)
+let dinv k c = inv_gen k (Dep c)
 
 let dinv_tac id       = dinv FullInversion None None (NamedHyp id)
 let dinv_clear_tac id = dinv FullInversionClear None None (NamedHyp id)
@@ -517,12 +511,12 @@ let dinv_clear_tac id = dinv FullInversionClear None None (NamedHyp id)
  * back to their places in the hyp-list. *)
 
 let invIn k names ids id =
-  Proofview.Goal.enter begin fun gl ->
+  Proofview.Goal.nf_enter begin fun gl ->
     let hyps = List.map (fun id -> pf_get_hyp id gl) ids in
     let concl = Proofview.Goal.concl gl in
     let nb_prod_init = nb_prod concl in
     let intros_replace_ids =
-      Proofview.Goal.raw_enter begin fun gl ->
+      Proofview.Goal.enter begin fun gl ->
         let concl = pf_nf_concl gl in
         let nb_of_new_hyp =
           nb_prod concl - (List.length hyps + nb_prod_init)
@@ -536,7 +530,7 @@ let invIn k names ids id =
     Proofview.tclORELSE
       (tclTHENLIST
          [bring_hyps hyps;
-          inversion (false,k) NoDep names id;
+          inversion k NoDep names id;
           intros_replace_ids])
       (wrap_inv_error id)
   end

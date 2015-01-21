@@ -1,6 +1,6 @@
 (************************************************************************)
 (*  v      *   The Coq Proof Assistant  /  The Coq Development Team     *)
-(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2012     *)
+(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2015     *)
 (*   \VV/  **************************************************************)
 (*    //   *      This file is distributed under the terms of the       *)
 (*         *       GNU Lesser General Public License Version 2.1        *)
@@ -57,4 +57,4 @@ val pr_by_arg_tac :
 (** Spiwack: Primitive for retroknowledge registration *)
 
 val retroknowledge_field : Retroknowledge.field Pcoq.Gram.entry
-val wit_retroknowledge_field : Retroknowledge.field Genarg.uniform_genarg_type
+val wit_retroknowledge_field : (Retroknowledge.field, unit, unit) Genarg.genarg_type

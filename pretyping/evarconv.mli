@@ -1,6 +1,6 @@
 (************************************************************************)
 (*  v      *   The Coq Proof Assistant  /  The Coq Development Team     *)
-(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2012     *)
+(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2015     *)
 (*   \VV/  **************************************************************)
 (*    //   *      This file is distributed under the terms of the       *)
 (*         *       GNU Lesser General Public License Version 2.1        *)
@@ -38,15 +38,17 @@ val consider_remaining_unif_problems : env -> ?ts:transparent_state -> evar_map 
 (** Check all pending unification problems are solved and raise an
     error otherwise *)
 
-val check_problems_are_solved : evar_map -> unit
+val check_problems_are_solved : env -> evar_map -> unit
 
 (** Check if a canonical structure is applicable *)
 
-val check_conv_record : constr * types Stack.t -> constr * types Stack.t ->
-  constr * constr list * (constr Stack.t * constr Stack.t) *
+val check_conv_record : env -> evar_map -> 
+  constr * types Stack.t -> constr * types Stack.t ->
+  Univ.universe_context_set * (constr * constr) 
+  * constr * constr list * (constr Stack.t * constr Stack.t) *
     (constr Stack.t * types Stack.t) *
     (constr Stack.t * types Stack.t) * constr *
-    (int * constr)
+    (int option * constr)
 
 (** Try to solve problems of the form ?x[args] = c by second-order
     matching, using typing to select occurrences *)
@@ -58,12 +60,20 @@ val second_order_matching : transparent_state -> env -> evar_map ->
 
 val set_solve_evars : (env -> evar_map ref -> constr -> constr) -> unit
 
+type unify_fun = transparent_state ->
+  env -> evar_map -> conv_pb -> constr -> constr -> Evarsolve.unification_result
+
+(** Override default [evar_conv_x] algorithm. *)
+val set_evar_conv : unify_fun -> unit
+
+(** The default unification algorithm with evars and universes. *)
+val evar_conv_x : unify_fun
+
 (**/**)
 (* For debugging *)
-val evar_conv_x : transparent_state ->
-  env -> evar_map -> conv_pb -> constr -> constr -> Evarsolve.unification_result
-val evar_eqappr_x : ?rhs_is_already_stuck:bool -> transparent_state ->
+val evar_eqappr_x : ?rhs_is_already_stuck:bool -> transparent_state * bool ->
   env -> evar_map ->
     conv_pb -> state * Cst_stack.t -> state * Cst_stack.t ->
       Evarsolve.unification_result
 (**/**)
+

@@ -1,6 +1,6 @@
 (************************************************************************)
 (*  v      *   The Coq Proof Assistant  /  The Coq Development Team     *)
-(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2012     *)
+(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2015     *)
 (*   \VV/  **************************************************************)
 (*    //   *      This file is distributed under the terms of the       *)
 (*         *       GNU Lesser General Public License Version 2.1        *)
@@ -110,11 +110,20 @@ let type_of_global_ref gr =
 	"var" ^ type_of_logical_kind (Decls.variable_kind v)
     | Globnames.IndRef ind ->
 	let (mib,oib) = Inductive.lookup_mind_specif (Global.env ()) ind in
-	  if mib.Declarations.mind_record then
-	    if mib.Declarations.mind_finite then "rec"
-	    else "corec"
-	  else if mib.Declarations.mind_finite then "ind"
-	  else "coind"
+	  if mib.Declarations.mind_record <> None then
+            let open Decl_kinds in
+            begin match mib.Declarations.mind_finite with
+            | Finite -> "indrec"
+            | BiFinite -> "rec"
+	    | CoFinite -> "corec"
+            end
+	  else
+            let open Decl_kinds in
+            begin match mib.Declarations.mind_finite with
+            | Finite -> "ind"
+            | BiFinite -> "variant"
+	    | CoFinite -> "coind"
+            end
     | Globnames.ConstructRef _ -> "constr"
 
 let remove_sections dir =
@@ -131,7 +140,7 @@ let interval loc =
 
 let dump_ref loc filepath modpath ident ty =
   if !glob_output = Feedback then
-    Pp.feedback (Interface.GlobRef (loc, filepath, modpath, ident, ty))
+    Pp.feedback (Feedback.GlobRef (loc, filepath, modpath, ident, ty))
   else
     let bl,el = interval loc in
     dump_string (Printf.sprintf "R%d:%d %s %s %s %s\n"
@@ -144,7 +153,6 @@ let dump_reference loc modpath ident ty =
 let dump_modref loc mp ty =
   let (dp, l) = Lib.split_modpath mp in
   let filepath = Names.DirPath.to_string dp in
-  let l = if List.is_empty l then l else List.drop_last l in
   let modpath = Names.DirPath.to_string (Names.DirPath.make l) in
   let ident = "<>" in
   dump_ref loc filepath modpath ident ty
@@ -229,7 +237,7 @@ let dump_binding loc id = ()
 
 let dump_def ty loc secpath id =
   if !glob_output = Feedback then
-    Pp.feedback (Interface.GlobDef (loc, id, secpath, ty))
+    Pp.feedback (Feedback.GlobDef (loc, id, secpath, ty))
   else
     let bl,el = interval loc in
     dump_string (Printf.sprintf "%s %d:%d %s %s\n" ty bl el secpath id)

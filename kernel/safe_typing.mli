@@ -1,6 +1,6 @@
 (************************************************************************)
 (*  v      *   The Coq Proof Assistant  /  The Coq Development Team     *)
-(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2012     *)
+(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2015     *)
 (*   \VV/  **************************************************************)
 (*    //   *      This file is distributed under the terms of the       *)
 (*         *       GNU Lesser General Public License Version 2.1        *)
@@ -48,16 +48,17 @@ val is_curmod_library : safe_environment -> bool
 
 (* safe_environment has functional data affected by lazy computations,
  * thus this function returns a new safe_environment *)
-val join_safe_environment : safe_environment -> safe_environment
+val join_safe_environment :
+  ?except:Future.UUIDSet.t -> safe_environment -> safe_environment
 
 (** {6 Enriching a safe environment } *)
 
 (** Insertion of local declarations (Local or Variables) *)
 
 val push_named_assum :
-  Id.t * Term.types -> Univ.constraints safe_transformer
+  (Id.t * Term.types) Univ.in_universe_context_set -> safe_transformer0
 val push_named_def :
-  Id.t * Entries.definition_entry -> Univ.constraints safe_transformer
+  Id.t * Entries.definition_entry -> safe_transformer0
 
 (** Insertion of global axioms or definitions *)
 
@@ -85,11 +86,23 @@ val add_modtype :
 
 (** Adding universe constraints *)
 
-val add_constraints : Univ.constraints -> safe_transformer0
+val push_context_set :
+  Univ.universe_context_set -> safe_transformer0
 
-(** Setting the Set-impredicative engagement *)
+val push_context :
+  Univ.universe_context -> safe_transformer0
 
+val add_constraints :
+  Univ.constraints -> safe_transformer0
+
+(* (\** Generator of universes *\) *)
+(* val next_universe : int safe_transformer *)
+
+(** Setting the strongly constructive or classical logical engagement *)
 val set_engagement : Declarations.engagement -> safe_transformer0
+
+(** Collapsing the type hierarchy *)
+val set_type_in_type : safe_transformer0
 
 (** {6 Interactive module functions } *)
 
@@ -113,6 +126,10 @@ val add_include :
   Entries.module_struct_entry -> bool -> Declarations.inline ->
    Mod_subst.delta_resolver safe_transformer
 
+val current_modpath : safe_environment -> module_path
+
+val current_dirpath : safe_environment -> dir_path
+
 (** {6 Libraries : loading and saving compilation units } *)
 
 type compiled_library
@@ -122,12 +139,12 @@ type native_library = Nativecode.global list
 val start_library : DirPath.t -> module_path safe_transformer
 
 val export :
-  Flags.compilation_mode ->
+  ?except:Future.UUIDSet.t ->
   safe_environment -> DirPath.t ->
     module_path * compiled_library * native_library
 
 (* Constraints are non empty iff the file is a vi2vo *)
-val import : compiled_library -> Univ.constraints -> vodigest ->
+val import : compiled_library -> Univ.universe_context_set -> vodigest ->
   (module_path * Nativecode.symbol array) safe_transformer
 
 (** {6 Safe typing judgments } *)
@@ -137,12 +154,7 @@ type judgment
 val j_val : judgment -> Term.constr
 val j_type : judgment -> Term.constr
 
-(** The safe typing of a term returns a typing judgment and some universe
-   constraints (to be added to the environment for the judgment to
-   hold). It is guaranteed that the constraints are satisfiable.
- *)
-val safe_infer : safe_environment -> Term.constr -> judgment * Univ.constraints
-
+(** The safe typing of a term returns a typing judgment. *)
 val typing : safe_environment -> Term.constr -> judgment
 
 (** {6 Queries } *)
@@ -164,4 +176,4 @@ val register :
 val register_inline : constant -> safe_transformer0
 
 val set_strategy :
-  safe_environment -> 'a Names.tableKey -> Conv_oracle.level -> safe_environment
+  safe_environment -> Names.constant Names.tableKey -> Conv_oracle.level -> safe_environment

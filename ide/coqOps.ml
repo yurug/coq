@@ -1,6 +1,6 @@
 (************************************************************************)
 (*  v      *   The Coq Proof Assistant  /  The Coq Development Team     *)
-(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2012     *)
+(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2015     *)
 (*   \VV/  **************************************************************)
 (*    //   *      This file is distributed under the terms of the       *)
 (*         *       GNU Lesser General Public License Version 2.1        *)
@@ -10,6 +10,7 @@ open Util
 open Coq
 open Ideutils
 open Interface
+open Feedback
 
 type flag = [ `INCOMPLETE | `UNSAFE | `PROCESSING | `ERROR of string ]
 type mem_flag = [ `INCOMPLETE | `UNSAFE | `PROCESSING | `ERROR ]
@@ -22,14 +23,22 @@ let str_of_flag = function
   | `ERROR _ -> "E"
   | `INCOMPLETE -> "I"
 
+class type signals =
+object
+  inherit GUtil.ml_signals
+  method changed : callback:(int * mem_flag list -> unit) -> GtkSignal.id
+end
+
 module SentenceId : sig
 
   type sentence = private {
     start : GText.mark;
     stop : GText.mark;
     mutable flags : flag list;
-    mutable tooltips : (int * int * string lazy_t) list;
+    mutable tooltips : (int * int * string) list;
     edit_id : int;
+    mutable index : int;
+    changed_sig : (int * mem_flag list) GUtil.signal;
   }
 
   val mk_sentence :
@@ -41,8 +50,11 @@ module SentenceId : sig
   val remove_flag : sentence -> mem_flag -> unit
   val same_sentence : sentence -> sentence -> bool
   val hidden_edit_id : unit -> int
-  val find_all_tooltips : sentence -> int -> string lazy_t list
-  val add_tooltip : sentence -> int -> int -> string lazy_t -> unit
+  val find_all_tooltips : sentence -> int -> string list
+  val add_tooltip : sentence -> int -> int -> string -> unit
+  val set_index : sentence -> int -> unit
+
+  val connect : sentence -> signals
 
   val dbg_to_string :
     GText.buffer -> bool -> Stateid.t option -> sentence -> Pp.std_ppcmds
@@ -53,9 +65,17 @@ end = struct
     start : GText.mark;
     stop : GText.mark;
     mutable flags : flag list;
-    mutable tooltips : (int * int * string lazy_t) list;
+    mutable tooltips : (int * int * string) list;
     edit_id : int;
+    mutable index : int;
+    changed_sig : (int * mem_flag list) GUtil.signal;
   }
+
+  let connect s : signals =
+    object
+      inherit GUtil.ml_signals [s.changed_sig#disconnect]
+      method changed = s.changed_sig#connect ~after
+    end
 
   let id = ref 0
   let mk_sentence ~start ~stop flags = decr id; {
@@ -64,21 +84,28 @@ end = struct
     flags = flags;
     edit_id = !id;
     tooltips = [];
+    index = -1;
+    changed_sig = new GUtil.signal ();
   }
   let hidden_edit_id () = decr id; !id
 
-  let set_flags s f = s.flags <- f
-  let add_flag s f = s.flags <- CList.add_set (=) f s.flags
+  let changed s =
+    s.changed_sig#call (s.index, List.map mem_flag_of_flag s.flags)
+
+  let set_flags s f = s.flags <- f; changed s
+  let add_flag s f = s.flags <- CList.add_set (=) f s.flags; changed s
   let has_flag s mf =
     List.exists (fun f -> mem_flag_of_flag f = mf) s.flags
   let remove_flag s mf =
-    s.flags <- List.filter (fun f -> mem_flag_of_flag f <> mf) s.flags
+    s.flags <- List.filter (fun f -> mem_flag_of_flag f <> mf) s.flags; changed s
   let same_sentence s1 s2 = s1.edit_id = s2.edit_id
   let find_all_tooltips s off =
     CList.map_filter (fun (start,stop,t) ->
       if start <= off && off <= stop then Some t else None)
     s.tooltips
   let add_tooltip s a b t = s.tooltips <- (a,b,t) :: s.tooltips
+
+  let set_index s i = s.index <- i
 
   let dbg_to_string (b : GText.buffer) focused id s =
     let ellipsize s =
@@ -97,7 +124,7 @@ end = struct
       (ellipsize
         (String.concat ","
           (List.map (fun (a,b,t) ->
-             Printf.sprintf "<%d,%d> %s" a b (Lazy.force t)) s.tooltips))))
+             Printf.sprintf "<%d,%d> %s" a b t) s.tooltips))))
 
 
 end
@@ -121,16 +148,24 @@ object
   method backtrack_last_phrase : unit task
   method initialize : unit task
   method join_document : unit task
-  method stop_worker : int -> unit task
+  method stop_worker : string -> unit task
 
   method get_n_errors : int
   method get_errors : (int * string) list
-  method get_slaves_status : int * int * string Int.Map.t
+  method get_slaves_status : int * int * string CString.Map.t
 
   method handle_failure : handle_exn_rty -> unit task
 
   method destroy : unit -> unit
 end
+
+let flags_to_color f =
+  let of_col c = `NAME (Tags.string_of_color c) in
+  if List.mem `PROCESSING f then `NAME "blue"
+  else if List.mem `ERROR f then `NAME "red"
+  else if List.mem `UNSAFE f then `NAME "orange"
+  else if List.mem `INCOMPLETE f then `NAME "gray"
+  else of_col (Tags.get_processed_color ())
 
 module Doc = Document
 
@@ -138,6 +173,7 @@ class coqops
   (_script:Wg_ScriptView.script_view)
   (_pv:Wg_ProofView.proof_view)
   (_mv:Wg_MessageView.message_view)
+  (_sg:Wg_Segment.segment)
   (_ct:Coq.coqtop)
   get_filename =
 object(self)
@@ -145,15 +181,17 @@ object(self)
   val buffer = (_script#source_buffer :> GText.buffer)
   val proof = _pv
   val messages = _mv
+  val segment = _sg
 
   val document : sentence Doc.document = Doc.create ()
+  val mutable document_length = 0
 
   val mutable initial_state = Stateid.initial
 
   (* proofs being processed by the slaves *)
   val mutable to_process = 0
   val mutable processed = 0
-  val mutable slaves_status = Int.Map.empty
+  val mutable slaves_status = CString.Map.empty
 
   val feedbacks : feedback Queue.t = Queue.create ()
   val feedback_timer = Ideutils.mktimer ()
@@ -162,7 +200,24 @@ object(self)
     Coq.set_feedback_handler _ct self#enqueue_feedback;
     script#misc#set_has_tooltip true;
     ignore(script#misc#connect#query_tooltip ~callback:self#tooltip_callback);
-    feedback_timer.Ideutils.run ~ms:300 ~callback:self#process_feedback
+    feedback_timer.Ideutils.run ~ms:300 ~callback:self#process_feedback;
+    let on_changed (i, f) = segment#add i (flags_to_color f) in
+    let on_push s =
+      set_index s document_length;
+      (SentenceId.connect s)#changed on_changed;
+      document_length <- succ document_length;
+      segment#set_length document_length;
+      let flags = List.map mem_flag_of_flag s.flags in
+      segment#add s.index (flags_to_color flags);
+    in
+    let on_pop s =
+      set_index s (-1);
+      document_length <- pred document_length;
+      segment#set_length document_length;
+    in
+    let _ = (Doc.connect document)#pushed on_push in
+    let _ = (Doc.connect document)#popped on_pop in
+    ()
 
   method private tooltip_callback ~x ~y ~kbd tooltip =
     let x, y = script#window_to_buffer_coords `WIDGET x y in
@@ -183,7 +238,7 @@ object(self)
       let ss =
         find_all_tooltips s
           (iter#offset - (buffer#get_iter_at_mark s.start)#offset) in
-      let msg = String.concat "\n" (CList.uniquize (List.map Lazy.force ss)) in
+      let msg = String.concat "\n" (CList.uniquize ss) in
       GtkBase.Tooltip.set_icon_from_stock tooltip `INFO `BUTTON;
       script#misc#set_tooltip_markup ("<tt>" ^ msg ^ "</tt>")
     end else begin
@@ -305,7 +360,7 @@ object(self)
     let post = Ideutils.glib_utf8_pos_to_offset phrase ~off:post_chars in
     let start = start_sentence#forward_chars pre in
     let stop = start_sentence#forward_chars post in
-    let markup = lazy text in
+    let markup = Glib.Markup.escape_text text in
     buffer#apply_tag Tags.Script.tooltip ~start ~stop;
     add_tooltip sentence pre post markup
 
@@ -335,7 +390,7 @@ object(self)
       let log s state_id =
         Minilib.log ("Feedback " ^ s ^ " on " ^ Stateid.to_string
           (Option.default Stateid.dummy state_id)) in
-      begin match msg.content, sentence with
+      begin match msg.contents, sentence with
       | AddedAxiom, Some (id,sentence) ->
           log "AddedAxiom" id;
           remove_flag sentence `PROCESSING;
@@ -347,8 +402,8 @@ object(self)
           remove_flag sentence `PROCESSING;
           remove_flag sentence `ERROR;
           self#mark_as_needed sentence
-      | ProcessingInMaster,  Some (id,sentence) ->
-          log "ProcessingInMaster" id;
+      | ProcessingIn _,  Some (id,sentence) ->
+          log "ProcessingIn" id;
           add_flag sentence `PROCESSING;
           self#mark_as_needed sentence
       | Incomplete, Some (id, sentence) ->
@@ -374,9 +429,9 @@ object(self)
       | InProgress n, _ ->
           if n < 0 then processed <- processed + abs n
           else to_process <- to_process + n
-      | SlaveStatus(id,status), _ ->
-          log "SlaveStatus" None;
-          slaves_status <- Int.Map.add id status slaves_status
+      | WorkerStatus(id,status), _ ->
+          log "WorkerStatus" None;
+          slaves_status <- CString.Map.add id status slaves_status
 
       | _ ->
           if sentence <> None then Minilib.log "Unsupported feedback message"
@@ -422,7 +477,7 @@ object(self)
       self#position_error_tag_at_iter start phrase loc;
       buffer#place_cursor ~where:stop;
       messages#clear;
-      messages#push Error msg;
+      messages#push Pp.Error msg;
       self#show_goals
     end else
       self#show_goals_aux ~move_insert:true ()
@@ -511,7 +566,7 @@ object(self)
             let handle_answer = function
               | Good (id, (Util.Inl (* NewTip *) (), msg)) ->
                   Doc.assign_tip_id document id;
-                  logger Notice msg;
+                  logger Pp.Notice msg;
                   self#commit_queue_transaction sentence;
                   loop id []
               | Good (id, (Util.Inr (* Unfocus *) tip, msg)) ->
@@ -519,7 +574,7 @@ object(self)
                   let topstack, _ = Doc.context document in
                   self#exit_focus;
                   self#cleanup (Doc.cut_at document tip);
-                  logger Notice msg;
+                  logger Pp.Notice msg;
                   self#mark_as_needed sentence;
                   if Queue.is_empty queue then loop tip []
                   else loop tip (List.rev topstack)
@@ -538,7 +593,7 @@ object(self)
    let next = function
      | Good _ ->
          messages#clear;
-         messages#push Info "Doc checked";
+         messages#push Pp.Info "All proof terms checked by the kernel";
          Coq.return ()
      | Fail x -> self#handle_failure x in
    Coq.bind (Coq.status ~logger:messages#push true) next
@@ -628,8 +683,8 @@ object(self)
           self#cleanup (Doc.cut_at document to_id);
           conclusion ()
       | Fail (safe_id, loc, msg) ->
-          if loc <> None then messages#push Error "Fixme LOC";
-          messages#push Error msg;
+          if loc <> None then messages#push Pp.Error "Fixme LOC";
+          messages#push Pp.Error msg;
           if Stateid.equal safe_id Stateid.dummy then self#show_goals
           else undo safe_id
                  (Doc.focused document && Doc.is_in_focus document safe_id))
@@ -647,7 +702,7 @@ object(self)
     ?(move_insert=false) (safe_id, (loc : (int * int) option), msg)
   =
     messages#clear;
-    messages#push Error msg;
+    messages#push Pp.Error msg;
     ignore(self#process_feedback ());
     if Stateid.equal safe_id Stateid.dummy then Coq.lift (fun () -> ())
     else
@@ -731,7 +786,8 @@ object(self)
 
   method handle_reset_initial why =
     let action () =
-      if why = Coq.Unexpected then warning "Coqtop died badly. Resetting.";
+      if why = Coq.Unexpected then warning "Coqtop died badly. Resetting."
+      else
       (* clear the stack *)
       if Doc.focused document then Doc.unfocus document;
       while not (Doc.is_empty document) do

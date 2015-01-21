@@ -1,6 +1,6 @@
 (************************************************************************)
 (*  v      *   The Coq Proof Assistant  /  The Coq Development Team     *)
-(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2012     *)
+(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2015     *)
 (*   \VV/  **************************************************************)
 (*    //   *      This file is distributed under the terms of the       *)
 (*         *       GNU Lesser General Public License Version 2.1        *)
@@ -48,6 +48,7 @@ val find_projection : global_reference -> struc_typ
     the effective components of a structure and the projections of the  
     structure *)
 
+(** A cs_pattern characterizes the form of a component of canonical structure *)
 type cs_pattern =
     Const_cs of global_reference
   | Prod_cs
@@ -56,16 +57,19 @@ type cs_pattern =
 
 type obj_typ = {
   o_DEF : constr;
-  o_INJ : int;      (** position of trivial argument *)
+  o_CTX : Univ.ContextSet.t;
+  o_INJ : int option;      (** position of trivial argument *)
   o_TABS : constr list;    (** ordered *)
   o_TPARAMS : constr list; (** ordered *)
   o_NPARAMS : int;
   o_TCOMPS : constr list } (** ordered *)
 
-val cs_pattern_of_constr : constr -> cs_pattern * int * constr list
+(** Return the form of the component of a canonical structure *)
+val cs_pattern_of_constr : constr -> cs_pattern * int option * constr list
+
 val pr_cs_pattern : cs_pattern -> Pp.std_ppcmds
 
-val lookup_canonical_conversion : (global_reference * cs_pattern) -> obj_typ
+val lookup_canonical_conversion : (global_reference * cs_pattern) -> constr * obj_typ
 val declare_canonical_structure : global_reference -> unit
 val is_open_canonical_projection :
   Environ.env -> Evd.evar_map -> (constr * constr Reductionops.Stack.t) -> bool

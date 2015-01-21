@@ -1,7 +1,7 @@
 (* -*- coding: utf-8 -*- *)
 (************************************************************************)
 (*  v      *   The Coq Proof Assistant  /  The Coq Development Team     *)
-(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2012     *)
+(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2015     *)
 (*   \VV/  **************************************************************)
 (*    //   *      This file is distributed under the terms of the       *)
 (*         *       GNU Lesser General Public License Version 2.1        *)
@@ -152,7 +152,7 @@ Section Z_BRIC_A_BRAC.
   Lemma binary_value_pos :
     forall (n:nat) (bv:Bvector n), (binary_value n bv >= 0)%Z.
   Proof.
-    induction bv as [| a n v IHbv]; simpl.
+    induction bv as [| a n v IHbv]; cbn.
     omega.
 
     destruct a; destruct (binary_value n v); simpl; auto.
@@ -212,14 +212,11 @@ Section Z_BRIC_A_BRAC.
       (z < two_power_nat (S n))%Z -> (Z.div2 z < two_power_nat n)%Z.
   Proof.
     intros.
-    cut (2 * Z.div2 z < 2 * two_power_nat n)%Z; intros.
-    omega.
-
+    enough (2 * Z.div2 z < 2 * two_power_nat n)%Z by omega.
     rewrite <- two_power_nat_S.
-    destruct (Zeven.Zeven_odd_dec z); intros.
+    destruct (Zeven.Zeven_odd_dec z) as [Heven|Hodd]; intros.
     rewrite <- Zeven.Zeven_div2; auto.
-
-    generalize (Zeven.Zodd_div2 z z0); omega.
+    generalize (Zeven.Zodd_div2 z Hodd); omega.
   Qed.
 
   Lemma Z_to_two_compl_Sn_z :

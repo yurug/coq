@@ -1,6 +1,6 @@
 (************************************************************************)
 (*  v      *   The Coq Proof Assistant  /  The Coq Development Team     *)
-(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2012     *)
+(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2015     *)
 (*   \VV/  **************************************************************)
 (*    //   *      This file is distributed under the terms of the       *)
 (*         *       GNU Lesser General Public License Version 2.1        *)
@@ -16,8 +16,9 @@ open Check
 
 let () = at_exit flush_all
 
-let fatal_error info =
-  flush_all (); pperrnl info; flush_all (); exit 1
+let fatal_error info anomaly =
+  flush_all (); pperrnl info; flush_all ();
+  exit (if anomaly then 129 else 1)
 
 let coq_root = Id.of_string "Coq"
 let parse_dir s =
@@ -251,7 +252,7 @@ let rec explain_exn = function
       hov 0 (anomaly_string () ++ str "uncaught exception Invalid_argument " ++ str (guill s) ++ report ())
   | Sys.Break ->
       hov 0 (fnl () ++ str "User interrupt.")
-  | Univ.UniverseInconsistency (o,u,v,_) ->
+  | Univ.UniverseInconsistency (o,u,v) ->
       let msg =
 	if !Flags.debug (*!Constrextern.print_universes*) then
 	  spc() ++ str "(cannot enforce" ++ spc() ++ Univ.pr_uni u ++ spc() ++
@@ -297,7 +298,8 @@ let rec explain_exn = function
           str("\nCantApplyBadType at argument " ^ string_of_int n)
       | CantApplyNonFunctional _ -> str"CantApplyNonFunctional"
       | IllFormedRecBody _ -> str"IllFormedRecBody"
-      | IllTypedRecBody _ -> str"IllTypedRecBody"))
+      | IllTypedRecBody _ -> str"IllTypedRecBody"
+      | UnsatisfiedConstraints _ -> str"UnsatisfiedConstraints"))
 
   | Indtypes.InductiveError e ->
       hov 0 (str "Error related to inductive types")
@@ -322,7 +324,7 @@ let parse_args argv =
 
     | "-coqlib" :: s :: rem ->
       if not (exists_dir s) then 
-	fatal_error (str ("Directory '"^s^"' does not exist"));
+	fatal_error (str ("Directory '"^s^"' does not exist")) false;
       Flags.coqlib := s;
       Flags.coqlib_spec := true;
       parse rem
@@ -362,7 +364,7 @@ let parse_args argv =
         Flags.make_silent true; parse rem
 
     | s :: _ when s<>"" && s.[0]='-' ->
-        fatal_error (str "Unknown option " ++ str s)
+        fatal_error (str "Unknown option " ++ str s) false
     | s :: rem ->  add_compile s; parse rem
   in
   parse (List.tl (Array.to_list argv))
@@ -383,7 +385,7 @@ let init_with_argv argv =
       init_load_path ();
       engage ();
     with e ->
-      fatal_error (str "Error during initialization :" ++ (explain_exn e))
+      fatal_error (str "Error during initialization :" ++ (explain_exn e)) (is_anomaly e)
   end
 
 let init() = init_with_argv Sys.argv
@@ -394,6 +396,6 @@ let run () =
     flush_all()
   with e ->
     if !Flags.debug then Printexc.print_backtrace stderr;
-    fatal_error (explain_exn e)
+    fatal_error (explain_exn e) (is_anomaly e)
 
 let start () = init(); run(); Check_stat.stats(); exit 0

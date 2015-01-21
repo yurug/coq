@@ -1,6 +1,6 @@
 (************************************************************************)
 (*  v      *   The Coq Proof Assistant  /  The Coq Development Team     *)
-(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2012     *)
+(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2015     *)
 (*   \VV/  **************************************************************)
 (*    //   *      This file is distributed under the terms of the       *)
 (*         *       GNU Lesser General Public License Version 2.1        *)
@@ -63,7 +63,4 @@ val intern_red_expr : glob_sign -> raw_red_expr -> glob_red_expr
 val dump_glob_red_expr : raw_red_expr -> unit
 
 (* Hooks *)
-val assert_tactic_installed_hook : (string -> unit) Hook.t
-val interp_atomic_ltac_hook : (Id.t -> glob_tactic_expr) Hook.t
-val interp_ltac_hook : (KerName.t -> glob_tactic_expr) Hook.t
 val strict_check : bool ref

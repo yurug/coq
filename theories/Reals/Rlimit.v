@@ -1,6 +1,6 @@
 (************************************************************************)
 (*  v      *   The Coq Proof Assistant  /  The Coq Development Team     *)
-(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2012     *)
+(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2015     *)
 (*   \VV/  **************************************************************)
 (*    //   *      This file is distributed under the terms of the       *)
 (*         *       GNU Lesser General Public License Version 2.1        *)
@@ -164,7 +164,7 @@ Definition limit_in (X X':Metric_Space) (f:Base X -> Base X')
     eps > 0 ->
     exists alp : R,
       alp > 0 /\
-      (forall x:Base X, D x /\ dist X x x0 < alp -> dist X' (f x) l < eps).
+      (forall x:Base X, D x /\ X.(dist) x x0 < alp -> X'.(dist) (f x) l < eps).
 
 (*******************************)
 (** **  R is a metric space    *)
@@ -173,6 +173,8 @@ Definition limit_in (X X':Metric_Space) (f:Base X -> Base X')
 (*********)
 Definition R_met : Metric_Space :=
   Build_Metric_Space R R_dist R_dist_pos R_dist_sym R_dist_refl R_dist_tri.
+
+Declare Equivalent Keys dist R_dist.
 
 (*******************************)
 (** *      Limit 1 arg         *)
@@ -191,9 +193,9 @@ Lemma tech_limit :
 Proof.
   intros f D l x0 H H0.
   case (Rabs_pos (f x0 - l)); intros H1.
-  absurd (dist R_met (f x0) l < dist R_met (f x0) l).
+  absurd (R_met.(@dist) (f x0) l < R_met.(@dist) (f x0) l).
   apply Rlt_irrefl.
-  case (H0 (dist R_met (f x0) l)); auto.
+  case (H0 (R_met.(@dist) (f x0) l)); auto.
   intros alpha1 [H2 H3]; apply H3; auto; split; auto.
   case (dist_refl R_met x0 x0); intros Hr1 Hr2; rewrite Hr2; auto.
   case (dist_refl R_met (f x0) l); intros Hr1 Hr2; symmetry; auto.
@@ -345,18 +347,19 @@ Lemma single_limit :
     adhDa D x0 -> limit1_in f D l x0 -> limit1_in f D l' x0 -> l = l'.
 Proof.
   unfold limit1_in; unfold limit_in; intros.
+  simpl in *.
   cut (forall eps:R, eps > 0 -> dist R_met l l' < 2 * eps).
-  clear H0 H1; unfold dist; unfold R_met; unfold R_dist;
-    unfold Rabs; case (Rcase_abs (l - l')); intros.
+  clear H0 H1; unfold dist in |- *; unfold R_met; unfold R_dist in |- *;
+    unfold Rabs; case (Rcase_abs (l - l')) as [Hlt|Hge]; intros.
   cut (forall eps:R, eps > 0 -> - (l - l') < eps).
   intro; generalize (prop_eps (- (l - l')) H1); intro;
-    generalize (Ropp_gt_lt_0_contravar (l - l') r); intro;
+    generalize (Ropp_gt_lt_0_contravar (l - l') Hlt); intro;
       unfold Rgt in H3; generalize (Rgt_not_le (- (l - l')) 0 H3);
         intro; exfalso; auto.
   intros; cut (eps * / 2 > 0).
   intro; generalize (H0 (eps * / 2) H2); rewrite (Rmult_comm eps (/ 2));
     rewrite <- (Rmult_assoc 2 (/ 2) eps); rewrite (Rinv_r 2).
-  elim (Rmult_ne eps); intros a b; rewrite b; clear a b; trivial.
+  elim (Rmult_ne eps); intros a b; rewrite b; clear a b; trivial. 
   apply (Rlt_dichotomy_converse 2 0); right; generalize Rlt_0_1; intro;
     unfold Rgt; generalize (Rplus_lt_compat_l 1 0 1 H3);
       intro; elim (Rplus_ne 1); intros a b; rewrite a in H4;
@@ -374,7 +377,7 @@ Proof.
     intros a b; clear b; apply (Rminus_diag_uniq l l');
       apply a; split.
   assumption.
-  apply (Rge_le (l - l') 0 r).
+  apply (Rge_le (l - l') 0 Hge).
   intros; cut (eps * / 2 > 0).
   intro; generalize (H0 (eps * / 2) H2); rewrite (Rmult_comm eps (/ 2));
     rewrite <- (Rmult_assoc 2 (/ 2) eps); rewrite (Rinv_r 2).

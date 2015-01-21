@@ -23,6 +23,7 @@ Function ftest (n m : nat) : nat :=
          end
   | S p => 0
   end.
+(* MS: FIXME: apparently can't define R_ftest_complete. Rest of the file goes through. *)
 
 Lemma test1 : forall n m : nat, ftest n m <= 2.
 intros n m.
@@ -150,7 +151,7 @@ Function nat_equal_bool (n m : nat) {struct n} : bool :=
 
 
 Require Export Div2.
-
+Require Import Nat.
 Functional Scheme div2_ind := Induction for div2 Sort Prop.
 Lemma div2_inf : forall n : nat, div2 n <= n.
 intros n.
@@ -233,11 +234,11 @@ Qed.
 Inductive istrue : bool -> Prop :=
     istrue0 : istrue true.
 
-Functional Scheme plus_ind := Induction for plus Sort Prop.
+Functional Scheme add_ind := Induction for add Sort Prop.
 
 Lemma inf_x_plusxy' : forall x y : nat, x <= x + y.
 intros n m.
- functional induction plus n m; intros.
+ functional induction add n m; intros.
 auto with arith.
 auto with arith.
 Qed.

@@ -1,6 +1,6 @@
 (************************************************************************)
 (*  v      *   The Coq Proof Assistant  /  The Coq Development Team     *)
-(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2012     *)
+(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2015     *)
 (*   \VV/  **************************************************************)
 (*    //   *      This file is distributed under the terms of the       *)
 (*         *       GNU Lesser General Public License Version 2.1        *)
@@ -19,9 +19,9 @@ type individual
 type 'a scheme_kind
 
 type mutual_scheme_object_function =
-  mutual_inductive -> constr array * Declareops.side_effects
+  mutual_inductive -> constr array Evd.in_evar_universe_context * Declareops.side_effects
 type individual_scheme_object_function =
-  inductive -> constr * Declareops.side_effects
+  inductive -> constr Evd.in_evar_universe_context * Declareops.side_effects
 
 (** Main functions to register a scheme builder *)
 
@@ -49,3 +49,6 @@ val define_mutual_scheme : mutual scheme_kind -> Declare.internal_flag (** inter
 val find_scheme : 'a scheme_kind -> inductive -> constant * Declareops.side_effects
 
 val check_scheme : 'a scheme_kind -> inductive -> bool
+
+
+val pr_scheme_kind : 'a scheme_kind -> Pp.std_ppcmds

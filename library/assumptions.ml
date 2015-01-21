@@ -1,6 +1,6 @@
 (************************************************************************)
 (*  v      *   The Coq Proof Assistant  /  The Coq Development Team     *)
-(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2012     *)
+(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2015     *)
 (*   \VV/  **************************************************************)
 (*    //   *      This file is distributed under the terms of the       *)
 (*         *       GNU Lesser General Public License Version 2.1        *)
@@ -187,7 +187,7 @@ let assumptions ?(add_opaque=false) ?(add_transparent=false) st (* t *) =
        a "Let" definition, in the former it is an assumption of [t],
        in the latter is must be unfolded like a Const.
     The other cases are straightforward recursion.
-    Calls to the environment are memoized, thus avoiding to explore
+    Calls to the environment are memoized, thus avoiding exploration of
     the DAG of the environment as if it was a tree (can cause
     exponential behavior and prevent the algorithm from terminating
     in reasonable time). [s] is a set of [context_object], representing
@@ -204,7 +204,7 @@ let assumptions ?(add_opaque=false) ?(add_transparent=false) st (* t *) =
 	| Case (_,e1,e2,e_array) -> (iter e1)**(iter e2)**(iter_array e_array)
 	| Fix (_,(_, e1_array, e2_array)) | CoFix (_,(_,e1_array, e2_array)) ->
           (iter_array e1_array) ** (iter_array e2_array)
-	| Const kn -> do_memoize_kn kn
+	| Const (kn,_) -> do_memoize_kn kn
 	| _ -> identity2 (* closed atomic types + rel *)
     and iter_array a = Array.fold_right (fun e f -> (iter e)**f) a identity2
     in iter t s acc
@@ -222,11 +222,7 @@ let assumptions ?(add_opaque=false) ?(add_transparent=false) st (* t *) =
   and add_kn kn s acc =
     let cb = lookup_constant kn in
     let do_type cst =
-      let ctype =
-	match cb.Declarations.const_type with
-	| PolymorphicArity (ctx,a) -> mkArity (ctx, Type a.poly_level)
-	| NonPolymorphicType t -> t
-      in
+      let ctype = Global.type_of_global_unsafe (Globnames.ConstRef kn) in
 	(s,ContextObjectMap.add cst ctype acc)
     in
     let (s,acc) =
@@ -240,7 +236,7 @@ let assumptions ?(add_opaque=false) ?(add_transparent=false) st (* t *) =
           else (s, acc)
       else (s, acc)
     in
-      match Declareops.body_of_constant cb with
+      match Global.body_of_constant_body cb with
       | None -> do_type (Axiom kn)
       | Some body -> do_constr body s acc
 

@@ -3,7 +3,7 @@ let contrib_name = "btauto"
 
 let init_constant dir s =
   let find_constant contrib dir s =
-    Globnames.constr_of_global (Coqlib.find_reference contrib dir s)
+    Universes.constr_of_global (Coqlib.find_reference contrib dir s)
   in
   find_constant contrib_name dir s
 
@@ -179,7 +179,7 @@ module Btauto = struct
   let print_counterexample p env gl =
     let var = lapp witness [|p|] in
     (* Compute an assignment that dissatisfies the goal *)
-    let var = Tacmach.pf_reduction_of_red_expr gl (Genredexpr.CbvVm None) var in
+    let _, var = Tacmach.pf_reduction_of_red_expr gl (Genredexpr.CbvVm None) var in
     let rec to_list l = match decomp_term l with
     | Term.App (c, _)
       when c === (Lazy.force CoqList._nil) -> []
@@ -216,7 +216,7 @@ module Btauto = struct
     Tacticals.tclFAIL 0 msg gl
 
   let try_unification env =
-    Proofview.Goal.enter begin fun gl ->
+    Proofview.Goal.nf_enter begin fun gl ->
       let concl = Proofview.Goal.concl gl in
       let eq = Lazy.force eq in
       let t = decomp_term concl in
@@ -231,7 +231,7 @@ module Btauto = struct
     end
 
   let tac =
-    Proofview.Goal.enter begin fun gl ->
+    Proofview.Goal.nf_enter begin fun gl ->
       let concl = Proofview.Goal.concl gl in
       let eq = Lazy.force eq in
       let bool = Lazy.force Bool.typ in
@@ -247,8 +247,8 @@ module Btauto = struct
           let fr = reify env fr in
           let changed_gl = Term.mkApp (c, [|typ; fl; fr|]) in
           Tacticals.New.tclTHENLIST [
-            Proofview.V82.tactic (Tactics.change_in_concl None changed_gl);
-            Proofview.V82.tactic (Tactics.apply (Lazy.force soundness));
+            Tactics.change_concl changed_gl;
+            Tactics.apply (Lazy.force soundness);
             Proofview.V82.tactic (Tactics.normalise_vm_in_concl);
             try_unification env
           ]

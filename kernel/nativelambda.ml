@@ -1,6 +1,6 @@
 (************************************************************************)
 (*  v      *   The Coq Proof Assistant  /  The Coq Development Team     *)
-(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2013     *)
+(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2015     *)
 (*   \VV/  **************************************************************)
 (*    //   *      This file is distributed under the terms of the       *)
 (*         *       GNU Lesser General Public License Version 2.1        *)
@@ -79,12 +79,12 @@ let get_const_prefix env c =
    | NotLinked -> ""
    | Linked s -> s
    | LinkedInteractive s -> s
-    
+
 (* A generic map function *)
 
 let map_lam_with_binders g f n lam =
   match lam with
-  | Lrel _ | Lvar _  | Lconst _ | Luint _ | Lval _ | Lsort _ | Lind _
+  | Lrel _ | Lvar _  | Lconst _ | Lproj _ | Luint _ | Lval _ | Lsort _ | Lind _
   | Lconstruct _ | Llazy | Lforce | Lmeta _ | Levar _ -> lam
   | Lprod(dom,codom) -> 
       let dom' = f n dom in
@@ -183,7 +183,7 @@ let lam_subst_args subst args =
   
 let can_subst lam = 
   match lam with
-  | Lrel _ | Lvar _ | Lconst _ | Lval _ | Lsort _ | Lind _ | Llam _
+  | Lrel _ | Lvar _ | Lconst _ | Lproj _ | Lval _ | Lsort _ | Lind _ | Llam _
   | Lconstruct _ | Lmeta _ | Levar _ -> true
   | _ -> false
 
@@ -257,6 +257,7 @@ and simplify_app substf f substa args =
       let args = Array.append 
 	  (lam_subst_args substf args') (lam_subst_args substa args) in
       simplify_app substf f subst_id args
+  (* TODO | Lproj -> simplify if the argument is known or a known global *)
   | _ -> mkLapp (simplify substf f) (simplify_args substa args)
   
 and simplify_args subst args = Array.smartmap (simplify subst) args
@@ -290,7 +291,7 @@ let rec occurence k kind lam =
       if Int.equal n k then 
 	if kind then false else raise Not_found
       else kind
-  | Lvar _  | Lconst _  | Luint _ | Lval _ | Lsort _ | Lind _
+  | Lvar _  | Lconst _  | Lproj _ | Luint _ | Lval _ | Lsort _ | Lind _
   | Lconstruct _ | Llazy | Lforce | Lmeta _ | Levar _ -> kind
   | Lprod(dom, codom) ->
       occurence k (occurence k kind dom) codom
@@ -362,21 +363,21 @@ let make_args start _end =
     
 (* Translation of constructors *)	
 
-let makeblock env cn tag args =
+let makeblock env cn u tag args =
   if Array.for_all is_value args && Array.length args > 0 then
     let args = Array.map get_value args in
     Lval (Nativevalues.mk_block tag args)
   else
     let prefix = get_mind_prefix env (fst (fst cn)) in
-    Lmakeblock(prefix, cn, tag, args)
+    Lmakeblock(prefix, (cn,u), tag, args)
 
 (* Translation of constants *)
 
-let rec get_allias env kn =
+let rec get_allias env (kn, u as p) =
   let tps = (lookup_constant kn env).const_body_code in
   match Cemitcodes.force tps with
   |  Cemitcodes.BCallias kn' -> get_allias env kn'
-  | _ -> kn
+  | _ -> p
 
 (*i Global environment *)
 
@@ -504,7 +505,7 @@ let is_lazy prefix t =
   match kind_of_term t with
   | App (f,args) ->
      begin match kind_of_term f with
-     | Construct c ->
+     | Construct (c,_) ->
 	let entry = mkInd (fst c) in
 	(try
 	    let _ =
@@ -552,9 +553,9 @@ let rec lambda_of_constr env sigma c =
 
   | Sort s -> Lsort s
 
-  | Ind ind ->
+  | Ind (ind,u as pind) ->
       let prefix = get_mind_prefix !global_env (fst ind) in
-      Lind (prefix, ind)
+      Lind (prefix, pind)
 
   | Prod(id, dom, codom) ->
       let ld = lambda_of_constr env sigma dom in
@@ -584,6 +585,10 @@ let rec lambda_of_constr env sigma c =
 
   | Construct _ ->  lambda_of_app env sigma c empty_args
 
+  | Proj (p, c) ->
+    let kn = Projection.constant p in
+      mkLapp (Lproj (get_const_prefix !global_env kn, kn)) [|lambda_of_constr env sigma c|]
+
   | Case(ci,t,a,branches) ->  
       let (mind,i as ind) = ci.ci_ind in
       let mib = lookup_mind mind !global_env in
@@ -595,7 +600,7 @@ let rec lambda_of_constr env sigma c =
 	    { asw_ind = ind;
           asw_ci = ci;
           asw_reloc = tbl; 
-          asw_finite = mib.mind_finite;
+          asw_finite = mib.mind_finite <> Decl_kinds.CoFinite;
           asw_prefix = prefix}
       in
       (* translation of the argument *)
@@ -642,8 +647,8 @@ let rec lambda_of_constr env sigma c =
 
 and lambda_of_app env sigma f args =
   match kind_of_term f with
-  | Const kn ->
-      let kn = get_allias !global_env kn in
+  | Const (kn,u as c) ->
+      let kn,u = get_allias !global_env c in
       let cb = lookup_constant kn !global_env in
       (try
           let prefix = get_const_prefix !global_env kn in
@@ -654,22 +659,22 @@ and lambda_of_app env sigma f args =
 	  f args
       with Not_found ->
       begin match cb.const_body with
-      | Def csubst ->
+      | Def csubst -> (* TODO optimize if f is a proj and argument is known *)
           if cb.const_inline_code then
             lambda_of_app env sigma (Mod_subst.force_constr csubst) args
           else
           let prefix = get_const_prefix !global_env kn in
           let t =
             if is_lazy prefix (Mod_subst.force_constr csubst) then
-              mkLapp Lforce [|Lconst (prefix, kn)|]
-            else Lconst (prefix, kn)
+              mkLapp Lforce [|Lconst (prefix, (kn,u))|]
+            else Lconst (prefix, (kn,u))
           in
         mkLapp t (lambda_of_args env sigma 0 args)
       | OpaqueDef _ | Undef _ ->
           let prefix = get_const_prefix !global_env kn in
-          mkLapp (Lconst (prefix, kn)) (lambda_of_args env sigma 0 args)
+          mkLapp (Lconst (prefix, (kn,u))) (lambda_of_args env sigma 0 args)
       end)
-  | Construct c ->
+  | Construct (c,u) ->
       let tag, nparams, arity = Renv.get_construct_info env c in
       let expected = nparams + arity in
       let nargs = Array.length args in
@@ -687,14 +692,14 @@ and lambda_of_app env sigma f args =
                            (!global_env).retroknowledge f prefix c args
         with Not_found ->
 	  let args = lambda_of_args env sigma nparams args in
-	  makeblock !global_env c tag args
+	  makeblock !global_env c u tag args
       else
 	let args = lambda_of_args env sigma 0 args in
 	(try
 	    Retroknowledge.get_native_constant_dynamic_info
               (!global_env).retroknowledge f prefix c args
 	  with Not_found ->
-            mkLapp (Lconstruct (prefix, c)) args)
+            mkLapp (Lconstruct (prefix, (c,u))) args)
   | _ -> 
       let f = lambda_of_constr env sigma f in
       let args = lambda_of_args env sigma 0 args in
@@ -737,7 +742,7 @@ let compile_static_int31 fc args =
     Luint (UintVal
     (Uint31.of_int (Array.fold_left
        (fun temp_i -> fun t -> match kind_of_term t with
-          | Construct (_,d) -> 2*temp_i+d-1
+          | Construct ((_,d),_) -> 2*temp_i+d-1
           | _ -> raise NotClosed)
        0 args)))
 
@@ -747,8 +752,8 @@ let compile_dynamic_int31 fc prefix c args =
 
 (* We are relying here on the order of digits constructors *)
 let digits_from_uint digits_ind prefix i =
-  let d0 = Lconstruct (prefix, (digits_ind, 1)) in
-  let d1 = Lconstruct (prefix, (digits_ind, 2)) in
+  let d0 = Lconstruct (prefix, ((digits_ind, 1), Univ.Instance.empty)) in
+  let d1 = Lconstruct (prefix, ((digits_ind, 2), Univ.Instance.empty)) in
   let digits = Array.make 31 d0 in
   for k = 0 to 30 do
     if Int.equal ((Uint31.to_int i lsr k) land 1) 1 then
@@ -763,9 +768,9 @@ let before_match_int31 digits_ind fc prefix c t =
   match t with
   | Luint (UintVal i) ->
      let digits = digits_from_uint digits_ind prefix i in
-     mkLapp (Lconstruct (prefix,c)) digits
+     mkLapp (Lconstruct (prefix,(c, Univ.Instance.empty))) digits
   | Luint (UintDigits (prefix,c,args)) ->
-     mkLapp (Lconstruct (prefix,c)) args
+     mkLapp (Lconstruct (prefix,(c, Univ.Instance.empty))) args
   | _ -> Luint (UintDecomp (prefix,c,t))
 
 let compile_prim prim kn fc prefix args =

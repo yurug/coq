@@ -1,6 +1,6 @@
 (************************************************************************)
 (*  v      *   The Coq Proof Assistant  /  The Coq Development Team     *)
-(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2012     *)
+(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2015     *)
 (*   \VV/  **************************************************************)
 (*    //   *      This file is distributed under the terms of the       *)
 (*         *       GNU Lesser General Public License Version 2.1        *)
@@ -53,17 +53,18 @@ Theorem Z_lt_abs_rec :
     forall n:Z, P n.
 Proof.
   intros P HP p.
-  set (Q := fun z => 0 <= z -> P z * P (- z)) in *.
-  cut (Q (Z.abs p)); [ intros | apply (Z_lt_rec Q); auto with zarith ].
-  elim (Zabs_dec p); intro eq; rewrite eq; elim H; auto with zarith.
-  unfold Q; clear Q; intros.
+  set (Q := fun z => 0 <= z -> P z * P (- z)).
+  enough (H:Q (Z.abs p)) by
+    (destruct (Zabs_dec p) as [-> | ->]; elim H; auto with zarith).
+  apply (Z_lt_rec Q); auto with zarith.
+  subst Q; intros x H.
   split; apply HP.
-  rewrite Z.abs_eq; auto; intros.
-  elim (H (Z.abs m)); intros; auto with zarith.
-  elim (Zabs_dec m); intro eq; rewrite eq; trivial.
-  rewrite Z.abs_neq, Z.opp_involutive; auto with zarith; intros.
-  elim (H (Z.abs m)); intros; auto with zarith.
-  elim (Zabs_dec m); intro eq; rewrite eq; trivial.
+  - rewrite Z.abs_eq; auto; intros.
+    destruct (H (Z.abs m)); auto with zarith.
+    destruct (Zabs_dec m) as [-> | ->]; trivial.
+  - rewrite Z.abs_neq, Z.opp_involutive; auto with zarith; intros.
+    destruct (H (Z.abs m)); auto with zarith.
+    destruct (Zabs_dec m) as [-> | ->]; trivial.
 Qed.
 
 Theorem Z_lt_abs_induction :
@@ -73,16 +74,17 @@ Theorem Z_lt_abs_induction :
 Proof.
   intros P HP p.
   set (Q := fun z => 0 <= z -> P z /\ P (- z)) in *.
-  cut (Q (Z.abs p)); [ intros | apply (Z_lt_induction Q); auto with zarith ].
-  elim (Zabs_dec p); intro eq; rewrite eq; elim H; auto with zarith.
-  unfold Q; clear Q; intros.
+  enough (Q (Z.abs p)) by
+    (destruct (Zabs_dec p) as [-> | ->]; elim H; auto with zarith).
+  apply (Z_lt_induction Q); auto with zarith.
+  subst Q; intros.
   split; apply HP.
-  rewrite Z.abs_eq; auto; intros.
-  elim (H (Z.abs m)); intros; auto with zarith.
-  elim (Zabs_dec m); intro eq; rewrite eq; trivial.
-  rewrite Z.abs_neq, Z.opp_involutive; auto with zarith; intros.
-  elim (H (Z.abs m)); intros; auto with zarith.
-  elim (Zabs_dec m); intro eq; rewrite eq; trivial.
+  - rewrite Z.abs_eq; auto; intros.
+    elim (H (Z.abs m)); intros; auto with zarith.
+    elim (Zabs_dec m); intro eq; rewrite eq; trivial.
+  - rewrite Z.abs_neq, Z.opp_involutive; auto with zarith; intros.
+    destruct (H (Z.abs m)); auto with zarith.
+    destruct (Zabs_dec m) as [-> | ->]; trivial.
 Qed.
 
 (** To do case analysis over the sign of [z] *)

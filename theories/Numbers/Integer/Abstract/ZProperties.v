@@ -1,6 +1,6 @@
 (************************************************************************)
 (*  v      *   The Coq Proof Assistant  /  The Coq Development Team     *)
-(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2012     *)
+(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2015     *)
 (*   \VV/  **************************************************************)
 (*    //   *      This file is distributed under the terms of the       *)
 (*         *       GNU Lesser General Public License Version 2.1        *)
@@ -9,11 +9,22 @@
 Require Export ZAxioms ZMaxMin ZSgnAbs ZParity ZPow ZDivTrunc ZDivFloor
  ZGcd ZLcm NZLog NZSqrt ZBits.
 
-(** This functor summarizes all known facts about Z. *)
+(** The two following functors summarize all known facts about N.
 
-Module Type ZProp (Z:ZAxiomsSig) :=
- ZMaxMinProp Z <+ ZSgnAbsProp Z <+ ZParityProp Z <+ ZPowProp Z
- <+ NZSqrtProp Z Z <+ NZSqrtUpProp Z Z
- <+ NZLog2Prop Z Z Z <+ NZLog2UpProp Z Z Z
- <+ ZDivProp Z <+ ZQuotProp Z <+ ZGcdProp Z <+ ZLcmProp Z
- <+ ZBitsProp Z.
+    - [ZBasicProp] provides properties of basic functions:
+      + - * min max <= <
+
+    - [ZExtraProp] provides properties of advanced functions:
+      pow, sqrt, log2, div, gcd, and bitwise functions.
+
+    If necessary, the earlier all-in-one functor [ZProp]
+    could be re-obtained via [ZBasicProp <+ ZExtraProp] *)
+
+Module Type ZBasicProp (Z:ZAxiomsMiniSig) := ZMaxMinProp Z.
+
+Module Type ZExtraProp (Z:ZAxiomsSig)(P:ZBasicProp Z) :=
+ ZSgnAbsProp Z P <+ ZParityProp Z P <+ ZPowProp Z P
+ <+ NZSqrtProp Z Z P <+ NZSqrtUpProp Z Z P
+ <+ NZLog2Prop Z Z Z P <+ NZLog2UpProp Z Z Z P
+ <+ ZDivProp Z P <+ ZQuotProp Z P <+ ZGcdProp Z P <+ ZLcmProp Z P
+ <+ ZBitsProp Z P.

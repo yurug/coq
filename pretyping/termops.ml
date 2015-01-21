@@ -1,6 +1,6 @@
 (************************************************************************)
 (*  v      *   The Coq Proof Assistant  /  The Coq Development Team     *)
-(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2012     *)
+(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2015     *)
 (*   \VV/  **************************************************************)
 (*    //   *      This file is distributed under the terms of the       *)
 (*         *       GNU Lesser General Public License Version 2.1        *)
@@ -22,7 +22,7 @@ open Locus
 let print_sort = function
   | Prop Pos -> (str "Set")
   | Prop Null -> (str "Prop")
-  | Type u -> (str "Type(" ++ Univ.pr_uni u ++ str ")")
+  | Type u -> (str "Type(" ++ Univ.Universe.pr u ++ str ")")
 
 let pr_sort_family = function
   | InSet -> (str "Set")
@@ -43,6 +43,10 @@ let pr_fix pr_constr ((t,i),(lna,tl,bl)) =
            pr_name na ++ str"/" ++ int i ++ str":" ++ pr_constr ty ++
 	   cut() ++ str":=" ++ pr_constr bd) (Array.to_list fixl)) ++
          str"}")
+
+let pr_puniverses p u = 
+  if Univ.Instance.is_empty u then p 
+  else p ++ str"(*" ++ Univ.Instance.pr Universes.pr_with_global_universes u ++ str"*)"
 
 let rec pr_constr c = match kind_of_term c with
   | Rel n -> str "#"++int n
@@ -71,10 +75,11 @@ let rec pr_constr c = match kind_of_term c with
   | Evar (e,l) -> hov 1
       (str"Evar#" ++ int (Evar.repr e) ++ str"{" ++
        prlist_with_sep spc pr_constr (Array.to_list l) ++str"}")
-  | Const c -> str"Cst(" ++ pr_con c ++ str")"
-  | Ind (sp,i) -> str"Ind(" ++ pr_mind sp ++ str"," ++ int i ++ str")"
-  | Construct ((sp,i),j) ->
-      str"Constr(" ++ pr_mind sp ++ str"," ++ int i ++ str"," ++ int j ++ str")"
+  | Const (c,u) -> str"Cst(" ++ pr_puniverses (pr_con c) u ++ str")"
+  | Ind ((sp,i),u) -> str"Ind(" ++ pr_puniverses (pr_mind sp ++ str"," ++ int i) u ++ str")"
+  | Construct (((sp,i),j),u) ->
+      str"Constr(" ++ pr_puniverses (pr_mind sp ++ str"," ++ int i ++ str"," ++ int j) u ++ str")"
+  | Proj (p,c) -> str"Proj(" ++ pr_con (Projection.constant p) ++ str"," ++ bool (Projection.unfolded p) ++ pr_constr c ++ str")"
   | Case (ci,p,c,bl) -> v 0
       (hv 0 (str"<"++pr_constr p++str">"++ cut() ++ str"Case " ++
              pr_constr c ++ str"of") ++ cut() ++
@@ -144,41 +149,6 @@ let print_env env =
       env ~init:(mt ())
   in
     (sign_env ++ db_env)
-
-(*let current_module = ref DirPath.empty
-
-let set_module m = current_module := m*)
-
-let new_univ_level, set_remote_new_univ_level =
-  RemoteCounter.new_counter ~name:"univ_level" 0 ~incr:((+) 1)
-    ~build:(fun n -> Univ.UniverseLevel.make (Lib.library_dp()) n)
-
-let new_univ () = Univ.Universe.make (new_univ_level ())
-let new_Type () = mkType (new_univ ())
-let new_Type_sort () = Type (new_univ ())
-
-(* This refreshes universes in types; works only for inferred types (i.e. for
-   types of the form (x1:A1)...(xn:An)B with B a sort or an atom in
-   head normal form) *)
-let refresh_universes_gen strict t =
-  let modified = ref false in
-  let rec refresh t = match kind_of_term t with
-    | Sort (Type u) when strict || not (Univ.is_type0m_univ u) ->
-	modified := true; new_Type ()
-    | Prod (na,u,v) -> mkProd (na,u,refresh v)
-    | _ -> t in
-  let t' = refresh t in
-  if !modified then t' else t
-
-let refresh_universes = refresh_universes_gen false
-let refresh_universes_strict = refresh_universes_gen true
-
-let new_sort_in_family = function
-  | InProp -> prop_sort
-  | InSet -> set_sort
-  | InType -> Type (new_univ ())
-
-
 
 (* [Rel (n+m);...;Rel(n+1)] *)
 let rel_vect n m = Array.init m (fun i -> mkRel(n+m-i))
@@ -252,6 +222,13 @@ let it_mkNamedProd_or_LetIn init = it_named_context_quantifier mkNamedProd_or_Le
 let it_mkNamedProd_wo_LetIn init = it_named_context_quantifier mkNamedProd_wo_LetIn ~init
 let it_mkNamedLambda_or_LetIn init = it_named_context_quantifier mkNamedLambda_or_LetIn ~init
 
+let it_mkLambda_or_LetIn_from_no_LetIn c decls =
+  let rec aux k decls c = match decls with
+  | [] -> c
+  | (na,Some b,t)::decls -> mkLetIn (na,b,t,aux (k-1) decls (liftn 1 k c))
+  | (na,None,t)::decls -> mkLambda (na,t,aux (k-1) decls c)
+  in aux (List.length decls) (List.rev decls) c
+
 (* *)
 
 (* strips head casts and flattens head applications *)
@@ -319,6 +296,7 @@ let map_constr_with_named_binders g f l c = match kind_of_term c with
   | Lambda (na,t,c) -> mkLambda (na, f l t, f (g na l) c)
   | LetIn (na,b,t,c) -> mkLetIn (na, f l b, f l t, f (g na l) c)
   | App (c,al) -> mkApp (f l c, Array.map (f l) al)
+  | Proj (p,c) -> mkProj (p, f l c)
   | Evar (e,al) -> mkEvar (e, Array.map (f l) al)
   | Case (ci,p,c,bl) -> mkCase (ci, f l p, f l c, Array.map (f l) bl)
   | Fix (ln,(lna,tl,bl)) ->
@@ -357,38 +335,63 @@ let map_left2 f a g b =
 let map_constr_with_binders_left_to_right g f l c = match kind_of_term c with
   | (Rel _ | Meta _ | Var _   | Sort _ | Const _ | Ind _
     | Construct _) -> c
-  | Cast (c,k,t) -> let c' = f l c in mkCast (c',k,f l t)
-  | Prod (na,t,c) ->
+  | Cast (b,k,t) -> 
+    let b' = f l b in 
+    let t' = f l t in
+      if b' == b && t' == t then c
+      else mkCast (b',k,t')
+  | Prod (na,t,b) ->
       let t' = f l t in
-      mkProd (na, t', f (g (na,None,t) l) c)
-  | Lambda (na,t,c) ->
+      let b' = f (g (na,None,t) l) b in
+	if t' == t && b' == b then c
+	else mkProd (na, t', b')
+  | Lambda (na,t,b) ->
       let t' = f l t in
-      mkLambda (na, t', f (g (na,None,t) l) c)
-  | LetIn (na,b,t,c) ->
-      let b' = f l b in
+      let b' = f (g (na,None,t) l) b in
+	if t' == t && b' == b then c
+	else mkLambda (na, t', b')
+  | LetIn (na,bo,t,b) ->
+      let bo' = f l bo in
       let t' = f l t in
-      let c' = f (g (na,Some b,t) l) c in
-      mkLetIn (na, b', t', c')
+      let b' = f (g (na,Some bo,t) l) b in
+	if bo' == bo && t' == t && b' == b then c
+	else mkLetIn (na, bo', t', b')	    
   | App (c,[||]) -> assert false
-  | App (c,al) ->
+  | App (t,al) ->
       (*Special treatment to be able to recognize partially applied subterms*)
       let a = al.(Array.length al - 1) in
-      let hd = f l (mkApp (c, Array.sub al 0 (Array.length al - 1))) in
-      mkApp (hd, [| f l a |])
-  | Evar (e,al) -> mkEvar (e, Array.map_left (f l) al)
-  | Case (ci,p,c,bl) ->
+      let app = (mkApp (t, Array.sub al 0 (Array.length al - 1))) in
+      let app' = f l app in
+      let a' = f l a in
+	if app' == app && a' == a then c
+	else mkApp (app', [| a' |])
+  | Proj (p,b) ->
+    let b' = f l b in
+      if b' == b then c
+      else mkProj (p, b')
+  | Evar (e,al) -> 
+    let al' = Array.map_left (f l) al in
+      if Array.for_all2 (==) al' al then c
+      else mkEvar (e, al')
+  | Case (ci,p,b,bl) ->
       (* In v8 concrete syntax, predicate is after the term to match! *)
-      let c' = f l c in
+      let b' = f l b in
       let p' = f l p in
-      mkCase (ci, p', c', Array.map_left (f l) bl)
+      let bl' = Array.map_left (f l) bl in
+	if b' == b && p' == p && bl' == bl then c
+	else mkCase (ci, p', b', bl')
   | Fix (ln,(lna,tl,bl as fx)) ->
       let l' = fold_rec_types g fx l in
       let (tl', bl') = map_left2 (f l) tl (f l') bl in
-      mkFix (ln,(lna,tl',bl'))
+	if Array.for_all2 (==) tl tl' && Array.for_all2 (==) bl bl'
+	then c
+	else mkFix (ln,(lna,tl',bl'))
   | CoFix(ln,(lna,tl,bl as fx)) ->
       let l' = fold_rec_types g fx l in
       let (tl', bl') = map_left2 (f l) tl (f l') bl in
-      mkCoFix (ln,(lna,tl',bl'))
+	if Array.for_all2 (==) tl tl' && Array.for_all2 (==) bl bl'
+	then c
+	else mkCoFix (ln,(lna,tl',bl'))
 
 (* strong *)
 let map_constr_with_full_binders g f l cstr = match kind_of_term cstr with
@@ -415,6 +418,9 @@ let map_constr_with_full_binders g f l cstr = match kind_of_term cstr with
       let c' = f l c in
       let al' = Array.map (f l) al in
       if c==c' && Array.for_all2 (==) al al' then cstr else mkApp (c', al')
+  | Proj (p,c) -> 
+      let c' = f l c in
+	if c' == c then cstr else mkProj (p, c')
   | Evar (e,al) ->
       let al' = Array.map (f l) al in
       if Array.for_all2 (==) al al' then cstr else mkEvar (e, al')
@@ -456,6 +462,7 @@ let fold_constr_with_binders g f n acc c = match kind_of_term c with
   | Lambda (_,t,c) -> f (g n) (f n acc t) c
   | LetIn (_,b,t,c) -> f (g n) (f n (f n acc b) t) c
   | App (c,l) -> Array.fold_left (f n) (f n acc c) l
+  | Proj (p,c) -> f n acc c
   | Evar (_,l) -> Array.fold_left (f n) acc l
   | Case (_,p,c,bl) -> Array.fold_left (f n) (f n (f n acc p) c) bl
   | Fix (_,(lna,tl,bl)) ->
@@ -480,6 +487,7 @@ let iter_constr_with_full_binders g f l c = match kind_of_term c with
   | Lambda (na,t,c) -> f l t; f (g (na,None,t) l) c
   | LetIn (na,b,t,c) -> f l b; f l t; f (g (na,Some b,t) l) c
   | App (c,args) -> f l c; Array.iter (f l) args
+  | Proj (p,c) -> f l c
   | Evar (_,args) -> Array.iter (f l) args
   | Case (_,p,c,bl) -> f l p; f l c; Array.iter (f l) bl
   | Fix (_,(lna,tl,bl)) ->
@@ -573,9 +581,10 @@ let collect_vars c =
 (* Tests whether [m] is a subterm of [t]:
    [m] is appropriately lifted through abstractions of [t] *)
 
-let dependent_main noevar m t =
+let dependent_main noevar univs m t =
+  let eqc x y = if univs then fst (Universes.eq_constr_universes x y) else eq_constr_nounivs x y in
   let rec deprec m t =
-    if eq_constr m t then
+    if eqc m t then
       raise Occur
     else
       match kind_of_term m, kind_of_term t with
@@ -590,8 +599,16 @@ let dependent_main noevar m t =
   in
   try deprec m t; false with Occur -> true
 
-let dependent = dependent_main false
-let dependent_no_evar = dependent_main true
+let dependent = dependent_main false false
+let dependent_no_evar = dependent_main true false
+
+let dependent_univs = dependent_main false true
+let dependent_univs_no_evar = dependent_main true true
+
+let dependent_in_decl a (_,c,t) =
+  match c with
+    | None -> dependent a t
+    | Some body -> dependent a body || dependent a t
 
 let count_occurrences m t =
   let n = ref 0 in
@@ -692,139 +709,6 @@ let replace_term_gen eq_fun c by_c in_t =
 
 let replace_term = replace_term_gen eq_constr
 
-(* Substitute only at a list of locations or excluding a list of
-   locations; in the occurrences list (b,l), b=true means no
-   occurrence except the ones in l and b=false, means all occurrences
-   except the ones in l *)
-
-let error_invalid_occurrence l =
-  let l = List.sort_uniquize Int.compare l in
-  errorlabstrm ""
-    (str ("Invalid occurrence " ^ String.plural (List.length l) "number" ^": ") ++
-     prlist_with_sep spc int l ++ str ".")
-
-let pr_position (cl,pos) =
-  let clpos = match cl with
-    | None -> str " of the goal"
-    | Some (id,InHyp) -> str " of hypothesis " ++ pr_id id
-    | Some (id,InHypTypeOnly) -> str " of the type of hypothesis " ++ pr_id id
-    | Some (id,InHypValueOnly) -> str " of the body of hypothesis " ++ pr_id id in
-  int pos ++ clpos
-
-let error_cannot_unify_occurrences nested (cl2,pos2,t2) (cl1,pos1,t1) =
-  let s = if nested then "Found nested occurrences of the pattern"
-    else "Found incompatible occurrences of the pattern" in
-  errorlabstrm ""
-    (str s ++ str ":" ++
-     spc () ++ str "Matched term " ++ quote (print_constr t2) ++
-     strbrk " at position " ++ pr_position (cl2,pos2) ++ 
-     strbrk " is not compatible with matched term " ++
-     quote (print_constr t1) ++ strbrk " at position " ++ 
-     pr_position (cl1,pos1) ++ str ".")
-
-exception NotUnifiable
-
-type 'a testing_function = {
-  match_fun : constr -> 'a;
-  merge_fun : 'a -> 'a -> 'a;
-  mutable testing_state : 'a;
-  mutable last_found : ((Id.t * hyp_location_flag) option * int * constr) option
-}
-
-let subst_closed_term_occ_gen_modulo occs test cl occ t =
-  let (nowhere_except_in,locs) = Locusops.convert_occs occs in
-  let maxocc = List.fold_right max locs 0 in
-  let pos = ref occ in
-  let nested = ref false in
-  let add_subst t subst =
-    try
-      test.testing_state <- test.merge_fun subst test.testing_state;
-      test.last_found <- Some (cl,!pos,t)
-    with NotUnifiable ->
-      let lastpos = Option.get test.last_found in
-      error_cannot_unify_occurrences !nested (cl,!pos,t) lastpos in
-  let rec substrec k t =
-    if nowhere_except_in && !pos > maxocc then t else
-    try
-      let subst = test.match_fun t in
-      if Locusops.is_selected !pos occs then
-        (add_subst t subst; incr pos;
-         (* Check nested matching subterms *)
-         nested := true; ignore (subst_below k t); nested := false;
-         (* Do the effective substitution *)
-         mkRel k)
-      else
-        (incr pos; subst_below k t)
-    with NotUnifiable ->
-      subst_below k t
-  and subst_below k t =
-    map_constr_with_binders_left_to_right (fun d k -> k+1) substrec k t
-  in
-  let t' = substrec 1 t in
-  (!pos, t')
-
-let check_used_occurrences nbocc (nowhere_except_in,locs) =
-  let rest = List.filter (fun o -> o >= nbocc) locs in
-  match rest with
-  | [] -> ()
-  | _ -> error_invalid_occurrence rest
-
-let proceed_with_occurrences f occs x =
-  match occs with
-  | NoOccurrences -> x
-  | _ ->
-    (* TODO FINISH ADAPTING WITH HUGO *)
-    let plocs = Locusops.convert_occs occs in
-    assert (List.for_all (fun x -> x >= 0) (snd plocs));
-    let (nbocc,x) = f 1 x in
-    check_used_occurrences nbocc plocs;
-    x
-
-let make_eq_test c = {
-  match_fun = (fun c' -> if eq_constr c c' then () else raise NotUnifiable);
-  merge_fun = (fun () () -> ());
-  testing_state = ();
-  last_found = None
-} 
-
-let subst_closed_term_occ_gen occs pos c t =
-  subst_closed_term_occ_gen_modulo occs (make_eq_test c) None pos t
-
-let subst_closed_term_occ occs c t =
-  proceed_with_occurrences
-    (fun occ -> subst_closed_term_occ_gen occs occ c)
-    occs t
-
-let subst_closed_term_occ_modulo occs test cl t =
-  proceed_with_occurrences
-    (subst_closed_term_occ_gen_modulo occs test cl) occs t
-
-let map_named_declaration_with_hyploc f hyploc acc (id,bodyopt,typ) =
-  let f = f (Some (id,hyploc)) in
-  match bodyopt,hyploc with
-  | None, InHypValueOnly ->
-      errorlabstrm "" (pr_id id ++ str " has no value.")
-  | None, _ | Some _, InHypTypeOnly ->
-      let acc,typ = f acc typ in acc,(id,bodyopt,typ)
-  | Some body, InHypValueOnly ->
-      let acc,body = f acc body in acc,(id,Some body,typ)
-  | Some body, InHyp ->
-      let acc,body = f acc body in
-      let acc,typ = f acc typ in
-      acc,(id,Some body,typ)
-
-let subst_closed_term_occ_decl (plocs,hyploc) c d =
-  proceed_with_occurrences
-    (map_named_declaration_with_hyploc
-       (fun _ occ -> subst_closed_term_occ_gen plocs occ c) hyploc) plocs d
-
-let subst_closed_term_occ_decl_modulo (plocs,hyploc) test d =
-  proceed_with_occurrences
-    (map_named_declaration_with_hyploc
-       (subst_closed_term_occ_gen_modulo plocs test)
-       hyploc)
-    plocs d
-
 let vars_of_env env =
   let s =
     Context.fold_named_context (fun (id,_,_) s -> Id.Set.add id s)
@@ -879,9 +763,10 @@ let isGlobalRef c =
   | Const _ | Ind _ | Construct _ | Var _ -> true
   | _ -> false
 
-let has_polymorphic_type c =
-  match (Global.lookup_constant c).Declarations.const_type with
-  | Declarations.PolymorphicArity _ -> true
+let is_template_polymorphic env f =
+  match kind_of_term f with
+  | Ind ind -> Environ.template_polymorphic_pind ind env
+  | Const c -> Environ.template_polymorphic_pconstant c env
   | _ -> false
 
 let base_sort_cmp pb s0 s1 =
@@ -966,9 +851,9 @@ let align_prod_letin c a : rel_context * constr =
   let (l1,l2) = Util.List.chop lc l in
   l2,it_mkProd_or_LetIn a l1
 
-(* On reduit une serie d'eta-redex de tete ou rien du tout  *)
+(* We reduce a series of head eta-redex or nothing at all   *)
 (* [x1:c1;...;xn:cn]@(f;a1...an;x1;...;xn) --> @(f;a1...an) *)
-(* Remplace 2 versions précédentes buggées                  *)
+(* Remplace 2 earlier buggish versions                      *)
 
 let rec eta_reduce_head c =
   match kind_of_term c with
@@ -1055,6 +940,18 @@ let rec mem_named_context id = function
   | _ :: sign -> mem_named_context id sign
   | [] -> false
 
+let compact_named_context_reverse sign =
+  let compact l (i1,c1,t1) =
+    match l with
+    | [] -> [[i1],c1,t1]
+    | (l2,c2,t2)::q ->
+       if Option.equal Constr.equal c1 c2 && Constr.equal t1 t2
+       then (i1::l2,c2,t2)::q
+       else ([i1],c1,t1)::l
+  in Context.fold_named_context_reverse compact ~init:[] sign
+
+let compact_named_context sign = List.rev (compact_named_context_reverse sign)
+
 let clear_named_body id env =
   let aux _ = function
   | (id',Some c,t) when Id.equal id id' -> push_named (id,None,t)
@@ -1117,9 +1014,11 @@ let coq_unit_judge =
   let na2 = Name (Id.of_string "H") in
   fun () ->
     match !impossible_default_case with
-    | Some (id,type_of_id) ->
-	make_judge id type_of_id
+    | Some fn -> 
+        let (id,type_of_id), ctx = fn () in
+	  make_judge id type_of_id, ctx
     | None ->
 	(* In case the constants id/ID are not defined *)
 	make_judge (mkLambda (na1,mkProp,mkLambda(na2,mkRel 1,mkRel 1)))
-                 (mkProd (na1,mkProp,mkArrow (mkRel 1) (mkRel 2)))
+                 (mkProd (na1,mkProp,mkArrow (mkRel 1) (mkRel 2))), 
+       Univ.ContextSet.empty

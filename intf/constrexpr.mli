@@ -1,6 +1,6 @@
 (************************************************************************)
 (*  v      *   The Coq Proof Assistant  /  The Coq Development Team     *)
-(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2012     *)
+(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2015     *)
 (*   \VV/  **************************************************************)
 (*    //   *      This file is distributed under the terms of the       *)
 (*         *       GNU Lesser General Public License Version 2.1        *)
@@ -61,14 +61,16 @@ and cases_pattern_notation_substitution =
     cases_pattern_expr list *     (** for constr subterms *)
     cases_pattern_expr list list  (** for recursive notations *)
 
+type instance_expr = Misctypes.glob_level list
+
 type constr_expr =
-  | CRef of reference
+  | CRef of reference * instance_expr option
   | CFix of Loc.t * Id.t located * fix_expr list
   | CCoFix of Loc.t * Id.t located * cofix_expr list
   | CProdN of Loc.t * binder_expr list * constr_expr
   | CLambdaN of Loc.t * binder_expr list * constr_expr
   | CLetIn of Loc.t * Name.t located * constr_expr * constr_expr
-  | CAppExpl of Loc.t * (proj_flag * reference) * constr_expr list
+  | CAppExpl of Loc.t * (proj_flag * reference * instance_expr option) * constr_expr list
   | CApp of Loc.t * (proj_flag * constr_expr) *
       (constr_expr * explicitation located option) list
   | CRecord of Loc.t * constr_expr option * (reference * constr_expr) list
@@ -78,9 +80,9 @@ type constr_expr =
       constr_expr * constr_expr
   | CIf of Loc.t * constr_expr * (Name.t located option * constr_expr option)
       * constr_expr * constr_expr
-  | CHole of Loc.t * Evar_kinds.t option * Genarg.raw_generic_argument option
-  | CPatVar of Loc.t * (bool * patvar)
-  | CEvar of Loc.t * existential_key * constr_expr list option
+  | CHole of Loc.t * Evar_kinds.t option * intro_pattern_naming_expr * Genarg.raw_generic_argument option
+  | CPatVar of Loc.t * patvar
+  | CEvar of Loc.t * Glob_term.existential_name * (Id.t * constr_expr) list
   | CSort of Loc.t * glob_sort
   | CCast of Loc.t * constr_expr * constr_expr cast_type
   | CNotation of Loc.t * notation * constr_notation_substitution

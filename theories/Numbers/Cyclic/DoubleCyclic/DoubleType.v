@@ -1,6 +1,6 @@
 (************************************************************************)
 (*  v      *   The Coq Proof Assistant  /  The Coq Development Team     *)
-(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2012     *)
+(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2015     *)
 (*   \VV/  **************************************************************)
 (*    //   *      This file is distributed under the terms of the       *)
 (*         *       GNU Lesser General Public License Version 2.1        *)
@@ -14,6 +14,7 @@ Require Import ZArith.
 Local Open Scope Z_scope.
 
 Definition base digits := Z.pow 2 (Zpos digits).
+Arguments base digits: simpl never.
 
 Section Carry.
 
@@ -53,7 +54,7 @@ Section Zn2Z.
 
 End Zn2Z.
 
-Arguments W0 [znz].
+Arguments W0 {znz}.
 
 (** From a cyclic representation [w], we iterate the [zn2z] construct
     [n] times, gaining the type of binary trees of depth at most [n],

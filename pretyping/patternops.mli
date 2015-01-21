@@ -1,6 +1,6 @@
 (************************************************************************)
 (*  v      *   The Coq Proof Assistant  /  The Coq Development Team     *)
-(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2012     *)
+(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2015     *)
 (*   \VV/  **************************************************************)
 (*    //   *      This file is distributed under the terms of the       *)
 (*         *       GNU Lesser General Public License Version 2.1        *)
@@ -39,7 +39,7 @@ val head_of_constr_reference : Term.constr -> global_reference
    a pattern; currently, no destructor (Cases, Fix, Cofix) and no
    existential variable are allowed in [c] *)
 
-val pattern_of_constr : Evd.evar_map -> constr -> named_context * constr_pattern
+val pattern_of_constr : Environ.env -> Evd.evar_map -> constr -> named_context * constr_pattern
 
 (** [pattern_of_glob_constr l c] translates a term [c] with metavariables into
    a pattern; variables bound in [l] are replaced by the pattern to which they
@@ -48,7 +48,7 @@ val pattern_of_constr : Evd.evar_map -> constr -> named_context * constr_pattern
 val pattern_of_glob_constr : glob_constr ->
       patvar list * constr_pattern
 
-val instantiate_pattern :
+val instantiate_pattern : Environ.env ->
   Evd.evar_map -> extended_patvar_map ->
   constr_pattern -> constr_pattern
 

@@ -1,6 +1,6 @@
 (************************************************************************)
 (*  v      *   The Coq Proof Assistant  /  The Coq Development Team     *)
-(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2012     *)
+(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2015     *)
 (*   \VV/  **************************************************************)
 (*    //   *      This file is distributed under the terms of the       *)
 (*         *       GNU Lesser General Public License Version 2.1        *)
@@ -13,6 +13,9 @@ let version ret =
   exit ret
 
 (* print the usage of coqtop (or coqc) on channel co *)
+
+let extra_usage = ref []
+let add_to_usage name text = extra_usage := (name,text) :: !extra_usage
 
 let print_usage_channel co command =
   output_string co command;
@@ -30,9 +33,6 @@ let print_usage_channel co command =
 \n\
 \n  -noinit                start without loading the Init library\
 \n  -nois                  (idem)\
-\n  -inputstate f          read state from file f.coq\
-\n  -is f                  (idem)\
-\n  -outputstate f         write state in file f.coq\
 \n  -compat X.Y            provides compatibility support for Coq version X.Y\
 \n  -verbose-compat-notations  be warned when using compatibility notations\
 \n  -no-compat-notations   get an error when using compatibility notations\
@@ -48,12 +48,10 @@ let print_usage_channel co command =
 \n  -compile f             compile Coq file f.v (implies -batch)\
 \n  -compile-verbose f     verbosely compile Coq file f.v (implies -batch)\
 \n\
-\n  -opt                   run the native-code version of Coq\
-\n  -byte                  run the bytecode version of Coq\
-\n\
 \n  -where                 print Coq's standard library location and exit\
 \n  -config                print Coq's configuration information and exit\
 \n  -v                     print Coq version and exit\
+\n  -list-tags             print highlight color tags known by Coq and exit\
 \n\
 \n  -q                     skip loading of rcfile\
 \n  -init-file f           set the rcfile to f\
@@ -62,37 +60,42 @@ let print_usage_channel co command =
 \n  -bt                    print backtraces (requires configure debug flag)\
 \n  -debug                 debug mode (implies -bt)\
 \n  -emacs                 tells Coq it is executed under Emacs\
+\n  -color (on|off|auto)   configure color output (only active through coqtop)\
 \n  -noglob                do not dump globalizations\
 \n  -dump-glob f           dump globalizations in file f (to be used by coqdoc)\
 \n  -with-geoproof (yes|no) to (de)activate special functions for Geoproof within Coqide (default is yes)\
 \n  -impredicative-set     set sort Set impredicative\
-
-\n  -force-load-proofs     load opaque proofs in memory initially\
-\n  -lazy-load-proofs      load opaque proofs in memory by necessity (default)\
-\n  -dont-load-proofs      see opaque proofs as axioms instead of loading them\
-\n  -xml                   export XML files either to the hierarchy rooted in\
-\n                         the directory $COQ_XML_LIBRARY_ROOT (if set) or to\
-\n                         stdout (if unset)\
-\n  -quality               improve the legibility of the proof terms produced by\
-\n                         some tactics\
+\n  -indices-matter        levels of indices (and nonuniform parameters) contribute to the level of inductives\
 \n  -time                  display the time taken by each command\
-\n  -h, --help             print this list of options\
-\n  --help-XML-protocol    print the documentation of the XML protocol used by CoqIDE\
-\n"
+\n  -no-native-compiler    disable the native_compute reduction machinery\
+\n  -h, -help              print this list of options\
+\n";
+  List.iter (fun (name, text) ->
+    output_string co
+     ("\nWith the flag '-toploop "^name^
+        "' these extra option are also available:\n"^
+      text^"\n"))
+    !extra_usage
 
 (* print the usage on standard error *)
 
 let print_usage = print_usage_channel stderr
 
 let print_usage_coqtop () =
-  print_usage "Usage: coqtop <options>\n\n"
+  print_usage "Usage: coqtop <options>\n\n";
+  flush stderr ;
+  exit 1
 
 let print_usage_coqc () =
   print_usage "Usage: coqc <options> <Coq options> file...\n\
 \noptions are:\
 \n  -verbose  compile verbosely\
 \n  -image f  specify an alternative executable for Coq\
-\n  -t        keep temporary files\n\n"
+\n  -opt      run the native-code version of Coq\
+\n  -byte     run the bytecode version of Coq\
+\n  -t        keep temporary files\n\n";
+  flush stderr ;
+  exit 1
 
 (* Print the configuration information *)
 

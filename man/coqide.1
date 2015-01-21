@@ -40,16 +40,8 @@ to logical
 .B \-src
 Add source directories in the include path.
 .TP
-.BI \-is\  f ,\ \-inputstate\  f
-Read state from
-.IR f .coq.
-.TP
 .B \-nois
 Start with an empty state.
-.TP
-.BI \-outputstate\  f
-Write state in file
-.IR f .coq.
 .TP
 .BI \-load\-ml\-object\  f
 Load ML object file
@@ -93,12 +85,6 @@ Verbosely compile Coq file
 (implies
 .BR -batch ).
 .TP
-.B \-opt
-Run the native-code version of Coq or Coq_SearchIsos.
-.TP
-.B \-byte
-Run the bytecode version of Coq or Coq_SearchIsos.
-.TP
 .B \-where
 Print Coq's standard library location and exit.
 .TP
@@ -135,12 +121,6 @@ Set sort Set impredicative.
 .TP
 .B \-dont\-load\-proofs
 Don't load opaque proofs in memory.
-.TP
-.B \-xml
-Export XML files either to the hierarchy rooted in
-the directory
-.B COQ_XML_LIBRARY_ROOT
-(if set) or to stdout (if unset).
 
 
 .SH SEE ALSO

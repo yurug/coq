@@ -1,6 +1,6 @@
 (************************************************************************)
 (*  v      *   The Coq Proof Assistant  /  The Coq Development Team     *)
-(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2012     *)
+(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2015     *)
 (*   \VV/  **************************************************************)
 (*    //   *      This file is distributed under the terms of the       *)
 (*         *       GNU Lesser General Public License Version 2.1        *)
@@ -53,7 +53,7 @@ let load_rcfile() =
     with reraise ->
       let reraise = Errors.push reraise in
       let () = msg_info (str"Load of rcfile failed.") in
-      raise reraise
+      iraise reraise
   else
     Flags.if_verbose msg_info (str"Skipping rcfile loading.")
 
@@ -92,6 +92,12 @@ let init_load_path () =
     (* NOTE: These directories are searched from last to first *)
     (* first, developer specific directory to open *)
     if Coq_config.local then coq_add_path (coqlib/"dev") "dev";
+    (* main loops *)
+    if Coq_config.local || !Flags.boot then begin
+      let () = Mltop.add_ml_dir (coqlib/"stm") in
+      Mltop.add_ml_dir (coqlib/"ide")
+    end;
+    Mltop.add_ml_dir (coqlib/"toploop");
     (* then standard library *)
     add_stdlib_path ~unix_path:(coqlib/"theories") ~coq_root ~with_ml:false;
     (* then plugins *)
@@ -131,6 +137,7 @@ let init_ocaml_path () =
         [ "grammar" ]; [ "ide" ] ]
 
 let get_compat_version = function
+  | "8.4" -> Flags.V8_4
   | "8.3" -> Flags.V8_3
   | "8.2" -> Flags.V8_2
   | ("8.1" | "8.0") as s ->

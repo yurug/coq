@@ -5,6 +5,7 @@ Libobject
 Summary
 Nametab
 Global
+Universes
 Lib
 Declaremods
 Loadpath
@@ -16,3 +17,4 @@ Goptions
 Decls
 Heads
 Assumptions
+Keys

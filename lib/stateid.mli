@@ -31,5 +31,15 @@ val of_xml : xml -> t
  * state id that is a valid state id before the error.
  * Backtracking to the valid id is safe.
  * The initial_state_id is assumed to be safe. *)
-val add : exn -> ?valid:t -> t -> exn
-val get : exn -> (t * t) option
+val add : Exninfo.info -> ?valid:t -> t -> Exninfo.info
+val get : Exninfo.info -> (t * t) option
+
+type ('a,'b) request = {
+  exn_info : t * t;
+  stop : t;
+  document : 'b;
+  loc : Loc.t;
+  uuid     : 'a;
+  name     : string
+}
+

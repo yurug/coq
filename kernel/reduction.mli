@@ -1,6 +1,6 @@
 (************************************************************************)
 (*  v      *   The Coq Proof Assistant  /  The Coq Development Team     *)
-(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2012     *)
+(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2015     *)
 (*   \VV/  **************************************************************)
 (*    //   *      This file is distributed under the terms of the       *)
 (*         *       GNU Lesser General Public License Version 2.1        *)
@@ -10,37 +10,64 @@ open Term
 open Context
 open Environ
 
+val left2right : bool ref
+
 (***********************************************************************
   s Reduction functions *)
 
-val whd_betaiotazeta        : constr -> constr
+val whd_betaiotazeta        : env -> constr -> constr
 val whd_betadeltaiota       : env -> constr -> constr
 val whd_betadeltaiota_nolet : env -> constr -> constr
 
-val whd_betaiota      : constr -> constr
-val nf_betaiota      : constr -> constr
+val whd_betaiota     : env -> constr -> constr
+val nf_betaiota      : env -> constr -> constr
 
 (***********************************************************************
   s conversion functions *)
 
 exception NotConvertible
 exception NotConvertibleVect of int
-type 'a conversion_function = env -> 'a -> 'a -> Univ.constraints
-type 'a trans_conversion_function = Names.transparent_state -> env -> 'a -> 'a -> Univ.constraints
+
+type 'a conversion_function = env -> 'a -> 'a -> unit
+type 'a trans_conversion_function = Names.transparent_state -> 'a conversion_function
+type 'a universe_conversion_function = env -> Univ.universes -> 'a -> 'a -> unit
+type 'a trans_universe_conversion_function = 
+  Names.transparent_state -> 'a universe_conversion_function
 
 type conv_pb = CONV | CUMUL
 
-val sort_cmp :
-    conv_pb -> sorts -> sorts -> Univ.constraints -> Univ.constraints
+type 'a universe_compare = 
+  { (* Might raise NotConvertible *)
+    compare : env -> conv_pb -> sorts -> sorts -> 'a -> 'a;
+    compare_instances: bool (* Instance of a flexible constant? *) -> 
+		       Univ.Instance.t -> Univ.Instance.t -> 'a -> 'a;
+  } 
 
-val conv_sort      : sorts conversion_function
-val conv_sort_leq  : sorts conversion_function
+type 'a universe_state = 'a * 'a universe_compare
+
+type ('a,'b) generic_conversion_function = env -> 'b universe_state -> 'a -> 'a -> 'b
+
+type 'a infer_conversion_function = env -> Univ.universes -> 'a -> 'a -> Univ.constraints
+
+val check_sort_cmp_universes :
+  env -> conv_pb -> sorts -> sorts -> Univ.universes -> unit
+
+(* val sort_cmp : *)
+(*     conv_pb -> sorts -> sorts -> Univ.constraints -> Univ.constraints *)
+
+(* val conv_sort      : sorts conversion_function *)
+(* val conv_sort_leq  : sorts conversion_function *)
 
 val trans_conv_cmp       : ?l2r:bool -> conv_pb -> constr trans_conversion_function
 val trans_conv           :
   ?l2r:bool -> ?evars:(existential->constr option) -> constr trans_conversion_function
 val trans_conv_leq       :
   ?l2r:bool -> ?evars:(existential->constr option) -> types trans_conversion_function
+
+val trans_conv_universes     :
+  ?l2r:bool -> ?evars:(existential->constr option) -> constr trans_universe_conversion_function
+val trans_conv_leq_universes :
+  ?l2r:bool -> ?evars:(existential->constr option) -> types trans_universe_conversion_function
 
 val conv_cmp       : ?l2r:bool -> conv_pb -> constr conversion_function
 val conv           :
@@ -49,6 +76,14 @@ val conv_leq       :
   ?l2r:bool -> ?evars:(existential->constr option) -> types conversion_function
 val conv_leq_vecti :
   ?l2r:bool -> ?evars:(existential->constr option) -> types array conversion_function
+
+val infer_conv : ?l2r:bool -> ?evars:(existential->constr option) -> 
+  ?ts:Names.transparent_state -> constr infer_conversion_function
+val infer_conv_leq : ?l2r:bool -> ?evars:(existential->constr option) -> 
+  ?ts:Names.transparent_state -> types infer_conversion_function
+
+val generic_conv : conv_pb -> bool -> (existential->constr option) -> 
+  Names.transparent_state -> (constr,'a) generic_conversion_function
 
 (** option for conversion *)
 val set_vm_conv : (conv_pb -> types conversion_function) -> unit

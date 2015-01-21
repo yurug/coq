@@ -61,6 +61,7 @@ sig
   val except : 'a eq -> 'a -> 'a list -> 'a list
   val remove : 'a eq -> 'a -> 'a list -> 'a list
   val remove_first : ('a -> bool) -> 'a list -> 'a list
+  val insert : ('a -> 'a -> bool) -> 'a -> 'a list -> 'a list
   val for_all2eq : ('a -> 'b -> bool) -> 'a list -> 'b list -> bool
   val sep_last : 'a list -> 'a * 'a list
   val find_map : ('a -> 'b option) -> 'a list -> 'b
@@ -69,6 +70,8 @@ sig
   val merge_uniq : ('a -> 'a -> int) -> 'a list -> 'a list -> 'a list
   val subset : 'a list -> 'a list -> bool
   val chop : int -> 'a list -> 'a list * 'a list
+  exception IndexOutOfRange
+  val goto : int -> 'a list -> 'a list * 'a list
   val split_when : ('a -> bool) -> 'a list -> 'a list * 'a list
   val split3 : ('a * 'b * 'c) list -> 'a list * 'b list * 'c list
   val firstn : int -> 'a list -> 'a list
@@ -442,6 +445,13 @@ let rec remove_first p = function
   | b::l -> b::remove_first p l
   | [] -> raise Not_found
 
+let insert p v l =
+  let rec insrec = function
+    | [] -> [v]
+    | h::tl -> if p v h then v::h::tl else h::insrec tl
+  in
+  insrec l
+
 let add_set cmp x l = if mem_f cmp x l then l else x :: l
 
 (** List equality up to permutation (but considering multiple occurrences) *)
@@ -479,14 +489,14 @@ let rec find_map f = function
 
 let uniquize l =
   let visited = Hashtbl.create 23 in
-  let rec aux acc = function
-    | h::t -> if Hashtbl.mem visited h then aux acc t else
+  let rec aux acc changed = function
+    | h::t -> if Hashtbl.mem visited h then aux acc true t else
           begin
             Hashtbl.add visited h h;
-            aux (h::acc) t
+            aux (h::acc) changed t
           end
-    | [] -> List.rev acc
-  in aux [] l
+    | [] -> if changed then List.rev acc else l
+  in aux [] false l
 
 (** [sort_uniquize] might be an alternative to the hashtbl-based
     [uniquize], when the order of the elements is irrelevant *)
@@ -588,17 +598,28 @@ let subset l1 l2 =
   in
   look l1
 
+(** [goto i l] splits [l] into two lists [(l1,l2)] such that
+    [(List.rev l1)++l2=l] and [l1] has length [i].  It raises
+    [IndexOutOfRange] when [i] is negative or greater than the
+    length of [l]. *)
+exception IndexOutOfRange
+let goto n l =
+  let rec goto i acc = function
+    | tl when Int.equal i 0 -> (acc, tl)
+    | h::t -> goto (pred i) (h::acc) t
+    | [] -> raise IndexOutOfRange
+  in
+  goto n [] l
+
 (* [chop i l] splits [l] into two lists [(l1,l2)] such that
    [l1++l2=l] and [l1] has length [i].
    It raises [Failure] when [i] is negative or greater than the length of [l]  *)
 
 let chop n l =
-  let rec chop_aux i acc = function
-    | tl when Int.equal i 0 -> (List.rev acc, tl)
-    | h::t -> chop_aux (pred i) (h::acc) t
-    | [] -> failwith "List.chop"
-  in
-  chop_aux n [] l
+  try let (h,t) = goto n l in (List.rev h,t)
+  with IndexOutOfRange -> failwith "List.chop"
+    (* spiwack: should raise [IndexOutOfRange] but I'm afraid of missing
+       a try/with when replacing the exception. *)
 
 (* [split_when p l] splits [l] into two lists [(l1,a::l2)] such that
     [l1++(a::l2)=l], [p a=true] and [p b = false] for every element [b] of [l1].

@@ -26,7 +26,7 @@
     <define-regex id="first_ident_char">[_\p{L}]</define-regex>
     <define-regex id="ident_char">[_\p{L}'\pN]</define-regex>
     <define-regex id="ident">\%{first_ident_char}\%{ident_char}*</define-regex>
-    <define-regex id="qualit">(\%{ident}*\.)*\%{ident}</define-regex>
+    <define-regex id="qualit">(\%{ident}\.)*\%{ident}</define-regex>
     <define-regex id="undotted_sep">[-+*{}]</define-regex>
     <define-regex id="dot_sep">\.(\s|\z)</define-regex>
     <define-regex id="single_decl">(Definition)|(Let)|(Example)|(SubClass)|(Fixpoint)|(CoFixpoint)|(Scheme)|(Function)|(Hypothesis)|(Axiom)|(Variable)|(Parameter)|(Conjecture)|(Inductive)|(CoInductive)|(Record)|(Structure)|(Ltac)|(Instance)|(Context)|(Class)|(Module(\%{space}+Type)?)|(Existing\%{space}+Instance)|(Canonical\%{space}+Structure)</define-regex>
@@ -55,7 +55,6 @@
 	  <include>
 	    <context ref="comment-in-comment"/>
 	    <context ref="string"/>
-	    <context ref="escape-seq"/>
 	  </include>
 	</context>
 	<context id="comment" style-ref="comment" class="comment" class-disabled="no-spell-check">
@@ -68,11 +67,9 @@
 	      <include>
 		<context ref="comment-in-comment"/>
 		<context ref="string"/>
-		<context ref="escape-seq"/>
 	      </include>
 	    </context>
 	    <context ref="string"/>
-	    <context ref="escape-seq"/>
 	  </include>
 	</context>
 	<context id="declaration">
@@ -116,7 +113,7 @@
 	  </include>
 	</context>
 	<context id="proof">
-	  <start>Proof</start>
+	  <start>Proof(\%{dot_sep}|\%{space}+(using)|\%{space}+(with))</start>
 	  <end>\%{end_proof}\%{dot_sep}</end>
 	  <include>
 	    <context sub-pattern="0" where="start" style-ref="vernac-keyword"/>
@@ -142,6 +139,15 @@
 	    </context>
 	  </include>
 	</context>
+	<context id="exact-proof">
+	  <start>Proof</start>
+	  <end>\%{dot_sep}</end>
+	  <include>
+	    <context sub-pattern="0" where="start" style-ref="vernac-keyword"/>
+	    <context ref="constr-keyword"/>
+	    <context ref="constr-sort"/>
+	  </include>
+	</context>
 	<context id="undotted-sep" style-ref="vernac-keyword">
 	  <match>\%{undotted_sep}</match>
 	</context>
@@ -165,10 +171,11 @@
 	  <keyword>Resolve</keyword>
 	  <keyword>Immediate</keyword>
 	  <keyword>Constructors</keyword>
-	  <keyword>unfold</keyword>
+	  <keyword>Unfold</keyword>
 	  <keyword>Opaque</keyword>
 	  <keyword>Transparent</keyword>
 	  <keyword>Extern</keyword>
+	  <keyword>Rewrite</keyword>
 	</context>
 	<context id="scope-command" style-ref="vernac-keyword">
 	  <suffix>\%{space}+Scope</suffix>
@@ -185,7 +192,9 @@
 	  <keyword>Section</keyword>
 	  <keyword>Arguments</keyword>
 	  <keyword>Implicit\%{space}+Arguments</keyword>
-	  <keyword>(Import)|(Include)</keyword>
+	  <keyword>Import</keyword>
+	  <keyword>Include</keyword>
+	  <keyword>Export</keyword>
 	  <keyword>Require(\%{space}+((Import)|(Export)))?</keyword>
 	  <keyword>(Recursive\%{space}+)?Extraction(\%{space}+(Language\%{space}+(Ocaml)|(Haskell)|(Scheme)|(Toplevel))|(Library)|((No)?Inline)|(Blacklist))?</keyword>
 	  <keyword>Extract\%{space}+(Inlined\%{space}+)?(Constant)|(Inductive)</keyword>

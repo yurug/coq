@@ -1,6 +1,6 @@
 (************************************************************************)
 (*  v      *   The Coq Proof Assistant  /  The Coq Development Team     *)
-(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2013     *)
+(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2015     *)
 (*   \VV/  **************************************************************)
 (*    //   *      This file is distributed under the terms of the       *)
 (*         *       GNU Lesser General Public License Version 2.1        *)
@@ -12,7 +12,6 @@ open Nativevalues
 open Nativeinstr
 
 (** This file defines the lambda code generation phase of the native compiler *)
-
 type evars =
     { evars_val : existential -> constr option;
       evars_typ : existential -> types;
@@ -26,7 +25,9 @@ val decompose_Llam_Llet : lambda -> (Names.name * lambda option) array * lambda
 val is_lazy : prefix -> constr -> bool
 val mk_lazy : lambda -> lambda
 
-val get_allias : env -> constant -> constant
+val get_mind_prefix : env -> mutual_inductive -> string
+
+val get_allias : env -> pconstant -> pconstant
 
 val lambda_of_constr : env -> evars -> Constr.constr -> lambda
 

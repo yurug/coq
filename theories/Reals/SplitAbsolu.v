@@ -1,6 +1,6 @@
 (************************************************************************)
 (*  v      *   The Coq Proof Assistant  /  The Coq Development Team     *)
-(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2012     *)
+(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2015     *)
 (*   \VV/  **************************************************************)
 (*    //   *      This file is distributed under the terms of the       *)
 (*         *       GNU Lesser General Public License Version 2.1        *)
@@ -11,7 +11,7 @@ Require Import Rbasic_fun.
 Ltac split_case_Rabs :=
   match goal with
     |  |- context [(Rcase_abs ?X1)] =>
-      case (Rcase_abs X1); try split_case_Rabs
+      destruct (Rcase_abs X1) as [?Hlt|?Hge]; try split_case_Rabs
   end.
 
 

@@ -1,6 +1,6 @@
 (************************************************************************)
 (*  v      *   The Coq Proof Assistant  /  The Coq Development Team     *)
-(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2012     *)
+(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2015     *)
 (*   \VV/  **************************************************************)
 (*    //   *      This file is distributed under the terms of the       *)
 (*         *       GNU Lesser General Public License Version 2.1        *)
@@ -17,14 +17,18 @@ let string_of_vernac_type = function
   | VtStartProof _ -> "StartProof"
   | VtSideff _ -> "Sideff"
   | VtQed VtKeep -> "Qed(keep)"
+  | VtQed VtKeepAsAxiom -> "Qed(admitted)"
   | VtQed VtDrop -> "Qed(drop)"
-  | VtProofStep -> "ProofStep"
+  | VtProofStep false -> "ProofStep"
+  | VtProofStep true -> "ProofStep (parallel)"
   | VtProofMode s -> "ProofMode " ^ s
-  | VtQuery b -> "Query" ^ string_of_in_script b
+  | VtQuery (b,(id,route)) ->
+      "Query " ^ string_of_in_script b ^ " report " ^ Stateid.to_string id ^
+      " route " ^ string_of_int route
   | VtStm ((VtFinish|VtJoinDocument|VtObserve _|VtPrintDag|VtWait), b) ->
-      "Stm" ^ string_of_in_script b
-  | VtStm (VtPG, b) -> "Stm PG" ^ string_of_in_script b
-  | VtStm (VtBack _, b) -> "Stm Back" ^ string_of_in_script b
+      "Stm " ^ string_of_in_script b
+  | VtStm (VtPG, b) -> "Stm PG " ^ string_of_in_script b
+  | VtStm (VtBack _, b) -> "Stm Back " ^ string_of_in_script b
 
 let string_of_vernac_when = function
   | VtLater -> "Later"
@@ -35,22 +39,28 @@ let string_of_vernac_classification (t,w) =
 
 let classifiers = ref []
 let declare_vernac_classifier
-  (s : string)
+  (s : Vernacexpr.extend_name)
   (f : Genarg.raw_generic_argument list -> unit -> vernac_classification)
 =
   classifiers := !classifiers @ [s,f]
 
 let elide_part_of_script_and_now (a, _) =
   match a with
-  | VtQuery _ -> VtQuery false, VtNow
+  | VtQuery (_,id) -> VtQuery (false,id), VtNow
   | VtStm (x, _) -> VtStm (x, false), VtNow
   | x -> x, VtNow
+
+let make_polymorphic (a, b as x) =
+  match a with
+  | VtStartProof (x, _, ids) ->
+      VtStartProof (x, Doesn'tGuaranteeOpacity, ids), b
+  | _ -> x
 
 let undo_classifier = ref (fun _ -> assert false)
 let set_undo_classifier f = undo_classifier := f
 
 let rec classify_vernac e =
-  let static_classifier e = match e with
+  let rec static_classifier e = match e with
     (* PG compatibility *)
     | VernacUnsetOption (["Silent"]|["Undo"]|["Printing";"Depth"])
     | VernacSetOption   ((["Silent"]|["Undo"]|["Printing";"Depth"]),_)
@@ -66,33 +76,43 @@ let rec classify_vernac e =
     (* Nested vernac exprs *)
     | VernacProgram e -> classify_vernac e
     | VernacLocal (_,e) -> classify_vernac e
+    | VernacPolymorphic (b, e) -> 
+      if b || Flags.is_universe_polymorphism () (* Ok or not? *) then
+	make_polymorphic (classify_vernac e)
+      else classify_vernac e
     | VernacTimeout (_,e) -> classify_vernac e
-    | VernacTime e -> classify_vernac e
+    | VernacTime e -> classify_vernac_list e
     | VernacFail e -> (* Fail Qed or Fail Lemma must not join/fork the DAG *)
         (match classify_vernac e with
-        | ( VtQuery _ | VtProofStep | VtSideff _
+        | ( VtQuery _ | VtProofStep _ | VtSideff _
           | VtStm _ | VtProofMode _ ), _ as x -> x
-        | VtQed _, _ -> VtProofStep, VtNow
+        | VtQed _, _ -> VtProofStep false, VtNow
         | (VtStartProof _ | VtUnknown), _ -> VtUnknown, VtNow)
     (* Qed *)
-    | VernacEndProof Admitted | VernacAbort _ -> VtQed VtDrop, VtLater
+    | VernacAbort _ -> VtQed VtDrop, VtLater
+    | VernacEndProof Admitted -> VtQed VtKeepAsAxiom, VtLater
     | VernacEndProof _ | VernacExactProof _ -> VtQed VtKeep, VtLater
     (* Query *)
     | VernacShow _ | VernacPrint _ | VernacSearch _ | VernacLocate _
-    | VernacCheckMayEval _ -> VtQuery true, VtLater
+    | VernacCheckMayEval _ ->
+        VtQuery (true,(Stateid.dummy,Feedback.default_route)), VtLater
     (* ProofStep *)
+    | VernacSolve (SelectAllParallel,_,_,_) -> VtProofStep true, VtLater
     | VernacProof _ 
     | VernacBullet _ 
     | VernacFocus _ | VernacUnfocus
-    | VernacSubproof _ | VernacEndSubproof 
-    | VernacSolve _ | VernacError _
+    | VernacSubproof _ | VernacEndSubproof
+    | VernacSolve _ 
     | VernacCheckGuard
     | VernacUnfocused
-    | VernacSolveExistential _ -> VtProofStep, VtLater
+    | VernacSolveExistential _ -> VtProofStep false, VtLater
     (* Options changing parser *)
     | VernacUnsetOption (["Default";"Proof";"Using"])
     | VernacSetOption (["Default";"Proof";"Using"],_) -> VtSideff [], VtNow
     (* StartProof *)
+    | VernacDefinition (
+       (Some Decl_kinds.Discharge,Decl_kinds.Definition),(_,i),ProveBody _) ->
+        VtStartProof("Classic",Doesn'tGuaranteeOpacity,[i]), VtLater
     | VernacDefinition (_,(_,i),ProveBody _) ->
         VtStartProof("Classic",GuaranteesOpacity,[i]), VtLater
     | VernacStartTheoremProof (_,l,_) ->
@@ -104,13 +124,15 @@ let rec classify_vernac e =
         let ids, open_proof =
           List.fold_left (fun (l,b) (((_,id),_,_,_,p),_) ->
             id::l, b || p = None) ([],false) l in
-        if open_proof then VtStartProof ("Classic",GuaranteesOpacity,ids), VtLater
+        if open_proof
+        then VtStartProof ("Classic",GuaranteesOpacity,ids), VtLater
         else VtSideff ids, VtLater
     | VernacCoFixpoint (_,l) ->
         let ids, open_proof =
           List.fold_left (fun (l,b) (((_,id),_,_,p),_) ->
             id::l, b || p = None) ([],false) l in
-        if open_proof then VtStartProof ("Classic",GuaranteesOpacity,ids), VtLater
+        if open_proof
+        then VtStartProof ("Classic",GuaranteesOpacity,ids), VtLater
         else VtSideff ids, VtLater
     (* Sideff: apply to all open branches. usually run on master only *)
     | VernacAssumption (_,_,l) ->
@@ -129,6 +151,7 @@ let rec classify_vernac e =
         let ids = List.map snd (CList.map_filter (fun (x,_) -> x) l) in
         VtSideff ids, VtLater
     | VernacCombinedScheme ((_,id),_) -> VtSideff [id], VtLater
+    | VernacUniverse _ | VernacConstraint _
     | VernacBeginSection _
     | VernacCanonical _ | VernacCoercion _ | VernacIdentityCoercion _
     | VernacAddLoadPath _ | VernacRemoveLoadPath _ | VernacAddMLPath _
@@ -145,9 +168,10 @@ let rec classify_vernac e =
     | VernacDeclareReduction _
     | VernacDeclareClass _ | VernacDeclareInstances _
     | VernacRegister _
+    | VernacDeclareTacticDefinition _
+    | VernacNameSectionHypSet _
     | VernacComments _ -> VtSideff [], VtLater
     (* Who knows *)
-    | VernacList _
     | VernacLoad _ -> VtSideff [], VtNow
     (* (Local) Notations have to disappear *)
     | VernacEndSegment _ -> VtSideff [], VtNow
@@ -159,9 +183,10 @@ let rec classify_vernac e =
         VtSideff [id], if bl = [] then VtLater else VtNow
     (* These commands alter the parser *)
     | VernacOpenCloseScope _ | VernacDelimiters _ | VernacBindScope _
-    | VernacInfix _ | VernacNotation _ | VernacSyntaxExtension _ 
+    | VernacInfix _ | VernacNotation _ | VernacNotationAddFormat _
+    | VernacSyntaxExtension _ 
     | VernacSyntacticDefinition _
-    | VernacDeclareTacticDefinition _ | VernacTacticNotation _
+    | VernacTacticNotation _
     | VernacRequire _ | VernacImport _ | VernacInclude _
     | VernacDeclareMLModule _
     | VernacContext _ (* TASSI: unsure *)
@@ -178,12 +203,25 @@ let rec classify_vernac e =
     | VernacToplevelControl _
     | VernacRestoreState _
     | VernacWriteState _ -> VtUnknown, VtNow
+    | VernacError _ -> assert false
     (* Plugins should classify their commands *)
     | VernacExtend (s,l) ->
         try List.assoc s !classifiers l ()
-        with Not_found -> anomaly(str"No classifier for"++spc()++str s)
+        with Not_found -> anomaly(str"No classifier for"++spc()++str (fst s))
+  and classify_vernac_list = function
+    (* spiwack: It would be better to define a monoid on classifiers.
+       So that the classifier of the list would be the composition of
+       the classifier of the individual commands. Currently: special
+       case for singleton lists.*)
+    | [_,c] -> static_classifier c
+    | l -> VtUnknown,VtNow
   in
-    static_classifier e
+  let res = static_classifier e in
+    if Flags.is_universe_polymorphism () then
+      make_polymorphic res
+    else res
 
-let classify_as_query = VtQuery true, VtLater
+let classify_as_query =
+  VtQuery (true,(Stateid.dummy,Feedback.default_route)), VtLater
 let classify_as_sideeff = VtSideff [], VtLater
+let classify_as_proofstep = VtProofStep false, VtLater

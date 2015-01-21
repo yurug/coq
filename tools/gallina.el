@@ -1,15 +1,15 @@
 ;; gallina.el --- Coq mode editing commands for Emacs
 ;;
 ;; Jean-Christophe Filliatre, march 1995
-;; Honteusement pompé de caml.el, Xavier Leroy, july 1993.
+;; Shamelessly copied from caml.el, Xavier Leroy, july 1993.
 ;;
 ;; modified by Marco Maggesi <maggesi@math.unifi.it> for gallina-inferior
 
 ; compatibility code for proofgeneral files
 (require 'coq-font-lock)
 ; ProofGeneral files. remember to remove coq version tests in
-; coq-syntax.el
-(require 'coq-syntax)
+; gallina-syntax.el
+(require 'gallina-syntax)
 
 (defvar coq-mode-map nil
   "Keymap used in Coq mode.")

@@ -1,6 +1,6 @@
 (************************************************************************)
 (*  v      *   The Coq Proof Assistant  /  The Coq Development Team     *)
-(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2012     *)
+(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2015     *)
 (*   \VV/  **************************************************************)
 (*    //   *      This file is distributed under the terms of the       *)
 (*         *       GNU Lesser General Public License Version 2.1        *)
@@ -85,9 +85,10 @@ val record_fields_of_type : ml_type -> global_reference option list
 val add_recursors : Environ.env -> mutual_inductive -> unit
 val is_recursor : global_reference -> bool
 
-val add_projection : int -> constant -> unit
+val add_projection : int -> constant -> inductive -> unit
 val is_projection : global_reference -> bool
 val projection_arity : global_reference -> int
+val projection_info : global_reference -> inductive * int (* arity *)
 
 val add_info_axiom : global_reference -> unit
 val remove_info_axiom : global_reference -> unit

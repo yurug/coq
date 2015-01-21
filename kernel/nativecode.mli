@@ -1,6 +1,6 @@
 (************************************************************************)
 (*  v      *   The Coq Proof Assistant  /  The Coq Development Team     *)
-(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2013     *)
+(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2015     *)
 (*   \VV/  **************************************************************)
 (*    //   *      This file is distributed under the terms of the       *)
 (*         *       GNU Lesser General Public License Version 2.1        *)
@@ -42,6 +42,8 @@ val get_meta : symbol array -> int -> metavariable
 
 val get_evar : symbol array -> int -> existential
 
+val get_level : symbol array -> int -> Univ.Level.t
+
 val get_symbols_tbl : unit -> symbol array
 
 type code_location_update
@@ -67,7 +69,7 @@ val mk_library_header : dir_path -> global list
 
 val mod_uid_of_dirpath : dir_path -> string
 
-val link_info_of_dirpath : dir_path -> link_info ref
+val link_info_of_dirpath : dir_path -> link_info
 
 val update_locations : code_location_updates -> unit
 

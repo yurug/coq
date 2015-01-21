@@ -1,6 +1,6 @@
 (************************************************************************)
 (*  v      *   The Coq Proof Assistant  /  The Coq Development Team     *)
-(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2012     *)
+(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2015     *)
 (*   \VV/  **************************************************************)
 (*    //   *      This file is distributed under the terms of the       *)
 (*         *       GNU Lesser General Public License Version 2.1        *)
@@ -46,7 +46,8 @@ type globals = {
 
 type stratification = {
   env_universes : universes;
-  env_engagement : engagement option
+  env_engagement : engagement option;
+  env_type_in_type : bool
 }
 
 type val_kind =
@@ -73,7 +74,9 @@ type env = {
   env_nb_rel        : int;
   env_stratification : stratification;
   env_conv_oracle   : Conv_oracle.oracle;
-  retroknowledge : Retroknowledge.retroknowledge }
+  retroknowledge : Retroknowledge.retroknowledge;
+  indirect_pterms : Opaqueproof.opaquetab;
+}
 
 type named_context_val = named_context * named_vals
 
@@ -92,9 +95,11 @@ let empty_env = {
   env_nb_rel = 0;
   env_stratification = {
     env_universes = initial_universes;
-    env_engagement = None };
+    env_engagement = None;
+    env_type_in_type = false};
   env_conv_oracle = Conv_oracle.empty;
-  retroknowledge = Retroknowledge.initial_retroknowledge }
+  retroknowledge = Retroknowledge.initial_retroknowledge;
+  indirect_pterms = Opaqueproof.empty_opaquetab }
 
 
 (* Rel context *)
@@ -124,7 +129,7 @@ let env_of_rel n env =
 let push_named_context_val d (ctxt,vals) =
   let id,_,_ = d in
   let rval = ref VKnone in
-    Context.add_named_decl d ctxt, (id,rval)::vals
+    add_named_decl d ctxt, (id,rval)::vals
 
 let push_named d env =
 (*  if not (env.env_rel_context = []) then raise (ASSERT env.env_rel_context);
@@ -139,7 +144,9 @@ let push_named d env =
     env_nb_rel = env.env_nb_rel;
     env_stratification = env.env_stratification;
     env_conv_oracle = env.env_conv_oracle;
-    retroknowledge = env.retroknowledge; }
+    retroknowledge = env.retroknowledge;
+    indirect_pterms = env.indirect_pterms;
+  }
 
 let lookup_named_val id env =
   snd(List.find (fun (id',_) -> Id.equal id id') env.env_named_vals)

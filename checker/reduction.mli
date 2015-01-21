@@ -1,6 +1,6 @@
 (************************************************************************)
 (*  v      *   The Coq Proof Assistant  /  The Coq Development Team     *)
-(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2012     *)
+(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2015     *)
 (*   \VV/  **************************************************************)
 (*    //   *      This file is distributed under the terms of the       *)
 (*         *       GNU Lesser General Public License Version 2.1        *)
@@ -47,5 +47,7 @@ val hnf_prod_applist : env -> constr -> constr list -> constr
 
 val dest_prod       : env -> constr -> rel_context * constr
 val dest_prod_assum : env -> constr -> rel_context * constr
+val dest_lam_assum  : env -> constr -> rel_context * constr
+
 
 val dest_arity : env -> constr -> arity

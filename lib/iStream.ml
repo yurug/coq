@@ -1,6 +1,6 @@
 (************************************************************************)
 (*  v      *   The Coq Proof Assistant  /  The Coq Development Team     *)
-(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2012     *)
+(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2015     *)
 (*   \VV/  **************************************************************)
 (*    //   *      This file is distributed under the terms of the       *)
 (*         *       GNU Lesser General Public License Version 2.1        *)
@@ -19,6 +19,12 @@ let empty = Lazy.lazy_from_val Nil
 let cons x s = Lazy.lazy_from_val (Cons (x, s))
 
 let thunk = Lazy.lazy_from_fun
+
+let rec make_node f s = match f s with
+| Nil -> Nil
+| Cons (x, s) -> Cons (x, make f s)
+
+and make f s = lazy (make_node f s)
 
 let rec force s = match Lazy.force s with
 | Nil -> ()

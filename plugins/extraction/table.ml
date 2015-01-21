@@ -1,6 +1,6 @@
 (************************************************************************)
 (*  v      *   The Coq Proof Assistant  /  The Coq Development Team     *)
-(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2012     *)
+(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2015     *)
 (*   \VV/  **************************************************************)
 (*    //   *      This file is distributed under the terms of the       *)
 (*         *       GNU Lesser General Public License Version 2.1        *)
@@ -189,11 +189,12 @@ let is_recursor = function
 
 (* NB: here, working modulo name equivalence is ok *)
 
-let projs = ref (Refmap.empty : int Refmap.t)
+let projs = ref (Refmap.empty : (inductive*int) Refmap.t)
 let init_projs () = projs := Refmap.empty
-let add_projection n kn = projs := Refmap.add (ConstRef kn) n !projs
+let add_projection n kn ip = projs := Refmap.add (ConstRef kn) (ip,n) !projs
 let is_projection r = Refmap.mem r !projs
-let projection_arity r = Refmap.find r !projs
+let projection_arity r = snd (Refmap.find r !projs)
+let projection_info r = Refmap.find r !projs
 
 (*s Table of used axioms *)
 
@@ -299,10 +300,7 @@ let warning_axioms () =
        str "Having invalid logical axiom in the environment when extracting" ++
        spc () ++ str "may lead to incorrect or non-terminating ML terms." ++
        fnl ())
-  end;
-  if !Flags.load_proofs == Flags.Dont && not (List.is_empty (info_axioms@log_axioms)) then
-    msg_warning
-      (str "Some of these axioms might be due to option -dont-load-proofs.")
+  end
 
 let warning_opaques accessed =
   let opaques = Refset'.elements !opaques in
@@ -645,7 +643,7 @@ let implicits_of_global r =
  try Refmap'.find r !implicits_table with Not_found -> []
 
 let add_implicits r l =
-  let typ = Global.type_of_global r in
+  let typ = Global.type_of_global_unsafe r in
   let rels,_ =
     decompose_prod (Reduction.whd_betadeltaiota (Global.env ()) typ) in
   let names = List.rev_map fst rels in
@@ -816,7 +814,7 @@ let extract_constant_inline inline r ids s =
   match g with
     | ConstRef kn ->
 	let env = Global.env () in
-	let typ = Typeops.type_of_constant env kn in
+	let typ = Global.type_of_global_unsafe (ConstRef kn) in
 	let typ = Reduction.whd_betadeltaiota env typ in
 	if Reduction.is_arity env typ
 	  then begin

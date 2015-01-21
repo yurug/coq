@@ -1,6 +1,6 @@
 (************************************************************************)
 (*  v      *   The Coq Proof Assistant  /  The Coq Development Team     *)
-(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2012     *)
+(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2015     *)
 (*   \VV/  **************************************************************)
 (*    //   *      This file is distributed under the terms of the       *)
 (*         *       GNU Lesser General Public License Version 2.1        *)
@@ -27,7 +27,7 @@ type pattern_matching_error =
   | NonExhaustive of cases_pattern list
   | CannotInferPredicate of (constr * types) array
 
-exception PatternMatchingError of env * pattern_matching_error
+exception PatternMatchingError of env * evar_map * pattern_matching_error
 
 val error_wrong_numarg_constructor_loc : Loc.t -> env -> constructor -> int -> 'a
 
@@ -110,3 +110,14 @@ type 'a pattern_matching_problem =
 
 
 val compile : 'a pattern_matching_problem -> Environ.unsafe_judgment
+
+val prepare_predicate :            Loc.t ->
+           (Evarutil.type_constraint ->
+            Environ.env -> Evd.evar_map ref -> 'a -> Environ.unsafe_judgment) ->
+           Environ.env ->
+           Evd.evar_map ->
+           (Term.types * tomatch_type) list ->
+           Context.rel_context list ->
+           Constr.constr option ->
+           'a option -> (Evd.evar_map * Names.name list * Term.constr) list
+

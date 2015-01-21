@@ -1,6 +1,6 @@
 (************************************************************************)
 (*  v      *   The Coq Proof Assistant  /  The Coq Development Team     *)
-(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2012     *)
+(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2015     *)
 (*   \VV/  **************************************************************)
 (*    //   *      This file is distributed under the terms of the       *)
 (*         *       GNU Lesser General Public License Version 2.1        *)
@@ -382,7 +382,7 @@ let rec replace_module_object idl mp0 objs0 mp1 objs1 =
 
 let type_of_mod mp env = function
   |true -> (Environ.lookup_module mp env).mod_type
-  |false -> (Environ.lookup_modtype mp env).typ_expr
+  |false -> (Environ.lookup_modtype mp env).mod_type
 
 let rec get_module_path = function
   |MEident mp -> mp
@@ -527,7 +527,7 @@ let build_subtypes interp_modast env mp args mtys =
        let inl = inl2intopt ann in
        let mte,_ = interp_modast env ModType m in
        let mtb = Mod_typing.translate_modtype env mp inl ([],mte) in
-       { mtb with typ_expr = mk_funct_type env args mtb.typ_expr })
+       { mtb with mod_type = mk_funct_type env args mtb.mod_type })
     mtys
 
 
@@ -796,7 +796,7 @@ let protect_summaries f =
     (* Something wrong: undo the whole process *)
     let reraise = Errors.push reraise in
     let () = Summary.unfreeze_summaries fs in
-    raise reraise
+    iraise reraise
 
 let start_module interp export id args res =
   protect_summaries (RawModOps.start_module interp export id args res)
@@ -873,9 +873,10 @@ let start_library dir =
   Lib.start_compilation dir mp;
   Lib.add_frozen_state ()
 
-let end_library dir =
-  let mp,cenv,ast = Global.export dir in
-  let prefix, lib_stack = Lib.end_compilation dir in
+let end_library ?except dir =
+  let oname = Lib.end_compilation_checks dir in
+  let mp,cenv,ast = Global.export ?except dir in
+  let prefix, lib_stack = Lib.end_compilation oname in
   assert (ModPath.equal mp (MPfile dir));
   let substitute, keep, _ = Lib.classify_segment lib_stack in
   cenv,(substitute,keep),ast

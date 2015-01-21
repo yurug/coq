@@ -1,6 +1,6 @@
 (************************************************************************)
 (*  v      *   The Coq Proof Assistant  /  The Coq Development Team     *)
-(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2012     *)
+(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2015     *)
 (*   \VV/  **************************************************************)
 (*    //   *      This file is distributed under the terms of the       *)
 (*         *       GNU Lesser General Public License Version 2.1        *)
@@ -13,6 +13,7 @@ Require Import Rtrigo1.
 Require Import Ranalysis1.
 Require Import Ranalysis3.
 Require Import Exp_prop.
+Require Import MVT.
 Local Open Scope R_scope.
 
 (**********)
@@ -26,7 +27,7 @@ Proof.
   apply derivable_pt_const.
   assumption.
   assumption.
-  unfold div_fct, inv_fct, fct_cte; intro X0; elim X0; intros;
+  unfold div_fct, inv_fct, fct_cte; intros (x0,p);
     unfold derivable_pt; exists x0;
       unfold derivable_pt_abs; unfold derivable_pt_lim;
         unfold derivable_pt_abs in p; unfold derivable_pt_lim in p;
@@ -41,11 +42,7 @@ Lemma pr_nu_var :
   forall (f g:R -> R) (x:R) (pr1:derivable_pt f x) (pr2:derivable_pt g x),
     f = g -> derive_pt f x pr1 = derive_pt g x pr2.
 Proof.
-  unfold derivable_pt, derive_pt; intros.
-  elim pr1; intros.
-  elim pr2; intros.
-  simpl.
-  rewrite H in p.
+  unfold derivable_pt, derive_pt; intros f g x (x0,p0) (x1,p1) ->.
   apply uniqueness_limite with g x; assumption.
 Qed.
 
@@ -54,14 +51,11 @@ Lemma pr_nu_var2 :
   forall (f g:R -> R) (x:R) (pr1:derivable_pt f x) (pr2:derivable_pt g x),
     (forall h:R, f h = g h) -> derive_pt f x pr1 = derive_pt g x pr2.
 Proof.
-  unfold derivable_pt, derive_pt; intros.
-  elim pr1; intros.
-  elim pr2; intros.
-  simpl.
-  assert (H0 := uniqueness_step2 _ _ _ p).
-  assert (H1 := uniqueness_step2 _ _ _ p0).
+  unfold derivable_pt, derive_pt; intros f g x (x0,p0) (x1,p1) H.
+  assert (H0 := uniqueness_step2 _ _ _ p0).
+  assert (H1 := uniqueness_step2 _ _ _ p1).
   cut (limit1_in (fun h:R => (f (x + h) - f x) / h) (fun h:R => h <> 0) x1 0).
-  intro; assert (H3 := uniqueness_step1 _ _ _ _ H0 H2).
+  intro H2; assert (H3 := uniqueness_step1 _ _ _ _ H0 H2).
   assumption.
   unfold limit1_in; unfold limit_in; unfold dist;
     simpl; unfold R_dist; unfold limit1_in in H1;
@@ -117,14 +111,14 @@ Proof.
   rewrite Rplus_opp_r; rewrite Rabs_R0; apply H0.
   apply H1.
   apply Rle_ge.
-  case (Rcase_abs h); intro.
-  rewrite (Rabs_left h r) in H2.
+  destruct (Rcase_abs h) as [Hlt|Hgt].
+  rewrite (Rabs_left h Hlt) in H2.
   left; rewrite Rplus_comm; apply Rplus_lt_reg_l with (- h); rewrite Rplus_0_r;
     rewrite <- Rplus_assoc; rewrite Rplus_opp_l; rewrite Rplus_0_l;
       apply H2.
   apply Rplus_le_le_0_compat.
   left; apply H.
-  apply Rge_le; apply r.
+  apply Rge_le; apply Hgt.
   left; apply H.
 Qed.
 
@@ -145,12 +139,12 @@ Proof.
   rewrite <- Rinv_r_sym.
   rewrite Ropp_involutive; rewrite Rplus_opp_l; rewrite Rabs_R0; apply H0.
   apply H2.
-  case (Rcase_abs h); intro.
+  destruct (Rcase_abs h) as [Hlt|Hgt].
   apply Ropp_lt_cancel.
   rewrite Ropp_0; rewrite Ropp_plus_distr; apply Rplus_lt_0_compat.
   apply H1.
-  apply Ropp_0_gt_lt_contravar; apply r.
-  rewrite (Rabs_right h r) in H3.
+  apply Ropp_0_gt_lt_contravar; apply Hlt.
+  rewrite (Rabs_right h Hgt) in H3.
   apply Rplus_lt_reg_l with (- x); rewrite Rplus_0_r; rewrite <- Rplus_assoc;
     rewrite Rplus_opp_l; rewrite Rplus_0_l; apply H3.
   apply H.
@@ -161,13 +155,12 @@ Qed.
 Lemma Rderivable_pt_abs : forall x:R, x <> 0 -> derivable_pt Rabs x.
 Proof.
   intros.
-  case (total_order_T x 0); intro.
-  elim s; intro.
+  destruct (total_order_T x 0) as [[Hlt|Heq]|Hgt].
   unfold derivable_pt; exists (-1).
-  apply (Rabs_derive_2 x a).
-  elim H; exact b.
+  apply (Rabs_derive_2 x Hlt).
+  elim H; exact Heq.
   unfold derivable_pt; exists 1.
-  apply (Rabs_derive_1 x r).
+  apply (Rabs_derive_1 x Hgt).
 Qed.
 
 (** Rabsolu is continuous for all x *)
@@ -406,3 +399,14 @@ Proof.
   intro; apply derive_pt_eq_0.
   apply derivable_pt_lim_sinh.
 Qed.
+
+Lemma sinh_lt : forall x y, x < y -> sinh x < sinh y.
+intros x y xy; destruct (MVT_cor2 sinh cosh x y xy) as [c [Pc _]].
+ intros; apply derivable_pt_lim_sinh.
+apply Rplus_lt_reg_l with (Ropp (sinh x)); rewrite Rplus_opp_l, Rplus_comm.
+unfold Rminus at 1 in Pc; rewrite Pc; apply Rmult_lt_0_compat;[ | ].
+ unfold cosh; apply Rmult_lt_0_compat;[|apply Rinv_0_lt_compat, Rlt_0_2].
+ now apply Rplus_lt_0_compat; apply exp_pos.
+now apply Rlt_Rminus; assumption.
+Qed.
+

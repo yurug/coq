@@ -1,6 +1,6 @@
 (************************************************************************)
 (*  v      *   The Coq Proof Assistant  /  The Coq Development Team     *)
-(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2012     *)
+(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2015     *)
 (*   \VV/  **************************************************************)
 (*    //   *      This file is distributed under the terms of the       *)
 (*         *       GNU Lesser General Public License Version 2.1        *)
@@ -24,7 +24,7 @@ let string_of_theorem_kind = function
   | Corollary -> "Corollary"
 
 let string_of_definition_kind def =
-  let (locality, kind) = def in
+  let (locality, poly, kind) = def in
   let error () = Errors.anomaly (Pp.str "Internal definition kind") in
   match kind with
   | Definition ->

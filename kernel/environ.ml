@@ -1,6 +1,6 @@
 (************************************************************************)
 (*  v      *   The Coq Proof Assistant  /  The Coq Development Team     *)
-(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2012     *)
+(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2015     *)
 (*   \VV/  **************************************************************)
 (*    //   *      This file is distributed under the terms of the       *)
 (*         *       GNU Lesser General Public License Version 2.1        *)
@@ -26,7 +26,6 @@ open Names
 open Term
 open Context
 open Vars
-open Univ
 open Declarations
 open Pre_env
 
@@ -46,10 +45,20 @@ let empty_named_context_val = empty_named_context_val
 let empty_env = empty_env
 
 let engagement env = env.env_stratification.env_engagement
+
+let type_in_type env = env.env_stratification.env_type_in_type
+
+let is_impredicative_set env = 
+  match engagement env with
+  | Some ImpredicativeSet -> true
+  | _ -> false
+
 let universes env = env.env_stratification.env_universes
 let named_context env = env.env_named_context
 let named_context_val env = env.env_named_context,env.env_named_vals
 let rel_context env = env.env_rel_context
+let opaque_tables env = env.indirect_pterms
+let set_opaque_tables env indirect_pterms = { env with indirect_pterms }
 
 let empty_context env =
   match env.env_rel_context, env.env_named_context with
@@ -147,6 +156,12 @@ let reset_with_named_context (ctxt,ctxtv) env =
 
 let reset_context = reset_with_named_context empty_named_context_val
 
+let pop_rel_context n env =
+  let ctxt = env.env_rel_context in
+  { env with
+    env_rel_context = List.firstn (List.length ctxt - n) ctxt;
+    env_nb_rel = env.env_nb_rel - n }
+
 let fold_named_context f env ~init =
   let rec fold_right env =
     match env.env_named_context with
@@ -160,51 +175,189 @@ let fold_named_context f env ~init =
 let fold_named_context_reverse f ~init env =
   Context.fold_named_context_reverse f ~init:init (named_context env)
 
+
+(* Universe constraints *)
+
+let add_constraints c env =
+  if Univ.Constraint.is_empty c then
+    env
+  else
+    let s = env.env_stratification in
+    { env with env_stratification =
+      { s with env_universes = Univ.merge_constraints c s.env_universes } }
+
+let check_constraints c env =
+  Univ.check_constraints c env.env_stratification.env_universes
+
+let set_engagement c env = (* Unsafe *)
+  { env with env_stratification =
+    { env.env_stratification with env_engagement = Some c } }
+
+let set_type_in_type env =
+  { env with env_stratification =
+    { env.env_stratification with env_type_in_type = true } }
+
+let push_constraints_to_env (_,univs) env =
+  add_constraints univs env
+
+let push_context ctx env = add_constraints (Univ.UContext.constraints ctx) env
+let push_context_set ctx env = add_constraints (Univ.ContextSet.constraints ctx) env
+
 (* Global constants *)
 
 let lookup_constant = lookup_constant
 
-let no_link_info () = ref NotLinked
+let no_link_info = NotLinked
 
 let add_constant_key kn cb linkinfo env =
   let new_constants =
-    Cmap_env.add kn (cb,(linkinfo, ref None)) env.env_globals.env_constants in
+    Cmap_env.add kn (cb,(ref linkinfo, ref None)) env.env_globals.env_constants in
   let new_globals =
     { env.env_globals with
 	env_constants = new_constants } in
   { env with env_globals = new_globals }
 
 let add_constant kn cb env =
-  add_constant_key kn cb (no_link_info ()) env
+  add_constant_key kn cb no_link_info env
+
+let constraints_of cb u =
+  let univs = cb.const_universes in
+    Univ.subst_instance_constraints u (Univ.UContext.constraints univs)
+
+let map_regular_arity f = function
+  | RegularArity a as ar -> 
+    let a' = f a in 
+      if a' == a then ar else RegularArity a'
+  | TemplateArity _ -> assert false
 
 (* constant_type gives the type of a constant *)
-let constant_type env kn =
+let constant_type env (kn,u) =
   let cb = lookup_constant kn env in
-    cb.const_type
+    if cb.const_polymorphic then
+      let csts = constraints_of cb u in
+	(map_regular_arity (subst_instance_constr u) cb.const_type, csts)
+    else cb.const_type, Univ.Constraint.empty
 
-type const_evaluation_result = NoBody | Opaque
+let constant_context env kn =
+  let cb = lookup_constant kn env in
+    if cb.const_polymorphic then cb.const_universes
+    else Univ.UContext.empty
+
+type const_evaluation_result = NoBody | Opaque | IsProj
 
 exception NotEvaluableConst of const_evaluation_result
 
-let constant_value env kn =
+let constant_value env (kn,u) =
   let cb = lookup_constant kn env in
-  match cb.const_body with
-    | Def l_body -> Mod_subst.force_constr l_body
-    | OpaqueDef _ -> raise (NotEvaluableConst Opaque)
-    | Undef _ -> raise (NotEvaluableConst NoBody)
+    if cb.const_proj = None then
+      match cb.const_body with
+      | Def l_body -> 
+	if cb.const_polymorphic then
+	  let csts = constraints_of cb u in
+	    (subst_instance_constr u (Mod_subst.force_constr l_body), csts)
+	else Mod_subst.force_constr l_body, Univ.Constraint.empty
+      | OpaqueDef _ -> raise (NotEvaluableConst Opaque)
+      | Undef _ -> raise (NotEvaluableConst NoBody)
+    else raise (NotEvaluableConst IsProj)
 
 let constant_opt_value env cst =
   try Some (constant_value env cst)
   with NotEvaluableConst _ -> None
 
+let constant_value_and_type env (kn, u) =
+  let cb = lookup_constant kn env in
+    if cb.const_polymorphic then
+      let cst = constraints_of cb u in
+      let b' = match cb.const_body with
+	| Def l_body -> Some (subst_instance_constr u (Mod_subst.force_constr l_body))
+	| OpaqueDef _ -> None
+	| Undef _ -> None
+      in
+	b', map_regular_arity (subst_instance_constr u) cb.const_type, cst
+    else 
+      let b' = match cb.const_body with
+	| Def l_body -> Some (Mod_subst.force_constr l_body)
+	| OpaqueDef _ -> None
+	| Undef _ -> None
+      in b', cb.const_type, Univ.Constraint.empty
+
+(* These functions should be called under the invariant that [env] 
+   already contains the constraints corresponding to the constant 
+   application. *)
+
+(* constant_type gives the type of a constant *)
+let constant_type_in env (kn,u) =
+  let cb = lookup_constant kn env in
+    if cb.const_polymorphic then
+      map_regular_arity (subst_instance_constr u) cb.const_type
+    else cb.const_type
+
+let constant_value_in env (kn,u) =
+  let cb = lookup_constant kn env in
+  match cb.const_body with
+    | Def l_body -> 
+      let b = Mod_subst.force_constr l_body in
+	subst_instance_constr u b
+    | OpaqueDef _ -> raise (NotEvaluableConst Opaque)
+    | Undef _ -> raise (NotEvaluableConst NoBody)
+
+let constant_opt_value_in env cst =
+  try Some (constant_value_in env cst)
+  with NotEvaluableConst _ -> None
+
 (* A global const is evaluable if it is defined and not opaque *)
-let evaluable_constant cst env =
-  try let _  = constant_value env cst in true
-  with NotEvaluableConst _ -> false
+let evaluable_constant kn env =
+  let cb = lookup_constant kn env in
+    match cb.const_body with
+    | Def _ -> true
+    | OpaqueDef _ -> false
+    | Undef _ -> false
+
+let polymorphic_constant cst env =
+  (lookup_constant cst env).const_polymorphic
+
+let polymorphic_pconstant (cst,u) env =
+  if Univ.Instance.is_empty u then false
+  else polymorphic_constant cst env
+
+let template_polymorphic_constant cst env =
+  match (lookup_constant cst env).const_type with 
+  | TemplateArity _ -> true
+  | RegularArity _ -> false
+
+let template_polymorphic_pconstant (cst,u) env =
+  if not (Univ.Instance.is_empty u) then false
+  else template_polymorphic_constant cst env
+
+let lookup_projection cst env =
+  match (lookup_constant (Projection.constant cst) env).const_proj with 
+  | Some pb -> pb
+  | None -> anomaly (Pp.str "lookup_projection: constant is not a projection")
+
+let is_projection cst env =
+  match (lookup_constant cst env).const_proj with 
+  | Some _ -> true
+  | None -> false
 
 (* Mutual Inductives *)
 let lookup_mind = lookup_mind
 
+let polymorphic_ind (mind,i) env =
+  (lookup_mind mind env).mind_polymorphic
+
+let polymorphic_pind (ind,u) env =
+  if Univ.Instance.is_empty u then false
+  else polymorphic_ind ind env
+
+let template_polymorphic_ind (mind,i) env =
+  match (lookup_mind mind env).mind_packets.(i).mind_arity with 
+  | TemplateArity _ -> true
+  | RegularArity _ -> false
+
+let template_polymorphic_pind (ind,u) env =
+  if not (Univ.Instance.is_empty u) then false
+  else template_polymorphic_ind ind env
+  
 let add_mind_key kn mind_key env =
   let new_inds = Mindmap_env.add kn mind_key env.env_globals.env_inductives in
   let new_globals =
@@ -213,23 +366,10 @@ let add_mind_key kn mind_key env =
   { env with env_globals = new_globals }
 
 let add_mind kn mib env =
-  let li = no_link_info () in add_mind_key kn (mib, li) env
-
-(* Universe constraints *)
-
-let add_constraints c env =
-  if is_empty_constraint c then
-    env
-  else
-    let s = env.env_stratification in
-    { env with env_stratification =
-      { s with env_universes = merge_constraints c s.env_universes } }
-
-let set_engagement c env = (* Unsafe *)
-  { env with env_stratification =
-    { env.env_stratification with env_engagement = Some c } }
+  let li = ref no_link_info in add_mind_key kn (mib, li) env
 
 (* Lookup of section variables *)
+
 let lookup_constant_variables c env =
   let cmap = lookup_constant c env in
   Context.vars_of_named_context cmap.const_hyps
@@ -246,9 +386,10 @@ let lookup_constructor_variables (ind,_) env =
 let vars_of_global env constr =
   match kind_of_term constr with
       Var id -> Id.Set.singleton id
-    | Const kn -> lookup_constant_variables kn env
-    | Ind ind -> lookup_inductive_variables ind env
-    | Construct cstr -> lookup_constructor_variables cstr env
+    | Const (kn, _) -> lookup_constant_variables kn env
+    | Ind (ind, _) -> lookup_inductive_variables ind env
+    | Construct (cstr, _) -> lookup_constructor_variables cstr env
+    (** FIXME: is Proj missing? *)
     | _ -> raise Not_found
 
 let global_vars_set env constr =
@@ -295,7 +436,7 @@ let keep_hyps env needed =
 (* Modules *)
 
 let add_modtype mtb env =
-  let mp = mtb.typ_mp in
+  let mp = mtb.mod_mp in
   let new_modtypes = MPmap.add mp mtb env.env_globals.env_modtypes in
   let new_globals = { env.env_globals with env_modtypes = new_modtypes } in
   { env with env_globals = new_globals }
@@ -410,35 +551,23 @@ let retroknowledge f env =
 let registered env field =
     retroknowledge mem env field
 
-(* spiwack: this unregistration function is not in operation yet. It should
-            not be used *)
-(* this unregistration function assumes that no "constr" can hold two different
-   places in the retroknowledge. There is no reason why it shouldn't be true,
-   but in case someone needs it, remember to add special branches to the
-   unregister function *)
-let unregister env field =
+let register_one env field entry =
+  { env with retroknowledge = Retroknowledge.add_field env.retroknowledge field entry }
+
+(* [register env field entry] may register several fields when needed *)
+let register env field entry =
   match field with
-    | KInt31 (_,Int31Type) ->
-	(*there is only one matching kind due to the fact that Environ.env
-          is abstract, and that the only function which add elements to the
-          retroknowledge is Environ.register which enforces this shape *)
-	(match kind_of_term (retroknowledge find env field) with
-	   | Ind i31t -> let i31c = mkConstruct (i31t, 1) in
-	     {env with retroknowledge =
-		 remove (retroknowledge clear_info env i31c) field}
-	   | _ -> assert false)
-    |_ -> {env with retroknowledge =
-	   try
-	     remove (retroknowledge clear_info env
-                       (retroknowledge find env field)) field
-	   with Not_found ->
-	     retroknowledge remove env field}
-
-
+    | KInt31 (grp, Int31Type) ->
+        let i31c = match kind_of_term entry with
+                     | Ind i31t -> mkConstructUi (i31t, 1)
+		     | _ -> anomaly ~label:"Environ.register" (Pp.str "should be an inductive type")
+	in
+        register_one (register_one env (KInt31 (grp,Int31Constructor)) i31c) field entry
+    | field -> register_one env field entry
 
 (* the Environ.register function syncrhonizes the proactive and reactive
    retroknowledge. *)
-let register =
+let dispatch =
 
   (* subfunction used for static decompilation of int31 (after a vm_compute,
      see pretyping/vnorm.ml for more information) *)
@@ -459,126 +588,94 @@ let register =
 	  mkApp(mkConstruct(ind, 1), array_of_int tag)
   in
 
-  (* subfunction which adds the information bound to the constructor of
-     the int31 type to the reactive retroknowledge *)
-  let add_int31c retroknowledge c =
-    let rk = add_vm_constant_static_info retroknowledge c
-                                         Cbytegen.compile_structured_int31
-    in
-    let rk =
-      add_vm_constant_dynamic_info rk c Cbytegen.dynamic_int31_compilation
-    in
-    let rk =
-      add_native_constant_static_info rk c Nativelambda.compile_static_int31
-    in
-    add_native_constant_dynamic_info rk c Nativelambda.compile_dynamic_int31
-  in
-
-  (* subfunction which adds the compiling information of an
+  (* subfunction which dispatches the compiling information of an
      int31 operation which has a specific vm instruction (associates
      it to the name of the coq definition in the reactive retroknowledge) *)
-  let add_int31_op retroknowledge v n op prim kn =
-    let rk =
-      add_vm_compiling_info retroknowledge v (Cbytegen.op_compilation n op kn)
-    in
-    add_native_compiling_info rk v (Nativelambda.compile_prim prim kn)
+  let int31_op n op prim kn =
+    { empty_reactive_info with
+      vm_compiling = Some (Cbytegen.op_compilation n op kn);
+      native_compiling = Some (Nativelambda.compile_prim prim (Univ.out_punivs kn));
+    }
   in
 
-  let add_int31_before_match rk grp v =
-    let rk = add_vm_before_match_info rk v Cbytegen.int31_escape_before_match in
-    match kind_of_term (Retroknowledge.find rk (KInt31 (grp,Int31Bits))) with
-    | Ind i31bit_type ->
-    add_native_before_match_info rk v (Nativelambda.before_match_int31 i31bit_type)
-    | _ ->
-       anomaly ~label:"Environ.register" (Pp.str "Int31Bits should be an inductive type")
-  in
-
-fun env field value ->
-  (* subfunction which shortens the (very often use) registration of binary
-     operators to the reactive retroknowledge. *)
-  let add_int31_binop_from_const op prim =
+fun rk value field ->
+  (* subfunction which shortens the (very common) dispatch of operations *)
+  let int31_op_from_const n op prim =
     match kind_of_term value with
-      | Const kn ->  retroknowledge add_int31_op env value 2
-	                               op prim kn
+      | Const kn ->  int31_op n op prim kn
       | _ -> anomaly ~label:"Environ.register" (Pp.str "should be a constant")
   in
-  let add_int31_unop_from_const op prim =
-    match kind_of_term value with
-      | Const kn ->  retroknowledge add_int31_op env value 1
-	                               op prim kn
-      | _ -> anomaly ~label:"Environ.register" (Pp.str "should be a constant")
-  in
-  (* subfunction which completes the function constr_of_int31 above
-     by performing the actual retroknowledge operations *)
-  let add_int31_decompilation_from_type rk =
-    (* invariant : the type of bits is registered, otherwise the function
-       would raise Not_found. The invariant is enforced in safe_typing.ml *)
-    match field with
-      | KInt31 (grp, Int31Type) ->
-	  (match kind_of_term (Retroknowledge.find rk (KInt31 (grp,Int31Bits))) with
-	    | Ind i31bit_type ->
-		(match kind_of_term value with
-		  | Ind i31t ->
-		      Retroknowledge.add_vm_decompile_constant_info rk
-		               value (constr_of_int31 i31t i31bit_type)
-		  | _ -> anomaly ~label:"Environ.register" (Pp.str "should be an inductive type"))
-	    | _ -> anomaly ~label:"Environ.register" (Pp.str "Int31Bits should be an inductive type"))
-      | _ -> anomaly ~label:"Environ.register" (Pp.str "add_int31_decompilation_from_type called with an abnormal field")
-  in
-  {env with retroknowledge =
-  let retroknowledge_with_reactive_info =
+  let int31_binop_from_const op prim = int31_op_from_const 2 op prim in
+  let int31_unop_from_const op prim = int31_op_from_const 1 op prim in
   match field with
     | KInt31 (grp, Int31Type) ->
-        let i31c = match kind_of_term value with
-                     | Ind i31t -> mkConstruct (i31t, 1)
-		     | _ -> anomaly ~label:"Environ.register" (Pp.str "should be an inductive type")
-	in
-	add_int31_decompilation_from_type
-	  (add_int31_before_match
-	     (retroknowledge add_int31c env i31c) grp value)
-    | KInt31 (_, Int31Plus) -> add_int31_binop_from_const Cbytecodes.Kaddint31
+        let int31bit =
+          (* invariant : the type of bits is registered, otherwise the function
+             would raise Not_found. The invariant is enforced in safe_typing.ml *)
+          match field with
+          | KInt31 (grp, Int31Type) -> Retroknowledge.find rk (KInt31 (grp,Int31Bits))
+          | _ -> anomaly ~label:"Environ.register"
+              (Pp.str "add_int31_decompilation_from_type called with an abnormal field")
+        in
+        let i31bit_type =
+          match kind_of_term int31bit with
+          | Ind (i31bit_type,_) -> i31bit_type
+          |  _ -> anomaly ~label:"Environ.register"
+              (Pp.str "Int31Bits should be an inductive type")
+        in
+        let int31_decompilation =
+          match kind_of_term value with
+          | Ind (i31t,_) ->
+              constr_of_int31 i31t i31bit_type
+          | _ -> anomaly ~label:"Environ.register"
+              (Pp.str "should be an inductive type")
+        in
+        { empty_reactive_info with
+          vm_decompile_const = Some int31_decompilation;
+          vm_before_match = Some Cbytegen.int31_escape_before_match;
+          native_before_match = Some (Nativelambda.before_match_int31 i31bit_type);
+        }
+    | KInt31 (_, Int31Constructor) ->
+        { empty_reactive_info with
+          vm_constant_static = Some Cbytegen.compile_structured_int31;
+          vm_constant_dynamic = Some Cbytegen.dynamic_int31_compilation;
+          native_constant_static = Some Nativelambda.compile_static_int31;
+          native_constant_dynamic = Some Nativelambda.compile_dynamic_int31;
+        }
+    | KInt31 (_, Int31Plus) -> int31_binop_from_const Cbytecodes.Kaddint31
 							  Primitives.Int31add
-    | KInt31 (_, Int31PlusC) -> add_int31_binop_from_const Cbytecodes.Kaddcint31
+    | KInt31 (_, Int31PlusC) -> int31_binop_from_const Cbytecodes.Kaddcint31
 							   Primitives.Int31addc
-    | KInt31 (_, Int31PlusCarryC) -> add_int31_binop_from_const Cbytecodes.Kaddcarrycint31
+    | KInt31 (_, Int31PlusCarryC) -> int31_binop_from_const Cbytecodes.Kaddcarrycint31
 								Primitives.Int31addcarryc
-    | KInt31 (_, Int31Minus) -> add_int31_binop_from_const Cbytecodes.Ksubint31
+    | KInt31 (_, Int31Minus) -> int31_binop_from_const Cbytecodes.Ksubint31
 							   Primitives.Int31sub
-    | KInt31 (_, Int31MinusC) -> add_int31_binop_from_const Cbytecodes.Ksubcint31
+    | KInt31 (_, Int31MinusC) -> int31_binop_from_const Cbytecodes.Ksubcint31
 							    Primitives.Int31subc
-    | KInt31 (_, Int31MinusCarryC) -> add_int31_binop_from_const
+    | KInt31 (_, Int31MinusCarryC) -> int31_binop_from_const
 	                                Cbytecodes.Ksubcarrycint31 Primitives.Int31subcarryc
-    | KInt31 (_, Int31Times) -> add_int31_binop_from_const Cbytecodes.Kmulint31
+    | KInt31 (_, Int31Times) -> int31_binop_from_const Cbytecodes.Kmulint31
 							   Primitives.Int31mul
-    | KInt31 (_, Int31TimesC) -> add_int31_binop_from_const Cbytecodes.Kmulcint31
-							    Primitives.Int31mulc
-    | KInt31 (_, Int31Div21) -> (* this is a ternary operation *)
-                                (match kind_of_term value with
-				 | Const kn ->
-				     retroknowledge add_int31_op env value 3
-	                               Cbytecodes.Kdiv21int31 Primitives.Int31div21 kn
-				 | _ -> anomaly ~label:"Environ.register" (Pp.str "should be a constant"))
-    | KInt31 (_, Int31Div) -> add_int31_binop_from_const Cbytecodes.Kdivint31
-							 Primitives.Int31div
-    | KInt31 (_, Int31AddMulDiv) -> (* this is a ternary operation *)
-                                (match kind_of_term value with
-				 | Const kn ->
-				     retroknowledge add_int31_op env value 3
-	                               Cbytecodes.Kaddmuldivint31 Primitives.Int31addmuldiv kn
-				 | _ -> anomaly ~label:"Environ.register" (Pp.str "should be a constant"))
-    | KInt31 (_, Int31Compare) -> add_int31_binop_from_const Cbytecodes.Kcompareint31
+    | KInt31 (_, Int31TimesC) -> int31_binop_from_const Cbytecodes.Kmulcint31
+							   Primitives.Int31mulc
+    | KInt31 (_, Int31Div21) -> int31_op_from_const 3 Cbytecodes.Kdiv21int31
+                                                           Primitives.Int31div21
+    | KInt31 (_, Int31Diveucl) -> int31_binop_from_const Cbytecodes.Kdivint31
+							 Primitives.Int31diveucl
+    | KInt31 (_, Int31AddMulDiv) -> int31_op_from_const 3 Cbytecodes.Kaddmuldivint31
+                                                         Primitives.Int31addmuldiv
+    | KInt31 (_, Int31Compare) -> int31_binop_from_const Cbytecodes.Kcompareint31
 							     Primitives.Int31compare
-    | KInt31 (_, Int31Head0) -> add_int31_unop_from_const Cbytecodes.Khead0int31
+    | KInt31 (_, Int31Head0) -> int31_unop_from_const Cbytecodes.Khead0int31
 							  Primitives.Int31head0
-    | KInt31 (_, Int31Tail0) -> add_int31_unop_from_const Cbytecodes.Ktail0int31
+    | KInt31 (_, Int31Tail0) -> int31_unop_from_const Cbytecodes.Ktail0int31
 							  Primitives.Int31tail0
-    | KInt31 (_, Int31Lor) -> add_int31_binop_from_const Cbytecodes.Klorint31
+    | KInt31 (_, Int31Lor) -> int31_binop_from_const Cbytecodes.Klorint31
 							 Primitives.Int31lor
-    | KInt31 (_, Int31Land) -> add_int31_binop_from_const Cbytecodes.Klandint31
+    | KInt31 (_, Int31Land) -> int31_binop_from_const Cbytecodes.Klandint31
 							  Primitives.Int31land
-    | KInt31 (_, Int31Lxor) -> add_int31_binop_from_const Cbytecodes.Klxorint31
+    | KInt31 (_, Int31Lxor) -> int31_binop_from_const Cbytecodes.Klxorint31
 							  Primitives.Int31lxor
-    | _ -> env.retroknowledge
-  in
-  Retroknowledge.add_field retroknowledge_with_reactive_info field value
-  }
+    | _ -> empty_reactive_info
+
+let _ = Hook.set Retroknowledge.dispatch_hook dispatch

@@ -1,6 +1,6 @@
 (************************************************************************)
 (*  v      *   The Coq Proof Assistant  /  The Coq Development Team     *)
-(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2012     *)
+(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2015     *)
 (*   \VV/  **************************************************************)
 (*    //   *      This file is distributed under the terms of the       *)
 (*         *       GNU Lesser General Public License Version 2.1        *)
@@ -45,3 +45,5 @@ let tag (s,_) =
   with Not_found ->
     let msg = Pp.str ("Unknown dynamic tag " ^ (string_of_int s)) in
     anomaly msg
+
+let pointer_equal (t1,o1) (t2,o2) = t1 = t2 && o1 == o2

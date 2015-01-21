@@ -1,6 +1,6 @@
 (************************************************************************)
 (*  v      *   The Coq Proof Assistant  /  The Coq Development Team     *)
-(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2012     *)
+(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2015     *)
 (*   \VV/  **************************************************************)
 (*    //   *      This file is distributed under the terms of the       *)
 (*         *       GNU Lesser General Public License Version 2.1        *)
@@ -37,36 +37,51 @@ then, in i{^ th} block, [mind_entry_params] is [xn:Xn;...;x1:X1];
 type one_inductive_entry = {
   mind_entry_typename : Id.t;
   mind_entry_arity : constr;
+  mind_entry_template : bool; (* Use template polymorphism *)
   mind_entry_consnames : Id.t list;
   mind_entry_lc : constr list }
 
 type mutual_inductive_entry = {
-  mind_entry_record : bool;
-  mind_entry_finite : bool;
+  mind_entry_record : (Id.t option) option; 
+  (** Some (Some id): primitive record with id the binder name of the record
+      in projections.
+      Some None: non-primitive record *)
+  mind_entry_finite : Decl_kinds.recursivity_kind;
   mind_entry_params : (Id.t * local_entry) list;
-  mind_entry_inds : one_inductive_entry list }
+  mind_entry_inds : one_inductive_entry list;
+  mind_entry_polymorphic : bool; 
+  mind_entry_universes : Univ.universe_context;
+  mind_entry_private : bool option }
 
 (** {6 Constants (Definition/Axiom) } *)
-type proof_output = constr * Declareops.side_effects
+type proof_output = constr Univ.in_universe_context_set * Declareops.side_effects
 type const_entry_body = proof_output Future.computation
 
 type definition_entry = {
   const_entry_body   : const_entry_body;
-  (* List of sectoin variables *)
+  (* List of section variables *)
   const_entry_secctx : Context.section_context option;
   (* State id on which the completion of type checking is reported *)
   const_entry_feedback : Stateid.t option;
   const_entry_type        : types option;
+  const_entry_polymorphic : bool;
+  const_entry_universes   : Univ.universe_context;
   const_entry_opaque      : bool;
   const_entry_inline_code : bool }
 
 type inline = int option (* inlining level, None for no inlining *)
 
-type parameter_entry = Context.section_context option * types * inline
+type parameter_entry = 
+    Context.section_context option * bool * types Univ.in_universe_context * inline 
+
+type projection_entry = {
+  proj_entry_ind : mutual_inductive;
+  proj_entry_arg : int }
 
 type constant_entry =
   | DefinitionEntry of definition_entry
   | ParameterEntry of parameter_entry
+  | ProjectionEntry of projection_entry
 
 (** {6 Modules } *)
 

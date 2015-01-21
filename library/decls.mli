@@ -1,6 +1,6 @@
 (************************************************************************)
 (*  v      *   The Coq Proof Assistant  /  The Coq Development Team     *)
-(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2012     *)
+(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2015     *)
 (*   \VV/  **************************************************************)
 (*    //   *      This file is distributed under the terms of the       *)
 (*         *       GNU Lesser General Public License Version 2.1        *)
@@ -17,14 +17,15 @@ open Decl_kinds
 (** Registration and access to the table of variable *)
 
 type variable_data =
-    DirPath.t * bool (** opacity *) * Univ.constraints * logical_kind
+  DirPath.t * bool (** opacity *) * Univ.universe_context_set * polymorphic * logical_kind
 
 val add_variable_data : variable -> variable_data -> unit
 val variable_path : variable -> DirPath.t
 val variable_secpath : variable -> qualid
 val variable_kind : variable -> logical_kind
 val variable_opacity : variable -> bool
-val variable_constraints : variable -> Univ.constraints
+val variable_context : variable -> Univ.universe_context_set
+val variable_polymorphic : variable -> polymorphic
 val variable_exists : variable -> bool
 
 (** Registration and access to the table of constants *)

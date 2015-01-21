@@ -1,6 +1,6 @@
 (************************************************************************)
 (*  v      *   The Coq Proof Assistant  /  The Coq Development Team     *)
-(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2012     *)
+(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2015     *)
 (*   \VV/  **************************************************************)
 (*    //   *      This file is distributed under the terms of the       *)
 (*         *       GNU Lesser General Public License Version 2.1        *)
@@ -23,10 +23,13 @@ open Names
 (***************************************************************************)
 
 type named_declaration = Id.t * Constr.t option * Constr.t
+type named_list_declaration = Id.t list * Constr.t option * Constr.t
 type rel_declaration = Name.t * Constr.t option * Constr.t
 
-let map_named_declaration f (id, (v : Constr.t option), ty) =
+let map_named_declaration_skel f (id, (v : Constr.t option), ty) =
   (id, Option.map f v, f ty)
+let map_named_list_declaration = map_named_declaration_skel
+let map_named_declaration = map_named_declaration_skel
 
 let map_rel_declaration = map_named_declaration
 
@@ -73,10 +76,18 @@ let rel_context_nhyps hyps =
     | (_,Some _,_)::hyps -> nhyps acc hyps in
   nhyps 0 hyps
 
+let rel_context_tags ctx =
+  let rec aux l = function
+  | [] -> l
+  | (_,Some _,_)::ctx -> aux (true::l) ctx
+  | (_,None,_)::ctx -> aux (false::l) ctx
+  in aux [] ctx
+
 (*s Signatures of named hypotheses. Used for section variables and
     goal assumptions. *)
 
 type named_context = named_declaration list
+type named_list_context = named_list_declaration list
 
 let empty_named_context = []
 
@@ -101,6 +112,7 @@ let instance_from_named_context sign =
   List.map_filter filter sign
 
 let fold_named_context f l ~init = List.fold_right f l init
+let fold_named_list_context f l ~init = List.fold_right f l init
 let fold_named_context_reverse f ~init l = List.fold_left f init l
 
 (*s Signatures of ordered section variables *)

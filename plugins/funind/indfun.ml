@@ -25,9 +25,7 @@ let is_rec_info scheme_info =
   List.fold_left_i test_branche 1 false (List.rev scheme_info.Tactics.branches)
 
 let choose_dest_or_ind scheme_info =
-    if is_rec_info scheme_info
-    then Tactics.new_induct false
-    else Tactics.new_destruct false
+  Tactics.induction_destruct (is_rec_info scheme_info) false
 
 let functional_induction with_clean c princl pat =
   Dumpglob.pause ();
@@ -38,7 +36,7 @@ let functional_induction with_clean c princl pat =
 	| None -> (* No principle is given let's find the good one *)
 	    begin
 	      match kind_of_term f with
-		| Const c' ->
+		| Const (c',u) ->
 		    let princ_option =
 		      let finfo = (* we first try to find out a graph on f *)
 			try find_Function_infos c'
@@ -80,7 +78,10 @@ let functional_induction with_clean c princl pat =
 	if princ_infos.Tactics.farg_in_concl
 	then [c] else []
       in
-      List.map (fun c -> Tacexpr.ElimOnConstr (Evd.empty,(c,NoBindings))) (args@c_list)
+      let encoded_pat_as_patlist =
+        List.make (List.length args + List.length c_list - 1) None @ [pat] in
+      List.map2 (fun c pat -> ((None,Tacexpr.ElimOnConstr (fun env sigma -> sigma,(c,NoBindings))),(None,pat),None))
+        (args@c_list) encoded_pat_as_patlist
     in
     let princ' = Some (princ,bindings) in
     let princ_vars =
@@ -113,10 +114,7 @@ let functional_induction with_clean c princl pat =
     Tacticals.tclTHEN
       (Proofview.V82.of_tactic (choose_dest_or_ind
 	 princ_infos
-	 args_as_induction_constr
-	 princ'
-	 (None,pat)
-         None))
+	 (args_as_induction_constr,princ')))
       subst_and_reduce
       g
   in
@@ -130,9 +128,9 @@ let rec abstract_glob_constr c = function
       List.fold_right (fun x b -> Constrexpr_ops.mkLambdaC([x],k,t,b)) idl
         (abstract_glob_constr c bl)
 
-let interp_casted_constr_with_implicits sigma env impls c  =
+let interp_casted_constr_with_implicits env sigma impls c  =
   Constrintern.intern_gen Pretyping.WithoutTypeConstraint env ~impls
-    ~allow_patvar:false  ~ltacvars:(Id.Set.empty, Id.Set.empty) c
+    ~allow_patvar:false c
 
 (*
    Construct a fixpoint as a Glob_term
@@ -148,8 +146,10 @@ let build_newrecursive
     List.fold_left
       (fun (env,impls) ((_,recname),bl,arityc,_) ->
         let arityc = Constrexpr_ops.prod_constr_expr arityc bl in
-        let arity = Constrintern.interp_type sigma env0 arityc in
-	let impl = Constrintern.compute_internalization_data env0 Constrintern.Recursive arity [] in
+        let arity,ctx = Constrintern.interp_type env0 sigma arityc in
+	let evdref =  ref (Evd.from_env env0) in
+	let _, (_, impls') = Constrintern.interp_context_evars env evdref bl in
+	let impl = Constrintern.compute_internalization_data env0 Constrintern.Recursive arity impls' in
         (Environ.push_named (recname,None,arity) env, Id.Map.add recname impl impls))
       (env0,Constrintern.empty_internalization_env) lnameargsardef in
   let recdef =
@@ -157,7 +157,7 @@ let build_newrecursive
     let f (_,bl,_,def) =
       let def = abstract_glob_constr def bl in
       interp_casted_constr_with_implicits
-        sigma rec_sign rec_impls def
+        rec_sign sigma rec_impls def
     in
     States.with_state_protection (List.map f) lnameargsardef
   in
@@ -217,12 +217,14 @@ let prepare_body ((name,_,args,types,_),_) rt =
   let fun_args,rt' = chop_rlambda_n n rt in
   (fun_args,rt')
 
+let process_vernac_interp_error e =
+  fst (Cerrors.process_vernac_interp_error (e, Exninfo.null))
 
 let derive_inversion fix_names =
   try
     (* we first transform the fix_names identifier into their corresponding constant *)
     let fix_names_as_constant =
-      List.map (fun id -> destConst (Constrintern.global_reference id)) fix_names
+      List.map (fun id -> fst (destConst (Constrintern.global_reference id))) fix_names
     in
     (*
        Then we check that the graphs have been defined
@@ -239,27 +241,27 @@ let derive_inversion fix_names =
 	  Ensures by : register_built
 	  i*)
 	(List.map
-	   (fun id -> destInd (Constrintern.global_reference (mk_rel_id id)))
+	   (fun id -> fst (destInd (Constrintern.global_reference (mk_rel_id id))))
 	   fix_names
 	)
     with e when Errors.noncritical e ->
-      let e' = Cerrors.process_vernac_interp_error e in
+      let e' = process_vernac_interp_error e in
       msg_warning
 	(str "Cannot build inversion information" ++
 	   if do_observe () then (fnl() ++ Errors.print e') else mt ())
   with e when Errors.noncritical e -> ()
 
 let warning_error names e =
-  let e = Cerrors.process_vernac_interp_error e in
+  let e = process_vernac_interp_error e in
   let e_explain e =
     match e with
       | ToShow e -> 
-	let e = Cerrors.process_vernac_interp_error e in
+	let e = process_vernac_interp_error e in
 	spc () ++ Errors.print e
       | _ -> 
 	if do_observe () 
 	then 
-	  let e = Cerrors.process_vernac_interp_error e in 
+	  let e = process_vernac_interp_error e in 
 	  (spc () ++ Errors.print e) 
 	else mt ()
   in
@@ -277,7 +279,7 @@ let warning_error names e =
     | _ -> raise e
 
 let error_error names e =
-  let e = Cerrors.process_vernac_interp_error e in
+  let e = process_vernac_interp_error e in
   let e_explain e =
     match e with
       | ToShow e -> spc () ++ Errors.print e
@@ -291,7 +293,7 @@ let error_error names e =
 	     e_explain e)
     | _ -> raise e
 
-let generate_principle  on_error
+let generate_principle  mp_dp on_error
     is_general do_built (fix_rec_l:(Vernacexpr.fixpoint_expr * Vernacexpr.decl_notation list) list) recdefs  interactive_proof
     (continue_proof : int -> Names.constant array -> Term.constr array -> int ->
       Tacmach.tactic) : unit =
@@ -301,7 +303,7 @@ let generate_principle  on_error
   let funs_types =  List.map (function ((_,_,_,types,_),_) -> types) fix_rec_l in
   try
     (* We then register the Inductive graphs of the functions  *)
-    Glob_term_to_relation.build_inductive names funs_args funs_types recdefs;
+    Glob_term_to_relation.build_inductive mp_dp names funs_args funs_types recdefs;
     if do_built
     then
       begin
@@ -326,9 +328,8 @@ let generate_principle  on_error
 	let _ =
 	  List.map_i
 	    (fun i x ->
-	       let princ = destConst (Indrec.lookup_eliminator (ind_kn,i) (InProp)) in
-	       let princ_type = Typeops.type_of_constant (Global.env()) princ
-	       in
+	       let princ = Indrec.lookup_eliminator (ind_kn,i) (InProp) in
+	       let princ_type = Global.type_of_global_unsafe princ in
 	       Functional_principles_types.generate_functional_principle
 		 interactive_proof
 		 princ_type
@@ -351,10 +352,10 @@ let register_struct is_rec (fixpoint_exprl:(Vernacexpr.fixpoint_expr * Vernacexp
   match fixpoint_exprl with
     | [((_,fname),_,bl,ret_type,body),_] when not is_rec ->
       let body = match body with | Some body -> body | None -> user_err_loc (Loc.ghost,"Function",str "Body of Function must be given") in 
-	Command.do_definition fname (Decl_kinds.Global,Decl_kinds.Definition)
-	  bl None body (Some ret_type) (fun _ _ -> ())
+	Command.do_definition fname (Decl_kinds.Global,(*FIXME*)false,Decl_kinds.Definition)
+	  bl None body (Some ret_type) (Lemmas.mk_hook (fun _ _ -> ()))
     | _ ->
-	Command.do_fixpoint Global fixpoint_exprl
+	Command.do_fixpoint Global false(*FIXME*) fixpoint_exprl
 
 let generate_correction_proof_wf f_ref tcc_lemma_ref
     is_mes functional_ref eq_ref rec_arg_num rec_arg_type nb_args relation
@@ -385,7 +386,7 @@ let register_wf ?(is_mes=false) fname rec_impls wf_rel_expr wf_arg using_lemmas 
     let f_app_args =
       Constrexpr.CAppExpl
 	(Loc.ghost,
-	 (None,(Ident (Loc.ghost,fname))) ,
+	 (None,(Ident (Loc.ghost,fname)),None) ,
 	 (List.map
 	    (function
 	       | _,Anonymous -> assert false
@@ -399,7 +400,7 @@ let register_wf ?(is_mes=false) fname rec_impls wf_rel_expr wf_arg using_lemmas 
 		    [(f_app_args,None);(body,None)])
   in
   let eq = Constrexpr_ops.prod_constr_expr unbounded_eq args in
-  let hook f_ref tcc_lemma_ref functional_ref eq_ref rec_arg_num rec_arg_type
+  let hook (f_ref,_) tcc_lemma_ref (functional_ref,_) (eq_ref,_) rec_arg_num rec_arg_type
       nb_args relation =
     try
       pre_hook
@@ -536,9 +537,9 @@ let rebuild_bl (aux,assoc) bl typ = rebuild_bl (aux,assoc) bl typ
 
 let recompute_binder_list (fixpoint_exprl : (Vernacexpr.fixpoint_expr * Vernacexpr.decl_notation list) list) = 
   let fixl,ntns = Command.extract_fixpoint_components false fixpoint_exprl in
-  let ((_,_,typel),_) = Command.interp_fixpoint fixl ntns in
+  let ((_,_,typel),_,_) = Command.interp_fixpoint fixl ntns in
   let constr_expr_typel = 
-    with_full_print (List.map (Constrextern.extern_constr false (Global.env ()))) typel in 
+    with_full_print (List.map (Constrextern.extern_constr false (Global.env ()) Evd.empty)) typel in
   let fixpoint_exprl_with_new_bl = 
     List.map2 (fun ((lna,(rec_arg_opt,rec_order),bl,ret_typ,opt_body),notation_list) fix_typ -> 
      
@@ -550,7 +551,7 @@ let recompute_binder_list (fixpoint_exprl : (Vernacexpr.fixpoint_expr * Vernacex
   fixpoint_exprl_with_new_bl
   
 
-let do_generate_principle on_error register_built interactive_proof
+let do_generate_principle mp_dp on_error register_built interactive_proof
     (fixpoint_exprl:(Vernacexpr.fixpoint_expr * Vernacexpr.decl_notation list) list) :unit =
   List.iter (fun (_,l) -> if not (List.is_empty l) then error "Function does not support notations for now") fixpoint_exprl;
   let _is_struct =
@@ -567,6 +568,7 @@ let do_generate_principle on_error register_built interactive_proof
 	  let using_lemmas = [] in 
 	  let pre_hook =
 	    generate_principle
+	      mp_dp
 	      on_error
 	      true
 	      register_built
@@ -589,6 +591,7 @@ let do_generate_principle on_error register_built interactive_proof
 	  let body = match body with | Some body -> body | None -> user_err_loc (Loc.ghost,"Function",str "Body of Function must be given") in 
 	  let pre_hook =
 	    generate_principle
+	      mp_dp
 	      on_error
 	      true
 	      register_built
@@ -617,6 +620,7 @@ let do_generate_principle on_error register_built interactive_proof
 	let is_rec = List.exists (is_rec fix_names) recdefs in
 	if register_built then register_struct is_rec fixpoint_exprl;
 	generate_principle
+	  mp_dp
 	  on_error
 	  false
 	  register_built
@@ -631,10 +635,10 @@ let do_generate_principle on_error register_built interactive_proof
 
 let rec add_args id new_args b =
   match b with
-  | CRef r ->
+  | CRef (r,_) ->
       begin      match r with
 	| Libnames.Ident(loc,fname) when Id.equal fname id ->
-	    CAppExpl(Loc.ghost,(None,r),new_args)
+	    CAppExpl(Loc.ghost,(None,r,None),new_args)
 	| _ -> b
       end
   | CFix  _  | CCoFix _ -> anomaly ~label:"add_args " (Pp.str "todo")
@@ -648,12 +652,12 @@ let rec add_args id new_args b =
 	       add_args id new_args  b1)
   | CLetIn(loc,na,b1,b2) ->
       CLetIn(loc,na,add_args id new_args b1,add_args id new_args b2)
-  | CAppExpl(loc,(pf,r),exprl) ->
+  | CAppExpl(loc,(pf,r,us),exprl) ->
       begin
 	match r with
 	| Libnames.Ident(loc,fname) when Id.equal fname id ->
-	    CAppExpl(loc,(pf,r),new_args@(List.map (add_args id new_args) exprl))
-	| _ -> CAppExpl(loc,(pf,r),List.map (add_args id new_args) exprl)
+	    CAppExpl(loc,(pf,r,us),new_args@(List.map (add_args id new_args) exprl))
+	| _ -> CAppExpl(loc,(pf,r,us),List.map (add_args id new_args) exprl)
       end
   | CApp(loc,(pf,b),bl) ->
       CApp(loc,(pf,add_args id new_args b),
@@ -762,16 +766,15 @@ let make_graph (f_ref:global_reference) =
       | _ -> raise (UserError ("", str "Not a function reference") )
   in
   Dumpglob.pause ();
-  (match body_of_constant c_body with
+  (match Global.body_of_constant_body c_body with
      | None -> error "Cannot build a graph over an axiom !"
      | Some body ->
 	 let env = Global.env () in
 	 let extern_body,extern_type =
-	   with_full_print
-	     (fun () ->
-		(Constrextern.extern_constr false env body,
-		 Constrextern.extern_type false env
-                   (Typeops.type_of_constant_type env c_body.const_type)
+	   with_full_print (fun () ->
+		(Constrextern.extern_constr false env Evd.empty body,
+		 Constrextern.extern_type false env Evd.empty
+                   ((*FIXNE*) Typeops.type_of_constant_type env c_body.const_type)
 		)
 	     )
 	     ()
@@ -792,7 +795,7 @@ let make_graph (f_ref:global_reference) =
 				  | Constrexpr.LocalRawAssum (nal,_,_) ->
 				      List.map
 					(fun (loc,n) ->
-					   CRef(Libnames.Ident(loc, Nameops.out_name n)))
+					   CRef(Libnames.Ident(loc, Nameops.out_name n),None))
 					nal
 			       )
 			       nal_tas
@@ -805,17 +808,17 @@ let make_graph (f_ref:global_reference) =
 		 in
 		 l
 	     | _ ->
-		 let id = Label.to_id (con_label c) in
+		let id = Label.to_id (con_label c) in
 		 [((Loc.ghost,id),(None,Constrexpr.CStructRec),nal_tas,t,Some b),[]]
 	 in
-	 do_generate_principle error_error false false expr_list;
-	 (* We register the infos *)
 	 let mp,dp,_ = repr_con c in
+	 do_generate_principle (Some (mp,dp)) error_error  false false expr_list;
+	 (* We register the infos *)
 	 List.iter
 	   (fun (((_,id),_,_,_,_),_) -> add_Function false (make_con mp dp (Label.of_id id)))
 	   expr_list);
   Dumpglob.continue ()
 
-let do_generate_principle = do_generate_principle warning_error true
+let do_generate_principle = do_generate_principle None warning_error true
 
 

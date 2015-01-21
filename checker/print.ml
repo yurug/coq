@@ -1,6 +1,6 @@
 (************************************************************************)
 (*  v      *   The Coq Proof Assistant  /  The Coq Development Team     *)
-(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2012     *)
+(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2015     *)
 (*   \VV/  **************************************************************)
 (*    //   *      This file is distributed under the terms of the       *)
 (*         *       GNU Lesser General Public License Version 2.1        *)
@@ -9,6 +9,8 @@
 open Format
 open Cic
 open Names
+
+let print_instance i = Pp.pp (Univ.Instance.pr i)
 
 let print_pure_constr csr =
   let rec term_display c = match  c with
@@ -43,19 +45,22 @@ let print_pure_constr csr =
       Array.iter (fun x -> print_space (); box_display x) l;
       print_string ")"
   | Evar _ -> print_string "Evar#"
-  | Const c -> print_string "Cons(";
+  | Const (c,u) -> print_string "Cons(";
       sp_con_display c;
+      print_string ","; print_instance u;
       print_string ")"
-  | Ind (sp,i) ->
+  | Ind ((sp,i),u) ->
       print_string "Ind(";
       sp_display sp;
       print_string ","; print_int i;
+      print_string ","; print_instance u;
       print_string ")"
-  | Construct ((sp,i),j) ->
+  | Construct (((sp,i),j),u) ->
       print_string "Constr(";
       sp_display sp;
       print_string ",";
-      print_int i; print_string ","; print_int j; print_string ")"
+      print_int i; print_string ","; print_int j; 
+      print_string ","; print_instance u; print_string ")"
   | Case (ci,p,c,bl) ->
       open_vbox 0;
       print_string "<"; box_display p; print_string ">";
@@ -94,6 +99,9 @@ let print_pure_constr csr =
 	  print_cut();
         done
       in print_string"{"; print_fix (); print_string"}"
+  | Proj (p, c) ->
+    print_string "Proj("; sp_con_display p; print_string ","; 
+    box_display c; print_string ")"
 
   and box_display c = open_hovbox 1; term_display c; close_box()
 

@@ -1,6 +1,6 @@
 (************************************************************************)
 (*  v      *   The Coq Proof Assistant  /  The Coq Development Team     *)
-(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2012     *)
+(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2015     *)
 (*   \VV/  **************************************************************)
 (*    //   *      This file is distributed under the terms of the       *)
 (*         *       GNU Lesser General Public License Version 2.1        *)
@@ -30,7 +30,7 @@ val set_prompt : (unit -> string) -> unit
   May raise only the following exceptions: [Drop] and [End_of_input],
   meaning we get out of the Coq loop. *)
 
-val print_toplevel_error : exn -> std_ppcmds
+val print_toplevel_error : Exninfo.iexn -> std_ppcmds
 
 (** Parse and execute one vernac command. *)
 

@@ -1,6 +1,6 @@
 (************************************************************************)
 (*  v      *   The Coq Proof Assistant  /  The Coq Development Team     *)
-(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2012     *)
+(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2015     *)
 (*   \VV/  **************************************************************)
 (*    //   *      This file is distributed under the terms of the       *)
 (*         *       GNU Lesser General Public License Version 2.1        *)
@@ -76,6 +76,23 @@ Definition continuity f : Prop := forall x:R, continuity_pt f x.
 
 Arguments continuity_pt f%F x0%R.
 Arguments continuity f%F.
+
+Lemma continuity_pt_locally_ext :
+  forall f g a x, 0 < a -> (forall y, R_dist y x < a -> f y = g y) ->
+  continuity_pt f x -> continuity_pt g x.
+intros f g a x a0 q cf eps ep.
+destruct (cf eps ep) as [a' [a'p Pa']].
+exists (Rmin a a'); split.
+ unfold Rmin; destruct (Rle_dec a a').
+  assumption.
+ assumption.
+intros y cy; rewrite <- !q.
+  apply Pa'.
+  split;[| apply Rlt_le_trans with (Rmin a a');[ | apply Rmin_r]];tauto.
+ rewrite R_dist_eq; assumption.   
+apply Rlt_le_trans with (Rmin a a');[ | apply Rmin_l]; tauto.
+Qed.
+
 
 (**********)
 Lemma continuity_pt_plus :
@@ -477,6 +494,47 @@ Proof.
   auto with real.
 Qed.
 
+(* Extensionally equal functions have the same derivative. *)
+
+Lemma derivable_pt_lim_ext : forall f g x l, (forall z, f z = g z) -> 
+  derivable_pt_lim f x l -> derivable_pt_lim g x l.
+intros f g x l fg df e ep; destruct (df e ep) as [d pd]; exists d; intros h;
+rewrite <- !fg; apply pd.
+Qed.
+
+(* extensionally equal functions have the same derivative, locally. *)
+
+Lemma derivable_pt_lim_locally_ext : forall f g x a b l, 
+  a < x < b ->
+  (forall z, a < z < b -> f z = g z) ->
+  derivable_pt_lim f x l -> derivable_pt_lim g x l.
+intros f g x a b l axb fg df e ep.
+destruct (df e ep) as [d pd].
+assert (d'h : 0 < Rmin d (Rmin (b - x) (x - a))).
+ apply Rmin_pos;[apply cond_pos | apply Rmin_pos; apply Rlt_Rminus; tauto].
+exists (mkposreal _ d'h); simpl; intros h hn0 cmp.
+rewrite <- !fg;[ |assumption | ].
+  apply pd;[assumption |].
+ apply Rlt_le_trans with (1 := cmp), Rmin_l.
+assert (-h < x - a).
+ apply Rle_lt_trans with (1 := Rle_abs _).
+ rewrite Rabs_Ropp; apply Rlt_le_trans with (1 := cmp).
+ rewrite Rmin_assoc; apply Rmin_r.
+assert (h < b - x).
+ apply Rle_lt_trans with (1 := Rle_abs _).
+ apply Rlt_le_trans with (1 := cmp).
+ rewrite Rmin_comm, <- Rmin_assoc; apply Rmin_l.
+split.
+ apply (Rplus_lt_reg_l (- h)).
+ replace ((-h) + (x + h)) with x by ring.
+ apply (Rplus_lt_reg_r (- a)).
+ replace (((-h) + a) + - a) with (-h) by ring.
+ assumption.
+apply (Rplus_lt_reg_r (- x)).
+replace (x + h + - x) with h by ring.
+assumption.
+Qed.
+
 
 (***********************************)
 (** * derivability -> continuity   *)
@@ -637,6 +695,24 @@ Proof.
   replace (a * l) with (0 * f x + a * l); [ idtac | ring ].
   apply (derivable_pt_lim_mult (fct_cte a) f x 0 l); assumption.
   unfold mult_real_fct, mult_fct, fct_cte; reflexivity.
+Qed.
+
+Lemma derivable_pt_lim_div_scal :
+  forall f x l a, derivable_pt_lim f x l ->
+     derivable_pt_lim (fun y => f y / a) x (l / a).
+intros f x l a df;
+  apply (derivable_pt_lim_ext (fun y => /a * f y)).
+ intros z; rewrite Rmult_comm; reflexivity.
+unfold Rdiv; rewrite Rmult_comm; apply derivable_pt_lim_scal; assumption.
+Qed.
+
+Lemma derivable_pt_lim_scal_right :
+  forall f x l a, derivable_pt_lim f x l ->
+     derivable_pt_lim (fun y => f y * a) x (l * a).
+intros f x l a df;
+  apply (derivable_pt_lim_ext (fun y => a * f y)).
+ intros z; rewrite Rmult_comm; reflexivity.
+unfold Rdiv; rewrite Rmult_comm; apply derivable_pt_lim_scal; assumption.
 Qed.
 
 Lemma derivable_pt_lim_id : forall x:R, derivable_pt_lim id x 1.
@@ -1066,15 +1142,8 @@ Lemma pr_nu :
   forall f (x:R) (pr1 pr2:derivable_pt f x),
     derive_pt f x pr1 = derive_pt f x pr2.
 Proof.
-  intros.
-  unfold derivable_pt in pr1.
-  unfold derivable_pt in pr2.
-  elim pr1; intros.
-  elim pr2; intros.
-  unfold derivable_pt_abs in p.
-  unfold derivable_pt_abs in p0.
-  simpl.
-  apply (uniqueness_limite f x x0 x1 p p0).
+  intros f x (x0,H0) (x1,H1).
+  apply (uniqueness_limite f x x0 x1 H0 H1).
 Qed.
 
 
@@ -1123,7 +1192,7 @@ Proof.
     case
     (Rcase_abs
       ((f (c + Rmin (delta / 2) ((b + - c) / 2)) + - f c) /
-        Rmin (delta / 2) ((b + - c) / 2) + - l)); intro.
+        Rmin (delta / 2) ((b + - c) / 2) + - l)) as [Hlt|Hge].
   replace
   (-
     ((f (c + Rmin (delta / 2) ((b + - c) / 2)) + - f c) /
@@ -1165,7 +1234,7 @@ Proof.
     (H20 :=
       Rge_le
       ((f (c + Rmin (delta / 2) ((b + - c) / 2)) + - f c) /
-        Rmin (delta / 2) ((b + - c) / 2) + - l) 0 r).
+        Rmin (delta / 2) ((b + - c) / 2) + - l) 0 Hge).
   elim (Rlt_irrefl _ (Rle_lt_trans _ _ _ H20 H18)).
   assumption.
   rewrite <- Ropp_0;
@@ -1242,17 +1311,16 @@ Proof.
         (mkposreal ((b - c) / 2) H8)).
   unfold Rdiv; apply Rmult_lt_0_compat;
     [ apply (cond_pos delta) | apply Rinv_0_lt_compat; prove_sup0 ].
-  unfold Rabs; case (Rcase_abs (Rmin (delta / 2) ((b - c) / 2))).
-  intro.
+  unfold Rabs; case (Rcase_abs (Rmin (delta / 2) ((b - c) / 2))) as [Hlt|Hge].
   cut (0 < delta / 2).
   intro.
   generalize
     (Rmin_stable_in_posreal (mkposreal (delta / 2) H10)
       (mkposreal ((b - c) / 2) H8)); simpl; intro;
-    elim (Rlt_irrefl 0 (Rlt_trans 0 (Rmin (delta / 2) ((b - c) / 2)) 0 H11 r)).
+    elim (Rlt_irrefl 0 (Rlt_trans 0 (Rmin (delta / 2) ((b - c) / 2)) 0 H11 Hlt)).
   unfold Rdiv; apply Rmult_lt_0_compat;
     [ apply (cond_pos delta) | apply Rinv_0_lt_compat; prove_sup0 ].
-  intro; apply Rle_lt_trans with (delta / 2).
+  apply Rle_lt_trans with (delta / 2).
   apply Rmin_l.
   unfold Rdiv; apply Rmult_lt_reg_l with 2.
   prove_sup0.
@@ -1311,13 +1379,12 @@ Proof.
     case
     (Rcase_abs
       ((f (c + Rmax (- (delta / 2)) ((a + - c) / 2)) + - f c) /
-        Rmax (- (delta / 2)) ((a + - c) / 2) + - l)).
-  intro;
-    elim
+        Rmax (- (delta / 2)) ((a + - c) / 2) + - l)) as [Hlt|Hge].
+  elim
       (Rlt_irrefl 0
         (Rlt_trans 0
           ((f (c + Rmax (- (delta / 2)) ((a + - c) / 2)) + - f c) /
-            Rmax (- (delta / 2)) ((a + - c) / 2) + - l) 0 H19 r)).
+            Rmax (- (delta / 2)) ((a + - c) / 2) + - l) 0 H19 Hlt)).
   intros;
     generalize
       (Rplus_lt_compat_r l
@@ -1380,8 +1447,8 @@ Proof.
   apply Rplus_lt_compat_l; assumption.
   field; discrR.
   assumption.
-  unfold Rabs; case (Rcase_abs (Rmax (- (delta / 2)) ((a - c) / 2))).
-  intro; generalize (RmaxLess1 (- (delta / 2)) ((a - c) / 2)); intro;
+  unfold Rabs; case (Rcase_abs (Rmax (- (delta / 2)) ((a - c) / 2))) as [Hlt|Hge].
+  generalize (RmaxLess1 (- (delta / 2)) ((a - c) / 2)); intro;
     generalize
       (Ropp_le_ge_contravar (- (delta / 2)) (Rmax (- (delta / 2)) ((a - c) / 2))
         H12); rewrite Ropp_involutive; intro;
@@ -1402,7 +1469,7 @@ Proof.
     generalize
       (Rmax_stable_in_negreal (mknegreal (- (delta / 2)) H13)
         (mknegreal ((a - c) / 2) H12)); simpl;
-      intro; generalize (Rge_le (Rmax (- (delta / 2)) ((a - c) / 2)) 0 r);
+      intro; generalize (Rge_le (Rmax (- (delta / 2)) ((a - c) / 2)) 0 Hge);
         intro;
           elim
             (Rlt_irrefl 0
@@ -1494,11 +1561,10 @@ Proof.
     cut (0 <= (f (x + delta / 2) - f x) / (delta / 2)).
   intro; cut (0 <= (f (x + delta / 2) - f x) / (delta / 2) - l).
   intro; unfold Rabs;
-    case (Rcase_abs ((f (x + delta / 2) - f x) / (delta / 2) - l)).
-  intro;
-    elim
+    case (Rcase_abs ((f (x + delta / 2) - f x) / (delta / 2) - l)) as [Hlt|Hge].
+  elim
       (Rlt_irrefl 0
-        (Rle_lt_trans 0 ((f (x + delta / 2) - f x) / (delta / 2) - l) 0 H12 r)).
+        (Rle_lt_trans 0 ((f (x + delta / 2) - f x) / (delta / 2) - l) 0 H12 Hlt)).
   intros;
     generalize
       (Rplus_lt_compat_r l ((f (x + delta / 2) - f x) / (delta / 2) - l)

@@ -1,6 +1,6 @@
 (************************************************************************)
 (*  v      *   The Coq Proof Assistant  /  The Coq Development Team     *)
-(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2012     *)
+(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2015     *)
 (*   \VV/  **************************************************************)
 (*    //   *      This file is distributed under the terms of the       *)
 (*         *       GNU Lesser General Public License Version 2.1        *)
@@ -41,19 +41,19 @@ Notation "x < y" := (rlt x y).
 
 Lemma req_refl : forall x, req x x.
 Proof.
-  destruct sor.(SORsetoid).
+  destruct sor.(SORsetoid) as (Equivalence_Reflexive,_,_).
   apply Equivalence_Reflexive.
 Qed.
 
 Lemma req_sym : forall x y, req x y -> req y x.
 Proof.
-  destruct sor.(SORsetoid).
+  destruct sor.(SORsetoid) as (_,Equivalence_Symmetric,_).
   apply Equivalence_Symmetric.
 Qed.
 
 Lemma req_trans : forall x y z, req x y -> req y z -> req x z.
 Proof.
-  destruct sor.(SORsetoid).
+  destruct sor.(SORsetoid) as (_,_,Equivalence_Transitive).
   apply Equivalence_Transitive.
 Qed.
 
@@ -93,6 +93,7 @@ Ltac le_less := rewrite (Rle_lt_eq sor); left; try assumption.
 Ltac le_equal := rewrite (Rle_lt_eq sor); right; try reflexivity; try assumption.
 
 Definition gen_order_phi_Z : Z -> R := gen_phiZ 0 1 rplus rtimes ropp.
+Declare Equivalent Keys gen_order_phi_Z gen_phiZ.
 
 Notation phi_pos := (gen_phiPOS 1 rplus rtimes).
 Notation phi_pos1 := (gen_phiPOS1 1 rplus rtimes).

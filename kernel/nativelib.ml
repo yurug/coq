@@ -1,6 +1,6 @@
 (************************************************************************)
 (*  v      *   The Coq Proof Assistant  /  The Coq Development Team     *)
-(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2013     *)
+(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2015     *)
 (*   \VV/  **************************************************************)
 (*    //   *      This file is distributed under the terms of the       *)
 (*         *       GNU Lesser General Public License Version 2.1        *)
@@ -32,7 +32,7 @@ let source_ext = ".native"
 
 (* Global settings and utilies for interface with OCaml *)
 let compiler_name =
-  Filename.quote (if Dynlink.is_native then ocamlopt () else ocamlc ())
+  if Dynlink.is_native then ocamlopt () else ocamlc ()
 
 let ( / ) = Filename.concat
 
@@ -59,25 +59,33 @@ let write_ml_code fn ?(header=[]) code =
   List.iter (pp_global fmt) (header@code);
   close_out ch_out
 
-let call_compiler ml_filename load_path =
+let call_compiler ml_filename =
+  let load_path = !get_load_paths () in
   let load_path = List.map (fun dn -> dn / output_dir) load_path in
-  let include_dirs = List.map Filename.quote (include_dirs () @ load_path) in
-  let include_dirs = String.concat " -I " include_dirs in
+  let include_dirs = List.flatten (List.map (fun x -> ["-I"; x]) (include_dirs () @ load_path)) in
   let f = Filename.chop_extension ml_filename in
   let link_filename = f ^ ".cmo" in
   let link_filename = Dynlink.adapt_filename link_filename in
-  let comp_cmd =
-    Format.sprintf "%s -%s -o %s -rectypes -w a -I %s -impl %s"
-      compiler_name (if Dynlink.is_native then "shared" else "c")
-      (Filename.quote link_filename) include_dirs (Filename.quote ml_filename)
-  in
-  Sys.command comp_cmd, link_filename
+  let remove f = if Sys.file_exists f then Sys.remove f in
+  remove link_filename;
+  remove (f ^ ".cmi");
+  let args =
+    (if Dynlink.is_native then "-shared" else "-c")
+    ::"-o"::link_filename
+    ::"-rectypes"
+    ::"-w"::"a"
+    ::include_dirs
+    @ ["-impl"; ml_filename] in
+  if !Flags.debug then Pp.msg_debug (Pp.str (compiler_name ^ " " ^ (String.concat " " args)));
+  CUnix.sys_command compiler_name args = Unix.WEXITED 0, link_filename
 
 let compile fn code =
   write_ml_code fn code;
-  call_compiler fn (!get_load_paths())
+  let r = call_compiler fn in
+  if (not !Flags.debug) && Sys.file_exists fn then Sys.remove fn;
+  r
 
-let compile_library dir code load_path fn =
+let compile_library dir code fn =
   let header = mk_library_header dir in
   let fn = fn ^ source_ext in
   let basename = Filename.basename fn in
@@ -86,7 +94,9 @@ let compile_library dir code load_path fn =
   if not (Sys.file_exists dirname) then Unix.mkdir dirname 0o755;
   let fn = dirname / basename in
   write_ml_code fn ~header code;
-  fst (call_compiler fn load_path)
+  let r = fst (call_compiler fn) in
+  if (not !Flags.debug) && Sys.file_exists fn then Sys.remove fn;
+  r
 
 (* call_linker links dynamically the code for constants in environment or a  *)
 (* conversion test. Silently fails if the file does not exist in bytecode    *)
@@ -103,8 +113,8 @@ let call_linker ?(fatal=true) prefix f upds =
           let msg = "Dynlink error, " ^ Dynlink.error_message e in
           if fatal then anomaly (Pp.str msg) else Pp.msg_warning (Pp.str msg)
         | e when Errors.noncritical e ->
-          let msg = "Dynlink error" in
-          if fatal then anomaly (Pp.str msg) else Pp.msg_warning (Pp.str msg));
+          if fatal then anomaly (Errors.print e)
+	  else Pp.msg_warning (Errors.print_no_report e));
   match upds with Some upds -> update_locations upds | _ -> ()
 
 let link_library ~prefix ~dirname ~basename =

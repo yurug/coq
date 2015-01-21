@@ -1,6 +1,6 @@
 (************************************************************************)
 (*  v      *   The Coq Proof Assistant  /  The Coq Development Team     *)
-(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2012     *)
+(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2015     *)
 (*   \VV/  **************************************************************)
 (*    //   *      This file is distributed under the terms of the       *)
 (*         *       GNU Lesser General Public License Version 2.1        *)
@@ -22,13 +22,14 @@ class type control =
   end
 
 type errpage = (int * string) list page
-type jobpage = string Int.Map.t page
+type jobpage = string CString.Map.t page
 
 type session = {
   buffer : GText.buffer;
   script : Wg_ScriptView.script_view;
   proof : Wg_ProofView.proof_view;
   messages : Wg_MessageView.message_view;
+  segment : Wg_Segment.segment;
   fileops : FileOps.ops;
   coqops : CoqOps.ops;
   coqtop : Coq.coqtop;

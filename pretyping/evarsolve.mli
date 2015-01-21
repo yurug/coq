@@ -1,6 +1,6 @@
 (************************************************************************)
 (*  v      *   The Coq Proof Assistant  /  The Coq Development Team     *)
-(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2012     *)
+(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2015     *)
 (*   \VV/  **************************************************************)
 (*    //   *      This file is distributed under the terms of the       *)
 (*         *       GNU Lesser General Public License Version 2.1        *)
@@ -34,6 +34,10 @@ type conv_fun_bool =
 val evar_define : conv_fun -> ?choose:bool -> env -> evar_map -> 
   bool option -> existential -> constr -> evar_map
 
+val refresh_universes : ?inferred:bool -> ?onlyalg:bool (* Only algebraic universes *) ->
+  bool option (* direction: true for levels lower than the existing levels *) ->
+  env -> evar_map -> types -> evar_map * types
+
 val solve_refl : ?can_drop:bool -> conv_fun_bool -> env ->  evar_map ->
   bool option -> existential_key -> constr array -> constr array -> evar_map
 
@@ -55,6 +59,8 @@ val is_unification_pattern : env * int -> evar_map -> constr -> constr list ->
 
 val solve_pattern_eqn : env -> constr list -> constr -> constr
 
+val noccur_evar : env -> evar_map -> Evar.t -> constr -> bool
+
 exception IllTypedInstance of env * types * types
 
 (* May raise IllTypedInstance if types are not convertible *)
@@ -63,3 +69,6 @@ val check_evar_instance :
 
 val remove_instance_local_defs :
   evar_map -> existential_key -> constr array -> constr list
+
+val get_type_of_refresh : 
+  ?polyprop:bool -> ?lax:bool -> env -> evar_map -> constr -> evar_map * types

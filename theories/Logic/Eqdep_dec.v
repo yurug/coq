@@ -1,6 +1,6 @@
 (************************************************************************)
 (*  v      *   The Coq Proof Assistant  /  The Coq Development Team     *)
-(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2012     *)
+(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2015     *)
 (*   \VV/  **************************************************************)
 (*    //   *      This file is distributed under the terms of the       *)
 (*         *       GNU Lesser General Public License Version 2.1        *)
@@ -35,6 +35,7 @@ Table of contents:
 (** * Streicher's K and injectivity of dependent pair hold on decidable types *)
 
 Set Implicit Arguments.
+(* Set Universe Polymorphism. *)
 
 Section EqdepDec.
 
@@ -62,17 +63,17 @@ Section EqdepDec.
   Let nu_constant : forall (y:A) (u v:x = y), nu u = nu v.
     intros.
     unfold nu.
-    case (eq_dec y); intros.
+    destruct (eq_dec y) as [Heq|Hneq].
     reflexivity.
 
-    case n; trivial.
+    case Hneq; trivial.
   Qed.
 
 
   Let nu_inv (y:A) (v:x = y) : x = y := comp (nu (eq_refl x)) v.
 
 
-  Remark nu_left_inv_one_var : forall (y:A) (u:x = y), nu_inv (nu u) = u.
+  Remark nu_left_inv_on : forall (y:A) (u:x = y), nu_inv (nu u) = u.
   Proof.
     intros.
     case u; unfold nu_inv.
@@ -80,20 +81,20 @@ Section EqdepDec.
   Qed.
 
 
-  Theorem eq_proofs_unicity_one_var : forall (y:A) (p1 p2:x = y), p1 = p2.
+  Theorem eq_proofs_unicity_on : forall (y:A) (p1 p2:x = y), p1 = p2.
   Proof.
     intros.
-    elim nu_left_inv_one_var with (u := p1).
-    elim nu_left_inv_one_var with (u := p2).
+    elim nu_left_inv_on with (u := p1).
+    elim nu_left_inv_on with (u := p2).
     elim nu_constant with y p1 p2.
     reflexivity.
   Qed.
 
-  Theorem K_dec_one_var :
+  Theorem K_dec_on :
     forall P:x = x -> Prop, P (eq_refl x) -> forall p:x = x, P p.
   Proof.
     intros.
-    elim eq_proofs_unicity_one_var with x (eq_refl x) p.
+    elim eq_proofs_unicity_on with x (eq_refl x) p.
     trivial.
   Qed.
 
@@ -109,19 +110,18 @@ Section EqdepDec.
     end.
 
 
-  Theorem inj_right_pair_one_var :
+  Theorem inj_right_pair_on :
     forall (P:A -> Prop) (y y':P x),
       ex_intro P x y = ex_intro P x y' -> y = y'.
   Proof.
     intros.
     cut (proj (ex_intro P x y) y = proj (ex_intro P x y') y).
     simpl.
-    case (eq_dec x).
-    intro e.
-    elim e using K_dec_one_var; trivial.
+    destruct (eq_dec x) as [Heq|Hneq].
+    elim Heq using K_dec_on; trivial.
 
     intros.
-    case n; trivial.
+    case Hneq; trivial.
 
     case H.
     reflexivity.
@@ -140,16 +140,16 @@ End EqdepDec.
 
 Theorem eq_proofs_unicity A (eq_dec : forall x y : A, x = y \/ x <> y) (x : A)
 : forall (y:A) (p1 p2:x = y), p1 = p2.
-Proof (@eq_proofs_unicity_one_var A x (eq_dec x)).
+Proof (@eq_proofs_unicity_on A x (eq_dec x)).
 
 Theorem K_dec A (eq_dec : forall x y : A, x = y \/ x <> y) (x : A)
 : forall P:x = x -> Prop, P (eq_refl x) -> forall p:x = x, P p.
-Proof (@K_dec_one_var A x (eq_dec x)).
+Proof (@K_dec_on A x (eq_dec x)).
 
 Theorem inj_right_pair A (eq_dec : forall x y : A, x = y \/ x <> y) (x : A)
 : forall (P:A -> Prop) (y y':P x),
     ex_intro P x y = ex_intro P x y' -> y = y'.
-Proof (@inj_right_pair_one_var A x (eq_dec x)).
+Proof (@inj_right_pair_on A x (eq_dec x)).
 
 Require Import EqdepFacts.
 
@@ -203,7 +203,7 @@ Unset Implicit Arguments.
 
 Module Type DecidableType.
 
-  Parameter U:Type.
+  Monomorphic Parameter U:Type.
   Axiom eq_dec : forall x y:U, {x = y} + {x <> y}.
 
 End DecidableType.
@@ -271,7 +271,7 @@ End DecidableEqDep.
 
 Module Type DecidableSet.
 
-  Parameter U:Type.
+  Parameter U:Set.
   Axiom eq_dec : forall x y:U, {x = y} + {x <> y}.
 
 End DecidableSet.
@@ -294,23 +294,23 @@ Module DecidableEqDepSet (M:DecidableSet).
 
   Theorem eq_dep_eq :
     forall (P:U->Type) (p:U) (x y:P p), eq_dep U P p x p y -> x = y.
-  Proof N.eq_dep_eq.
+  Proof (eq_rect_eq__eq_dep_eq U eq_rect_eq).
 
   (** Uniqueness of Identity Proofs (UIP) *)
 
   Lemma UIP : forall (x y:U) (p1 p2:x = y), p1 = p2.
-  Proof N.UIP.
+  Proof (eq_dep_eq__UIP U eq_dep_eq).
 
   (** Uniqueness of Reflexive Identity Proofs *)
 
   Lemma UIP_refl : forall (x:U) (p:x = x), p = eq_refl x.
-  Proof N.UIP_refl.
+  Proof (UIP__UIP_refl U UIP).
 
   (** Streicher's axiom K *)
 
   Lemma Streicher_K :
     forall (x:U) (P:x = x -> Prop), P (eq_refl x) -> forall p:x = x, P p.
-  Proof N.Streicher_K.
+  Proof (K_dec_type eq_dec).
 
   (** Proof-irrelevance on subsets of decidable sets *)
 
@@ -340,8 +340,8 @@ Proof.
   intros A eq_dec.
   apply eq_dep_eq__inj_pair2.
   apply eq_rect_eq__eq_dep_eq.
-  unfold Eq_rect_eq.
-  apply eq_rect_eq_dec.
+  unfold Eq_rect_eq, Eq_rect_eq_on.
+  intros; apply eq_rect_eq_dec.
   apply eq_dec.
 Qed.
 
@@ -350,7 +350,7 @@ Qed.
 
 Lemma UIP_refl_unit (x : tt = tt) : x = eq_refl tt.
 Proof.
-  change (match tt as b return tt = b -> Type with
+  change (match tt as b return tt = b -> Prop with
           | tt => fun x => x = eq_refl tt
           end x).
   destruct x; reflexivity.

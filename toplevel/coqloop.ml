@@ -1,6 +1,6 @@
 (************************************************************************)
 (*  v      *   The Coq Proof Assistant  /  The Coq Development Team     *)
-(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2012     *)
+(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2015     *)
 (*   \VV/  **************************************************************)
 (*    //   *      This file is distributed under the terms of the       *)
 (*         *       GNU Lesser General Public License Version 2.1        *)
@@ -20,7 +20,7 @@ type input_buffer = {
   mutable prompt : unit -> string;
   mutable str : string; (* buffer of already read characters *)
   mutable len : int;    (* number of chars in the buffer *)
-  mutable bols : int list; (* offsets in str of begining of lines *)
+  mutable bols : int list; (* offsets in str of beginning of lines *)
   mutable tokens : Gram.parsable; (* stream of tokens *)
   mutable start : int } (* stream count of the first char of the buffer *)
 
@@ -31,7 +31,7 @@ let resize_buffer ibuf =
   String.blit ibuf.str 0 nstr 0 (String.length ibuf.str);
   ibuf.str <- nstr
 
-(* Delete all irrelevent lines of the input buffer. Keep the last line
+(* Delete all irrelevant lines of the input buffer. Keep the last line
    in the buffer (useful when there are several commands on the same line. *)
 
 let resynch_buffer ibuf =
@@ -159,25 +159,29 @@ let print_location_in_file {outer=s;inner=fname} loc =
       if String.equal s fname then mt() else errstrm ++ str":" ++ fnl()
     in
     let (bp,ep) = Loc.unloc loc in
-    let ic = open_in fname in
-    let rec line_of_pos lin bol cnt =
-      if cnt < bp then
-        if input_char ic == '\n'
-        then line_of_pos (lin + 1) (cnt +1) (cnt+1)
-        else line_of_pos lin bol (cnt+1)
-      else (lin, bol)
-    in
+    let line_of_pos lin bol cnt =
+      try
+        let ic = open_in fname in
+        let rec line_of_pos lin bol cnt =
+          if cnt < bp then
+            if input_char ic == '\n'
+            then line_of_pos (lin + 1) (cnt +1) (cnt+1)
+            else line_of_pos lin bol (cnt+1)
+          else (lin, bol)
+        in
+        let rc = line_of_pos lin bol cnt in
+        close_in ic;
+        rc
+      with Sys_error _ -> 0, 0 in
     try
       let (line, bol) = line_of_pos 1 0 0 in
-      close_in ic;
       hov 0 (* No line break so as to follow emacs error message format *)
         (errstrm ++ str"File " ++ str ("\""^fname^"\"") ++
            str", line " ++ int line ++ str", characters " ++
            Cerrors.print_loc (Loc.make_loc (bp-bol,ep-bol))) ++ str":" ++
         fnl ()
     with e when Errors.noncritical e ->
-      (close_in ic;
-       hov 1 (errstrm ++ spc() ++ str"(invalid location):") ++ fnl ())
+       hov 1 (errstrm ++ spc() ++ str"(invalid location):") ++ fnl ()
 
 let valid_buffer_loc ib loc =
   not (Loc.is_ghost loc) &&
@@ -256,27 +260,27 @@ let locate_exn = function
 
 (* Toplevel error explanation. *)
 
-let print_toplevel_error e =
-  let loc = Option.default Loc.ghost (Loc.get_loc e) in
-  let locmsg = match Vernac.get_exn_files e with
+let print_toplevel_error (e, info) =
+  let loc = Option.default Loc.ghost (Loc.get_loc info) in
+  let locmsg = match Vernac.get_exn_files info with
     | Some files -> print_location_in_file files loc
     | None ->
       if locate_exn e && valid_buffer_loc top_buffer loc then
         print_highlight_location top_buffer loc
       else mt ()
   in
-  locmsg ++ Errors.print e
+  locmsg ++ Errors.iprint (e, info)
 
 (* Read the input stream until a dot is encountered *)
 let parse_to_dot =
   let rec dot st = match Compat.get_tok (Stream.next st) with
-    | Tok.KEYWORD "." -> ()
+    | Tok.KEYWORD ("."|"...") -> ()
     | Tok.EOI -> raise End_of_input
     | _ -> dot st
   in
   Gram.Entry.of_parser "Coqtoplevel.dot" dot
 
-(* If an error occured while parsing, we try to read the input until a dot
+(* If an error occurred while parsing, we try to read the input until a dot
    token is encountered.
    We assume that when a lexer error occurs, at least one char was eaten *)
 
@@ -293,7 +297,7 @@ let read_sentence () =
   with reraise ->
     let reraise = Errors.push reraise in
     discard_to_dot ();
-    raise reraise
+    iraise reraise
 
 (** [do_vernac] reads and executes a toplevel phrase, and print error
     messages when an exception is raised, except for the following:
@@ -302,7 +306,7 @@ let read_sentence () =
     - End_of_input: Ctrl-D was typed in, we will quit.
 
     In particular, this is normally the only place where a Sys.Break
-    is catched and handled (i.e. not re-raised).
+    is caught and handled (i.e. not re-raised).
 *)
 
 let do_vernac () =
@@ -318,8 +322,10 @@ let do_vernac () =
         if Mltop.is_ocaml_top() then raise Errors.Drop
         else ppnl (str"Error: There is no ML toplevel." ++ fnl ())
     | any ->
+        let any = Errors.push any in
         Format.set_formatter_out_channel stdout;
-        ppnl (print_toplevel_error any);
+        let msg = print_toplevel_error any ++ fnl () in
+        pp_with ~pp_tag:Ppstyle.pp_tag !Pp_control.std_ft msg;
         pp_flush ()
 
 (** Main coq loop : read vernacular expressions until Drop is entered.
@@ -339,14 +345,8 @@ let feed_emacs = function
 
 let rec loop () =
   Sys.catch_break true;
-  if !Flags.print_emacs then begin
-    (* TODO : check with Enrico ?! *)
-    (*
-    Pp.set_feeder feed_emacs;
-    Vernacentries.enable_goal_printing := false;
-    *)
-    Vernacentries.qed_display_script := false;
-  end;
+  if !Flags.print_emacs then Vernacentries.qed_display_script := false;
+  Flags.coqtop_ui := true;
   try
     reset_input_buffer stdin top_buffer;
     while true do do_vernac(); flush_all() done

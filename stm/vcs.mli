@@ -1,6 +1,6 @@
 (************************************************************************)
 (*  v      *   The Coq Proof Assistant  /  The Coq Development Team     *)
-(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2013     *)
+(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2015     *)
 (*   \VV/  **************************************************************)
 (*    //   *      This file is distributed under the terms of the       *)
 (*         *       GNU Lesser General Public License Version 2.1        *)
@@ -79,11 +79,11 @@ module type S = sig
 
   (* read only dag *)
   module Dag : Dag.S with type node = id
-  val dag : ('kind,'diff,'info) t -> ('diff,'info,id) Dag.t
+  val dag : ('kind,'diff,'info) t -> ('diff,'info,id * id) Dag.t
  
-  val create_cluster : ('k,'e,'i) t -> id list -> id -> ('k,'e,'i) t
-  val cluster_of : ('k,'e,'i) t -> id -> id Dag.Cluster.t option
-  val delete_cluster : ('k,'e,'i) t -> id Dag.Cluster.t -> ('k,'e,'i) t 
+  val create_cluster : ('k,'e,'i) t -> id list -> (id * id) -> ('k,'e,'i) t
+  val cluster_of : ('k,'e,'i) t -> id -> (id * id) Dag.Cluster.t option
+  val delete_cluster : ('k,'e,'i) t -> (id * id) Dag.Cluster.t -> ('k,'e,'i) t 
 
 end
 

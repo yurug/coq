@@ -1,6 +1,6 @@
 (************************************************************************)
 (*  v      *   The Coq Proof Assistant  /  The Coq Development Team     *)
-(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2012     *)
+(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2015     *)
 (*   \VV/  **************************************************************)
 (*    //   *      This file is distributed under the terms of the       *)
 (*         *       GNU Lesser General Public License Version 2.1        *)
@@ -308,11 +308,11 @@ Section extended_euclid_algorithm.
     intros v3 Hv3; generalize Hv3; pattern v3.
     apply Zlt_0_rec.
     clear v3 Hv3; intros.
-    elim (Z_zerop x); intro.
+    destruct (Z_zerop x) as [Heq|Hneq].
     apply Euclid_intro with (u := u1) (v := u2) (d := u3).
     assumption.
     apply H3.
-    rewrite a0; auto with zarith.
+    rewrite Heq; auto with zarith.
     set (q := u3 / x) in *.
     assert (Hq : 0 <= u3 - q * x < x).
     replace (u3 - q * x) with (u3 mod x).

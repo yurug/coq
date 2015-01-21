@@ -1,6 +1,6 @@
 (************************************************************************)
 (*  v      *   The Coq Proof Assistant  /  The Coq Development Team     *)
-(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2012     *)
+(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2015     *)
 (*   \VV/  **************************************************************)
 (*    //   *      This file is distributed under the terms of the       *)
 (*         *       GNU Lesser General Public License Version 2.1        *)
@@ -104,20 +104,20 @@ let rec make_form atom_env gls term =
 	    make_atom atom_env (normalize term)
       | Cast(a,_,_) ->
 	  make_form atom_env gls a
-      | Ind ind ->
-	  if Names.eq_ind ind (Lazy.force li_False) then
+      | Ind (ind, _) ->
+	  if Names.eq_ind ind (fst (Lazy.force li_False)) then
 	    Bot
 	  else
 	    make_atom atom_env (normalize term)
       | App(hd,argv) when Int.equal (Array.length argv) 2 ->
 	  begin
 	    try
-	      let ind = destInd hd in
-		if Names.eq_ind ind (Lazy.force li_and) then
+	      let ind, _ = destInd hd in
+		if Names.eq_ind ind (fst (Lazy.force li_and)) then
 		  let fa=make_form atom_env gls argv.(0) in
 		  let fb=make_form atom_env gls argv.(1) in
 		    Conjunct (fa,fb)
-		else if Names.eq_ind ind (Lazy.force li_or) then
+		else if Names.eq_ind ind (fst (Lazy.force li_or)) then
 		  let fa=make_form atom_env gls argv.(0) in
 		  let fb=make_form atom_env gls argv.(1) in
 		    Disjunct (fa,fb)
@@ -313,7 +313,7 @@ let rtauto_tac gls=
   let tac_start_time = System.get_time () in
   let result=
     if !check then
-      Tactics.exact_check term gls
+      Proofview.V82.of_tactic (Tactics.exact_check term) gls
     else
       Tactics.exact_no_check term gls in
   let tac_end_time = System.get_time () in

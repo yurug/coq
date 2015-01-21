@@ -1,6 +1,6 @@
 (************************************************************************)
 (*  v      *   The Coq Proof Assistant  /  The Coq Development Team     *)
-(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2012     *)
+(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2015     *)
 (*   \VV/  **************************************************************)
 (*    //   *      This file is distributed under the terms of the       *)
 (*         *       GNU Lesser General Public License Version 2.1        *)
@@ -66,10 +66,12 @@ val betaiotazeta       : reds
 val betadeltaiotanolet : reds
 
 (***********************************************************************)
-type table_key =
-  | ConstKey of constant
+type 'a tableKey =
+  | ConstKey of 'a
   | VarKey of Id.t
   | RelKey of int
+
+type table_key = constant puniverses tableKey
 
 type 'a infos
 val ref_value_cache: 'a infos -> table_key -> 'a option
@@ -90,12 +92,14 @@ type fterm =
   | FAtom of constr (* Metas and Sorts *)
   | FCast of fconstr * cast_kind * fconstr
   | FFlex of table_key
-  | FInd of inductive
-  | FConstruct of constructor
+  | FInd of pinductive
+  | FConstruct of pconstructor
   | FApp of fconstr * fconstr array
+  | FProj of constant * fconstr
   | FFix of fixpoint * fconstr subs
   | FCoFix of cofixpoint * fconstr subs
-  | FCases of case_info * fconstr * fconstr * fconstr array
+  | FCase of case_info * fconstr * fconstr * fconstr array
+  | FCaseT of case_info * constr * fconstr * constr array * fconstr subs (* predicate and branches are closures *)
   | FLambda of int * (name * constr) list * constr * fconstr subs
   | FProd of name * fconstr * fconstr
   | FLetIn of name * fconstr * fconstr * constr * fconstr subs
@@ -112,6 +116,8 @@ type fterm =
 type stack_member =
   | Zapp of fconstr array
   | Zcase of case_info * fconstr * fconstr array
+  | ZcaseT of case_info * constr * constr array * fconstr subs
+  | Zproj of int * int * constant
   | Zfix of fconstr * stack
   | Zshift of int
   | Zupdate of fconstr
@@ -120,6 +126,9 @@ and stack = stack_member list
 
 val append_stack : fconstr array -> stack -> stack
 val eta_expand_stack : stack -> stack
+ 
+val eta_expand_ind_stack : env -> inductive -> fconstr -> stack -> 
+   (fconstr * stack) -> stack * stack
 
 (* To lazy reduce a constr, create a [clos_infos] with
    [create_clos_infos], inject the term to reduce with [inject]; then use
@@ -135,6 +144,8 @@ val destFLambda :
 (* Global and local constant cache *)
 type clos_infos
 val create_clos_infos : reds -> env -> clos_infos
+val infos_env : clos_infos -> env
+val infos_flags : clos_infos -> reds
 
 (* Reduction function *)
 
@@ -171,6 +182,5 @@ val kni: clos_infos -> fconstr -> stack -> fconstr * stack
 val knr: clos_infos -> fconstr -> stack -> fconstr * stack
 
 val to_constr : (lift -> fconstr -> constr) -> lift -> fconstr -> constr
-val optimise_closure : fconstr subs -> constr -> fconstr subs * constr
 
 (* End of cbn debug section i*)

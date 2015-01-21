@@ -1,7 +1,6 @@
 open Errors
 open Util
 open Names
-open Univ
 open Cic
 open Term
 open Declarations
@@ -14,7 +13,7 @@ type globals = {
   env_modtypes : module_type_body MPmap.t}
 
 type stratification = {
-  env_universes : universes;
+  env_universes : Univ.universes;
   env_engagement : engagement option
 }
 
@@ -77,12 +76,15 @@ let push_rec_types (lna,typarray,_) env =
 
 (* Universe constraints *)
 let add_constraints c env =
-  if c == empty_constraint then
+  if c == Univ.Constraint.empty then
     env
   else
     let s = env.env_stratification in
     { env with env_stratification =
-      { s with env_universes = merge_constraints c s.env_universes } }
+      { s with env_universes = Univ.merge_constraints c s.env_universes } }
+
+let check_constraints cst env =
+  Univ.check_constraints cst env.env_stratification.env_universes
 
 (* Global constants *)
 
@@ -104,19 +106,51 @@ let add_constant kn cs env =
 
 type const_evaluation_result = NoBody | Opaque
 
+(* Constant types *)
+
+let constraints_of cb u =
+  let univs = cb.const_universes in
+    Univ.subst_instance_constraints u (Univ.UContext.constraints univs)
+
+let map_regular_arity f = function
+  | RegularArity a as ar -> 
+    let a' = f a in 
+      if a' == a then ar else RegularArity a'
+  | TemplateArity _ -> assert false
+
+(* constant_type gives the type of a constant *)
+let constant_type env (kn,u) =
+  let cb = lookup_constant kn env in
+    if cb.const_polymorphic then
+      let csts = constraints_of cb u in
+	(map_regular_arity (subst_instance_constr u) cb.const_type, csts)
+    else cb.const_type, Univ.Constraint.empty
+
 exception NotEvaluableConst of const_evaluation_result
 
-let constant_value env kn =
+let constant_value env (kn,u) =
   let cb = lookup_constant kn env in
-  match cb.const_body with
-    | Def l_body -> force_constr l_body
+    match cb.const_body with
+    | Def l_body -> 
+      let b = force_constr l_body in
+	if cb.const_polymorphic then
+	  subst_instance_constr u (force_constr l_body)
+	else b
     | OpaqueDef _ -> raise (NotEvaluableConst Opaque)
     | Undef _ -> raise (NotEvaluableConst NoBody)
 
 (* A global const is evaluable if it is defined and not opaque *)
 let evaluable_constant cst env =
-  try let _  = constant_value env cst in true
+  try let _  = constant_value env (cst, Univ.Instance.empty) in true
   with Not_found | NotEvaluableConst _ -> false
+
+let is_projection cst env = 
+  not (Option.is_empty (lookup_constant cst env).const_proj)
+
+let lookup_projection cst env =
+  match (lookup_constant cst env).const_proj with 
+  | Some pb -> pb
+  | None -> anomaly ("lookup_projection: constant is not a projection")
 
 (* Mutual Inductives *)
 let scrape_mind env kn=

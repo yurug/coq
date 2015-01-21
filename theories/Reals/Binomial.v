@@ -1,6 +1,6 @@
 (************************************************************************)
 (*  v      *   The Coq Proof Assistant  /  The Coq Development Team     *)
-(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2012     *)
+(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2015     *)
 (*   \VV/  **************************************************************)
 (*    //   *      This file is distributed under the terms of the       *)
 (*         *       GNU Lesser General Public License Version 2.1        *)
@@ -172,13 +172,12 @@ Proof.
   apply sum_eq.
   intros; apply H1.
   unfold N; apply le_lt_trans with n; [ assumption | apply lt_n_Sn ].
-  intros; unfold Bn, Cn.
-  replace (S N - S i)%nat with (N - i)%nat; reflexivity.
+  reflexivity.
   unfold An; fold N; rewrite <- minus_n_n; rewrite H0;
     simpl; ring.
   apply sum_eq.
-  intros; unfold An, Bn; replace (S N - S i)%nat with (N - i)%nat;
-    [ idtac | reflexivity ].
+  intros; unfold An, Bn.
+  change (S N - S i)%nat with (N - i)%nat.
   rewrite <- pascal;
     [ ring
       | apply le_lt_trans with n; [ assumption | unfold N; apply lt_n_Sn ] ].

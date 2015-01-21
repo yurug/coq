@@ -1,6 +1,6 @@
 (************************************************************************)
 (*  v      *   The Coq Proof Assistant  /  The Coq Development Team     *)
-(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2012     *)
+(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2015     *)
 (*   \VV/  **************************************************************)
 (*    //   *      This file is distributed under the terms of the       *)
 (*         *       GNU Lesser General Public License Version 2.1        *)
@@ -18,34 +18,14 @@
     line to a process running "coqtop -batch -compile <file>".
 *)
 
+(* Environment *)
+
+let environment = Unix.environment ()
+
 let binary = ref "coqtop"
 let image = ref ""
 
 let verbose = ref false
-
-(* Verifies that a string starts by a letter and do not contain
-   others caracters than letters, digits, or `_` *)
-
-let check_module_name s =
-  let err c =
-    output_string stderr "Invalid module name: ";
-    output_string stderr s;
-    output_string stderr " character ";
-    if c = '\'' then
-      output_string stderr "\"'\""
-    else
-      (output_string stderr"'"; output_char stderr c; output_string stderr"'");
-    output_string stderr " is not allowed in module names\n";
-    exit 1
-  in
-  match String.get s 0 with
-    | 'a' .. 'z' | 'A' .. 'Z' ->
-	for i = 1 to (String.length s)-1 do
-	  match String.get s i with
-	    | 'a' .. 'z' | 'A' .. 'Z' | '0' .. '9' | '_'  -> ()
-	    | c -> err c
-	done
-    | c -> err c
 
 let rec make_compilation_args = function
   | [] -> []
@@ -55,7 +35,6 @@ let rec make_compilation_args = function
           Filename.chop_suffix file ".v"
         else file
       in
-      check_module_name (Filename.basename file_noext);
       (if !verbose then "-compile-verbose" else "-compile")
       :: file_noext :: (make_compilation_args fl)
 
@@ -63,7 +42,19 @@ let rec make_compilation_args = function
 
 let compile command args files =
   let args' = command :: args @ (make_compilation_args files) in
-  Unix.execvp command (Array.of_list args')
+  match Sys.os_type with
+  | "Win32" ->
+     let pid =
+        Unix.create_process_env command (Array.of_list args') environment
+        Unix.stdin Unix.stdout Unix.stderr
+     in
+     let status = snd (Unix.waitpid [] pid) in
+     let errcode =
+       match status with Unix.WEXITED c|Unix.WSTOPPED c|Unix.WSIGNALED c -> c
+     in
+     exit errcode
+  | _ ->
+     Unix.execvpe command (Array.of_list args') environment
 
 let usage () =
   Usage.print_usage_coqc () ;
@@ -82,7 +73,7 @@ let parse_args () =
     | "-image" :: f :: rem -> image := f; parse (cfiles,args) rem
     | "-image" :: [] ->	usage ()
     | "-byte" :: rem -> binary := "coqtop.byte"; parse (cfiles,args) rem
-    | "-opt" :: rem -> (* now a no-op *) parse (cfiles,args) rem
+    | "-opt" :: rem -> binary := "coqtop"; parse (cfiles,args) rem
 
 (* Obsolete options *)
 
@@ -120,7 +111,8 @@ let parse_args () =
       |"-dont-load-proofs"|"-load-proofs"|"-force-load-proofs"
       |"-impredicative-set"|"-vm"|"-no-native-compiler"
       |"-verbose-compat-notations"|"-no-compat-notations"
-      |"-quick"
+      |"-indices-matter"|"-quick"|"-color"
+      |"-async-proofs-always-delegate"|"-async-proofs-never-reopen-branch"
       as o) :: rem ->
 	parse (cfiles,o::args) rem
 
@@ -130,7 +122,7 @@ let parse_args () =
       |"-load-vernac-source"|"-l"|"-load-vernac-object"
       |"-load-ml-source"|"-require"|"-load-ml-object"
       |"-init-file"|"-dump-glob"|"-compat"|"-coqlib"
-      |"-async-proofs-j" |"-async-proofs-worker-flags" |"-async-proofs"
+      |"-async-proofs-j" |"-async-proofs-private-flags" |"-async-proofs"
       as o) :: rem ->
 	begin
 	  match rem with
@@ -151,14 +143,13 @@ let parse_args () =
     | "-R" :: s :: "-as" :: t :: rem ->	parse (cfiles,t::"-as"::s::"-R"::args) rem
     | "-R" :: s :: "-as" :: [] -> usage ()
     | "-R" :: s :: t :: rem -> parse (cfiles,t::s::"-R"::args) rem
-    | ("-schedule-vi-checking"
-      |"-check-vi-tasks" | "-schedule-vi2vo" as o) :: s :: rem ->
+    | "-Q" :: s :: t :: rem -> parse (cfiles,t::s::"-Q"::args) rem
+    | ("-schedule-vio-checking"
+      |"-check-vio-tasks" | "-schedule-vio2vo" as o) :: s :: rem ->
         let nodash, rem =
           CList.split_when (fun x -> String.length x > 1 && x.[0] = '-') rem in
         extra_arg_needed := false;
         parse (cfiles, List.rev nodash @ s :: o :: args) rem
-
-(* Anything else is interpreted as a file *)
 
     | f :: rem ->
 	if Sys.file_exists f then

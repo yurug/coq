@@ -64,7 +64,7 @@ induction H.
 
 As the hypothesis itself did not appear in the goal, we did not need to
 use an heterogeneous equality to relate the new hypothesis to the old
-one (which just disappeared here). However, the tactic works just a well
+one (which just disappeared here). However, the tactic works just as well
 in this case, e.g.:
 
 \begin{coq_eval}
@@ -345,7 +345,7 @@ Reset Initial.
 \section[\tt quote]{\tt quote\tacindex{quote}
 \label{quote-examples}}
 
-The tactic \texttt{quote} allows to use Barendregt's so-called
+The tactic \texttt{quote} allows using Barendregt's so-called
 2-level approach without writing any ML code. Suppose you have a
 language \texttt{L} of 
 'abstract terms' and a type \texttt{A} of 'concrete terms' 

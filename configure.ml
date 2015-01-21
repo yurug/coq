@@ -12,8 +12,12 @@
 open Printf
 
 let coq_version = "trunk"
+let coq_macos_version = "8.4.90" (** "[...] should be a string comprised of
+three non-negative, period-separed integers [...]" *)
 let vo_magic = 8511
 let state_magic = 58511
+let distributed_exec = ["coqtop";"coqc";"coqchk";"coqdoc";"coqmktop";"coqworkmgr";
+"coqdoc";"coq_makefile";"coq-tex";"gallina";"coqwc";"csdpcert"]
 
 let verbose = ref false (* for debugging this script *)
 
@@ -150,6 +154,7 @@ let safe_remove f =
 (** The PATH list for searching programs *)
 
 let os_type_win32 = (Sys.os_type = "Win32")
+let os_type_cygwin = (Sys.os_type = "Cygwin")
 
 let global_path =
   try string_split (if os_type_win32 then ';' else ':') (Sys.getenv "PATH")
@@ -408,8 +413,6 @@ let rec try_archs = function
   | _ :: rest -> try_archs rest
   | [] -> query_arch ()
 
-let os_type_cygwin = (Sys.os_type = "Cygwin")
-
 let arch = match !Prefs.arch with
   | Some a -> a
   | None ->
@@ -423,7 +426,8 @@ let arch = match !Prefs.arch with
 
 let arch_win32 = (arch = "win32")
 
-let exe,dll = if arch_win32 then ".exe",".dll" else "", ".so"
+let exe = if arch_win32 then ".exe" else ""
+let dll = if os_type_win32 then ".dll" else ".so"
 
 (** * VCS
 
@@ -534,15 +538,23 @@ let check_camlp5 testcma = match !Prefs.camlp5dir with
       in die msg
   | None ->
     let dir,_ = tryrun "camlp5" ["-where"] in
-    if dir <> "" then dir
-    else if Sys.file_exists (camllib/"camlp5"/testcma) then
-      camllib/"camlp5"
-    else if Sys.file_exists (camllib/"site-lib"/"camlp5"/testcma) then
-      camllib/"site-lib"/"camlp5"
-    else
-      let () = printf "No Camlp5 installation found." in
-      let () = printf "Looking for Camlp4 instead...\n" in
-      raise NoCamlp5
+    let dir2 =
+      if Sys.file_exists (camllib/"camlp5"/testcma) then
+        camllib/"camlp5"
+      else if Sys.file_exists (camllib/"site-lib"/"camlp5"/testcma) then
+        camllib/"site-lib"/"camlp5"
+      else ""
+    in
+    (* if the two values are different than camlp5 has been relocated
+     * and will not be able to find its own files, so we prefer the
+     * path where the files actually do exist *)
+    if dir2 = "" then
+      if dir = "" then
+        let () = printf "No Camlp5 installation found." in
+        let () = printf "Looking for Camlp4 instead...\n" in
+        raise NoCamlp5
+      else dir
+    else dir2
 
 let check_camlp5_version () =
   let s = camlexec.p4 in
@@ -554,7 +566,7 @@ let check_camlp5_version () =
     let version_line, _ = run ~err:StdOut camlexec.p4 ["-v"] in
     let version = List.nth (string_split ' ' version_line) 2 in
     match string_split '.' version with
-    | major::minor::_ when (s2i major, s2i minor) >= (5,1) ->
+    | major::minor::_ when s2i major > 5 || (s2i major, s2i minor) >= (5,1) ->
       printf "You have Camlp5 %s. Good!\n" version
     | _ -> failwith "bad version"
   with _ -> die "Error: unsupported Camlp5 (version < 5.01 or unrecognized).\n"
@@ -740,6 +752,7 @@ let coqide =
 let lablgtkincludes = ref ""
 let idearchflags = ref ""
 let idearchfile = ref ""
+let idecdepsflags = ref ""
 let idearchdef = ref "X11"
 
 let coqide_flags () =
@@ -753,9 +766,12 @@ let coqide_flags () =
         idearchdef := "QUARTZ"
       end
     | "opt", "win32" ->
-      idearchfile := "ide/ide_win32_stubs.o";
+      idearchfile := "ide/ide_win32_stubs.o ide/coq_icon.o";
+      idecdepsflags := "-custom";
+      idearchflags := "-ccopt '-subsystem windows'";
       idearchdef := "WIN32"
     | _, "win32" ->
+      idearchflags := "-ccopt '-subsystem windows'";
       idearchdef := "WIN32"
     | _ -> ()
 
@@ -778,6 +794,12 @@ let strip =
       ) all) in
     if strip = "" then "stip" else strip
     end
+
+(** * md5sum command *)
+
+let md5sum =
+  if arch = "Darwin" then "md5 -q" else "md5sum"
+
 
 (** * md5sum command *)
 
@@ -1130,7 +1152,9 @@ let write_makefile f =
   pr "# CoqIde (no/byte/opt)\n";
   pr "HASCOQIDE=%s\n" coqide;
   pr "IDEFLAGS=%s\n" !idearchflags;
-  pr "IDEOPTDEPS=%s\n" !idearchfile;
+  pr "IDEOPTCDEPS=%s\n" !idearchfile;
+  pr "IDECDEPS=%s\n" !idearchfile;
+  pr "IDECDEPSFLAGS=%s\n" !idecdepsflags;
   pr "IDEINT=%s\n\n" !idearchdef;
   pr "# Defining REVISION\n";
   pr "CHECKEDOUT=%s\n\n" vcs;
@@ -1140,3 +1164,30 @@ let write_makefile f =
   Unix.chmod f 0o444
 
 let _ = write_makefile "config/Makefile"
+
+let write_macos_metadata exec =
+  let f = "config/Info-"^exec^".plist" in
+  let () = safe_remove f in
+  let o = open_out f in
+  let pr s = fprintf o s in
+  pr "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n";
+  pr "<!DOCTYPE plist PUBLIC \"-//Apple//DTD PLIST 1.0//EN\" \"http://www.apple.com/DTDs/PropertyList-1.0.dtd\">\n";
+  pr "<plist version=\"1.0\">\n";
+  pr "<dict>\n";
+  pr "    <key>CFBundleIdentifier</key>\n";
+  pr "    <string>fr.inria.coq.%s</string>\n" exec;
+  pr "    <key>CFBundleName</key>\n";
+  pr "    <string>%s</string>\n" exec;
+  pr "    <key>CFBundleVersion</key>\n";
+  pr "    <string>%s</string>\n" coq_macos_version;
+  pr "    <key>CFBundleShortVersionString</key>\n";
+  pr "    <string>%s</string>\n" coq_macos_version;
+  pr "    <key>CFBundleInfoDictionaryVersion</key>\n";
+  pr "    <string>6.0</string>\n";
+  pr "</dict>\n";
+  pr "</plist>\n";
+  let () = close_out o in
+  Unix.chmod f 0o444
+
+let () = if arch = "Darwin" then
+List.iter write_macos_metadata distributed_exec

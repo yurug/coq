@@ -1,6 +1,6 @@
 (************************************************************************)
 (*  v      *   The Coq Proof Assistant  /  The Coq Development Team     *)
-(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2012     *)
+(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2015     *)
 (*   \VV/  **************************************************************)
 (*    //   *      This file is distributed under the terms of the       *)
 (*         *       GNU Lesser General Public License Version 2.1        *)
@@ -320,6 +320,7 @@ Section CompareRec.
  Let double_to_Z_pos: forall n x, 0 <= double_to_Z n x < double_wB n :=
    (spec_double_to_Z wm_base wm_to_Z wm_to_Z_pos).
 
+ Declare Equivalent Keys compare0_mn compare0_m.
 
  Lemma spec_compare0_mn: forall n x,
    compare0_mn n x = (0 ?= double_to_Z n x).

@@ -1,6 +1,6 @@
 (************************************************************************)
 (*  v      *   The Coq Proof Assistant  /  The Coq Development Team     *)
-(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2012     *)
+(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2015     *)
 (*   \VV/  **************************************************************)
 (*    //   *      This file is distributed under the terms of the       *)
 (*         *       GNU Lesser General Public License Version 2.1        *)
@@ -10,7 +10,6 @@
 open Errors
 open Util
 open Names
-open Univ
 open Cic
 open Term
 open Declarations
@@ -92,7 +91,26 @@ let check_inductive  env mp1 l info1 mib2 spec2 subst1 subst2=
       | IndType ((_,0), mib) -> mib
       | _ -> error ()
   in
-  let mib2 =  subst_mind subst2 mib2 in
+  let mib2 = subst_mind subst2 mib2 in
+  let check eq f = if not (eq (f mib1) (f mib2)) then error () in
+  let bool_equal (x : bool) (y : bool) = x = y in
+  let u = 
+    check bool_equal (fun x -> x.mind_polymorphic);
+    if mib1.mind_polymorphic then (
+      check Univ.Instance.equal (fun x -> Univ.UContext.instance x.mind_universes);
+      Univ.UContext.instance mib1.mind_universes)
+    else Univ.Instance.empty
+  in
+  let eq_projection_body p1 p2 =
+    let check eq f = if not (eq (f p1) (f p2)) then error () in
+    check eq_mind (fun x -> x.proj_ind);
+    check (==) (fun x -> x.proj_npars);
+    check (==) (fun x -> x.proj_arg);
+    check (eq_constr) (fun x -> x.proj_type);
+    check (eq_constr) (fun x -> fst x.proj_eta);
+    check (eq_constr) (fun x -> snd x.proj_eta);
+    check (eq_constr) (fun x -> x.proj_body); true
+  in
   let check_inductive_type env t1 t2 =
 
     (* Due to sort-polymorphism in inductive types, the conclusions of
@@ -146,16 +164,14 @@ let check_inductive  env mp1 l info1 mib2 spec2 subst1 subst2=
       (* params_ctxt done because part of the inductive types *)
       (* Don't check the sort of the type if polymorphic *)
       check_inductive_type env
-        (type_of_inductive env (mib1,p1)) (type_of_inductive env (mib2,p2))
+        (type_of_inductive env ((mib1,p1),u)) (type_of_inductive env ((mib2,p2),u))
   in
   let check_cons_types i p1 p2 =
     Array.iter2 (check_conv conv env)
-      (arities_of_specif kn (mib1,p1))
-      (arities_of_specif kn (mib2,p2))
+      (arities_of_specif (kn,u) (mib1,p1))
+      (arities_of_specif (kn,u) (mib2,p2))
   in
-  let check eq f = if not (eq (f mib1) (f mib2)) then error () in
-  let bool_equal (x : bool) (y : bool) = x = y in
-  check bool_equal (fun mib -> mib.mind_finite);
+  check (==) (fun mib -> mib.mind_finite);
   check Int.equal (fun mib -> mib.mind_ntypes);
   assert (Array.length mib1.mind_packets >= 1
 	    && Array.length mib2.mind_packets >= 1);
@@ -179,8 +195,18 @@ let check_inductive  env mp1 l info1 mib2 spec2 subst1 subst2=
 	    if kn1 <> kn2 then error ()
   end;*)
   (* we check that records and their field names are preserved. *)
-  check bool_equal (fun mib -> mib.mind_record);
-  if mib1.mind_record then begin
+  let record_equal x y =
+    match x, y with
+    | None, None -> true
+    | Some None, Some None -> true
+    | Some (Some (id1,p1,pb1)), Some (Some (id2,p2,pb2)) ->
+      Id.equal id1 id2 &&
+      Array.for_all2 eq_con_chk p1 p2 &&
+      Array.for_all2 eq_projection_body pb1 pb2
+    | _, _ -> false
+  in
+  check record_equal (fun mib -> mib.mind_record);
+  if mib1.mind_record != None then begin
     let rec names_prod_letin t = match t with
       | Prod(n,_,t) -> n::(names_prod_letin t)
       | LetIn(n,_,_,t) -> n::(names_prod_letin t)
@@ -219,13 +245,13 @@ let check_constant env mp1 l info1 cb2 spec2 subst1 subst2 =
       if isArity t2 then
         let (ctx2,s2) = destArity t2 in
         match s2 with
-        | Type v when not (is_univ_variable v) ->
+        | Type v when not (Univ.is_univ_variable v) ->
           (* The type in the interface is inferred and is made of algebraic
              universes *)
           begin try
             let (ctx1,s1) = dest_arity env t1 in
             match s1 with
-            | Type u when not (is_univ_variable u) ->
+            | Type u when not (Univ.is_univ_variable u) ->
               (* Both types are inferred, no need to recheck them. We
                  cheat and collapse the types to Prop *)
                 mkArity (ctx1,Prop Null), mkArity (ctx2,Prop Null)
@@ -282,7 +308,8 @@ let check_constant env mp1 l info1 cb2 spec2 subst1 subst2 =
 		      "inductive type and give a definition to map the old name to the new " ^
 		      "name."));
       if constant_has_body cb2 then error () ;
-      let arity1 = type_of_inductive env (mind1,mind1.mind_packets.(i)) in
+      let u = inductive_instance mind1 in
+      let arity1 = type_of_inductive env ((mind1,mind1.mind_packets.(i)),u) in
       let typ2 = Typeops.type_of_constant_type env cb2.const_type in
        check_conv conv_leq env arity1 typ2
    | IndConstr (((kn,i),j) as cstr,mind1) ->
@@ -292,7 +319,8 @@ let check_constant env mp1 l info1 cb2 spec2 subst1 subst2 =
        "constructor and give a definition to map the old name to the new " ^
        "name."));
       if constant_has_body cb2 then error () ;
-      let ty1 = type_of_constructor cstr (mind1,mind1.mind_packets.(i)) in
+      let u1 = inductive_instance mind1 in
+      let ty1 = type_of_constructor (cstr,u1) (mind1,mind1.mind_packets.(i)) in
       let ty2 = Typeops.type_of_constant_type env cb2.const_type in
        check_conv conv env ty1 ty2
 
@@ -326,52 +354,52 @@ and check_signatures env mp1 sig1 sig2 subst1 subst2 =
 		| _ -> error_not_match l spec2
 	    in
 	    let env =
-              add_module_type mtb2.typ_mp mtb2
-	        (add_module_type mtb1.typ_mp mtb1 env)
+              add_module_type mtb2.mod_mp mtb2
+	        (add_module_type mtb1.mod_mp mtb1 env)
             in
 	    check_modtypes env mtb1 mtb2 subst1 subst2 true
   in
   List.iter check_one_body sig2
 
 and check_modtypes env mtb1 mtb2 subst1 subst2 equiv =
-  if mtb1==mtb2 || mtb1.typ_expr == mtb2.typ_expr then ()
+  if mtb1==mtb2 || mtb1.mod_type == mtb2.mod_type then ()
   else
     let rec check_structure  env str1 str2 equiv subst1 subst2 =
       match str1,str2 with
       | NoFunctor (list1),
         NoFunctor (list2) ->
-	  check_signatures env mtb1.typ_mp list1 list2 subst1 subst2;
+	  check_signatures env mtb1.mod_mp list1 list2 subst1 subst2;
 	  if equiv then
-	    check_signatures env mtb2.typ_mp list2 list1 subst1 subst2
+	    check_signatures env mtb2.mod_mp list2 list1 subst1 subst2
 	  else
 	    ()
       | MoreFunctor (arg_id1,arg_t1,body_t1),
 	MoreFunctor (arg_id2,arg_t2,body_t2) ->
 	  check_modtypes env
 	    arg_t2 arg_t1
-	    (map_mp arg_t1.typ_mp arg_t2.typ_mp) subst2
+	    (map_mp arg_t1.mod_mp arg_t2.mod_mp) subst2
 	    equiv;
 	  (* contravariant *)
 	  let env = add_module_type (MPbound arg_id2) arg_t2 env in
 	  let env =
             if is_functor body_t1 then env
             else
-	      let env = shallow_remove_module mtb1.typ_mp env in
-	      add_module {mod_mp = mtb1.typ_mp;
+	      let env = shallow_remove_module mtb1.mod_mp env in
+	      add_module {mod_mp = mtb1.mod_mp;
 			  mod_expr = Abstract;
 			  mod_type = body_t1;
 			  mod_type_alg = None;
-			  mod_constraints = mtb1.typ_constraints;
+			  mod_constraints = mtb1.mod_constraints;
 			  mod_retroknowledge = [];
-			  mod_delta = mtb1.typ_delta} env
+			  mod_delta = mtb1.mod_delta} env
 	  in
 	  check_structure env body_t1 body_t2 equiv
 	    (join (map_mbid arg_id1 (MPbound arg_id2)) subst1)
 	    subst2
       | _ , _ -> error_incompatible_modtypes mtb1 mtb2
     in
-    check_structure env mtb1.typ_expr mtb2.typ_expr equiv subst1 subst2
+    check_structure env mtb1.mod_type mtb2.mod_type equiv subst1 subst2
 
 let check_subtypes env sup super =
-  check_modtypes env (strengthen sup sup.typ_mp) super empty_subst
-      (map_mp super.typ_mp sup.typ_mp) false
+  check_modtypes env (strengthen sup sup.mod_mp) super empty_subst
+      (map_mp super.mod_mp sup.mod_mp) false

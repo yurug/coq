@@ -1,6 +1,6 @@
 (************************************************************************)
 (*  v      *   The Coq Proof Assistant  /  The Coq Development Team     *)
-(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2012     *)
+(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2015     *)
 (*   \VV/  **************************************************************)
 (*    //   *      This file is distributed under the terms of the       *)
 (*         *       GNU Lesser General Public License Version 2.1        *)
@@ -53,14 +53,12 @@ let all_subdirs ~unix_path:root =
   if exists_dir root then traverse root [];
   List.rev !l
 
+let rec search paths test =
+  match paths with
+  | [] -> []
+  | lpe :: rem -> test lpe @ search rem test
+
 let where_in_path ?(warn=true) path filename =
-  let rec search = function
-    | lpe :: rem ->
-	let f = Filename.concat lpe filename in
-	  if Sys.file_exists f
-	  then (lpe,f) :: search rem
-	  else search rem
-    | [] -> [] in
   let check_and_warn l = match l with
   | [] -> raise Not_found
   | (lpe, f) :: l' ->
@@ -77,7 +75,21 @@ let where_in_path ?(warn=true) path filename =
     in
     (lpe, f)
   in
-  check_and_warn (search path)
+  check_and_warn (search path (fun lpe ->
+    let f = Filename.concat lpe filename in
+    if Sys.file_exists f then [lpe,f] else []))
+
+let where_in_path_rex path rex =
+  search path (fun lpe ->
+    try
+      let files = Sys.readdir lpe in
+      CList.map_filter (fun name ->
+        try
+          ignore(Str.search_forward rex name 0);
+          Some (lpe,Filename.concat lpe name)
+        with Not_found -> None)
+      (Array.to_list files)
+    with Sys_error _ -> [])
 
 let find_file_in_path ?(warn=true) paths filename =
   if not (Filename.is_implicit filename) then
@@ -188,7 +200,7 @@ let extern_intern ?(warn=true) magic =
       with reraise ->
 	let reraise = Errors.push reraise in
         let () = try_remove filename in
-        raise reraise
+        iraise reraise
     with Sys_error s -> error ("System error: " ^ s)
   and intern_state paths name =
     try
@@ -208,56 +220,6 @@ let with_magic_number_check f a =
     errorlabstrm "with_magic_number_check"
     (str"File " ++ str fname ++ strbrk" has bad magic number." ++ spc () ++
     strbrk "It is corrupted or was compiled with another version of Coq.")
-
-(* Communication through files with another executable *)
-
-let connect writefun readfun com =
-  (* step 0 : prepare temporary files and I/O channels *)
-  let name = Filename.basename com in
-  let req,req_wr =
-    try Filename.open_temp_file ("coq-"^name^"-in") ".xml"
-    with Sys_error s -> error ("Cannot set connection to "^com^"("^s^")") in
-  let ans,ans_wr =
-    try Filename.open_temp_file ("coq-"^name^"-out") ".xml"
-    with Sys_error s ->
-      close_out req_wr;
-      error ("Cannot set connection from "^com^"("^s^")") in
-  let ans_wr' = Unix.descr_of_out_channel ans_wr in
-  (* step 1 : fill the request file *)
-  writefun req_wr;
-  close_out req_wr;
-  (* step 2a : prepare the request-reading descriptor for the sub-process *)
-  let req_rd' =
-    try Unix.openfile req [Unix.O_RDONLY] 0o644
-    with Unix.Unix_error (err,_,_) ->
-      close_out ans_wr;
-      let msg = Unix.error_message err in
-      error ("Cannot set connection to "^com^"("^msg^")")
-  in
-  (* step 2b : launch the sub-process *)
-  let pid =
-    try Unix.create_process com [|com|] req_rd' ans_wr' Unix.stdout
-    with Unix.Unix_error (err,_,_) ->
-      Unix.close req_rd'; close_out ans_wr; Unix.unlink req; Unix.unlink ans;
-      let msg = Unix.error_message err in
-      error ("Cannot execute "^com^"("^msg^")") in
-  Unix.close req_rd';
-  close_out ans_wr;
-  (* step 2c : wait for termination of the sub-process *)
-  (match CUnix.waitpid_non_intr pid with
-    | Unix.WEXITED 127 -> error (com^": cannot execute")
-    | Unix.WEXITED 0 -> ()
-    | _ -> error (com^" exited abnormally"));
-  (* step 3 : read the answer and handle it *)
-  let ans_rd =
-    try open_in ans
-    with Sys_error s -> error ("Cannot read output of "^com^"("^s^")") in
-  let a = readfun ans_rd in
-  close_in ans_rd;
-  (* step 4 : cleanup the temporary files *)
-  unlink req;
-  unlink ans;
-  a
 
 (* Time stamps. *)
 
@@ -279,3 +241,24 @@ let fmt_time_difference (startreal,ustart,sstart) (stopreal,ustop,sstop) =
   str "," ++
   real (round (sstop -. sstart)) ++ str "s" ++
   str ")"
+
+let with_time time f x =
+  let tstart = get_time() in
+  let msg = if time then "" else "Finished transaction in " in
+  try
+    let y = f x in
+    let tend = get_time() in
+    let msg2 = if time then "" else " (successful)" in
+    msg_info (str msg ++ fmt_time_difference tstart tend ++ str msg2);
+    y
+  with e ->
+    let tend = get_time() in
+    let msg = if time then "" else "Finished failing transaction in " in
+    let msg2 = if time then "" else " (failure)" in
+    msg_info (str msg ++ fmt_time_difference tstart tend ++ str msg2);
+    raise e
+
+let process_id () =
+  if Flags.async_proofs_is_worker () then !Flags.async_proofs_worker_id
+  else Printf.sprintf "master:%d" (Thread.id (Thread.self ()))
+    

@@ -224,6 +224,7 @@ clean-ide:
 	rm -f ide/input_method_lexer.ml
 	rm -f ide/highlight.ml ide/config_lexer.ml ide/config_parser.mli ide/config_parser.ml
 	rm -f ide/utf8_convert.ml
+	rm -rf $(COQIDEAPP)
 
 ml4clean:
 	rm -f $(GENML4FILES)
@@ -238,7 +239,7 @@ cacheclean:
 	find theories plugins test-suite -name '.*.aux' -delete
 
 cleanconfig:
-	rm -f config/Makefile config/coq_config.ml myocamlbuild_config.ml dev/ocamldebug-v7
+	rm -f config/Makefile config/coq_config.ml myocamlbuild_config.ml dev/ocamldebug-v7 config/Info-*.plist
 
 distclean: clean cleanconfig cacheclean
 
@@ -258,7 +259,21 @@ devdocclean:
 .PHONY: tags printenv
 
 tags:
-	echo $(MLIFILES) $(MLSTATICFILES) $(ML4FILES) | sort -r | xargs \
+	echo $(filter-out checker/%, $(MLIFILES)) $(filter-out checker/%, $(MLSTATICFILES)) $(ML4FILES) | sort -r | xargs \
+	etags --language=none\
+	      "--regex=/let[ \t]+\([^ \t]+\)/\1/" \
+	      "--regex=/let[ \t]+rec[ \t]+\([^ \t]+\)/\1/" \
+	      "--regex=/and[ \t]+\([^ \t]+\)/\1/" \
+	      "--regex=/type[ \t]+\([^ \t]+\)/\1/" \
+              "--regex=/exception[ \t]+\([^ \t]+\)/\1/" \
+	      "--regex=/val[ \t]+\([^ \t]+\)/\1/" \
+	      "--regex=/module[ \t]+\([^ \t]+\)/\1/"
+	echo $(ML4FILES) | sort -r | xargs \
+	etags --append --language=none\
+	      "--regex=/[ \t]*\([^: \t]+\)[ \t]*:/\1/"
+
+checker-tags:
+	echo $(filter-out kernel/%, $(MLIFILES)) $(filter-out kernel/%, $(MLSTATICFILES)) $(ML4FILES) | sort -r | xargs \
 	etags --language=none\
 	      "--regex=/let[ \t]+\([^ \t]+\)/\1/" \
 	      "--regex=/let[ \t]+rec[ \t]+\([^ \t]+\)/\1/" \

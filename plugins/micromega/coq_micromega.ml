@@ -1,6 +1,6 @@
 (************************************************************************)
 (*  v      *   The Coq Proof Assistant  /  The Coq Development Team     *)
-(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2012     *)
+(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2015     *)
 (*   \VV/  **************************************************************)
 (*    //   *      This file is distributed under the terms of the       *)
 (*         *       GNU Lesser General Public License Version 2.1        *)
@@ -536,10 +536,10 @@ struct
 
   let get_left_construct term =
    match Term.kind_of_term term with
-    | Term.Construct(_,i) -> (i,[| |])
+    | Term.Construct((_,i),_) -> (i,[| |])
     | Term.App(l,rst) ->
        (match Term.kind_of_term l with
-        | Term.Construct(_,i) -> (i,rst)
+        | Term.Construct((_,i),_) -> (i,rst)
         |   _     -> raise ParseError
        )
     | _ ->   raise ParseError
@@ -831,25 +831,33 @@ struct
    coq_Qeq, Mc.OpEq
   ]
 
-  let parse_zop (op,args) =
+  let has_typ gl t1 typ = 
+   let ty = Retyping.get_type_of (Tacmach.pf_env gl) (Tacmach.project gl) t1 in
+   Constr.equal ty typ
+
+
+  let is_convertible gl t1 t2 = 
+   Reductionops.is_conv (Tacmach.pf_env gl) (Tacmach.project gl) t1 t2
+
+  let parse_zop gl (op,args) =
    match kind_of_term op with
-    | Const x -> (assoc_const op zop_table, args.(0) , args.(1))
-    |  Ind(n,0) ->
-        if Constr.equal op (Lazy.force coq_Eq) && Constr.equal args.(0) (Lazy.force coq_Z)
+    | Const (x,_) -> (assoc_const op zop_table, args.(0) , args.(1))
+    | Ind((n,0),_) ->
+        if Constr.equal op (Lazy.force coq_Eq) && is_convertible gl args.(0) (Lazy.force coq_Z)
         then (Mc.OpEq, args.(1), args.(2))
         else raise ParseError
     |   _ -> failwith "parse_zop"
 
-  let parse_rop (op,args) =
+  let parse_rop gl (op,args) =
     match kind_of_term op with
-     | Const x -> (assoc_const op rop_table, args.(0) , args.(1))
-     |  Ind(n,0) ->
-        if Constr.equal op (Lazy.force coq_Eq) && Constr.equal args.(0) (Lazy.force coq_R)
+     | Const (x,_) -> (assoc_const op rop_table, args.(0) , args.(1))
+     | Ind((n,0),_) ->
+        if Constr.equal op (Lazy.force coq_Eq) && is_convertible gl args.(0) (Lazy.force coq_R)
         then (Mc.OpEq, args.(1), args.(2))
         else raise ParseError
     |   _ -> failwith "parse_zop"
 
-  let parse_qop (op,args) =
+  let parse_qop gl (op,args) =
     (assoc_const op qop_table, args.(0) , args.(1))
 
   let is_constant t = (* This is an approx *)
@@ -1057,22 +1065,22 @@ struct
         Mc.PEpow(expr,exp))
    rop_spec
 
-  let  parse_arith parse_op parse_expr env cstr =
+  let  parse_arith parse_op parse_expr env cstr gl =
    if debug
    then Pp.msg_debug (Pp.str "parse_arith: " ++ Printer.prterm  cstr ++ fnl ());
    match kind_of_term cstr with
     | App(op,args) ->
-       let (op,lhs,rhs) = parse_op (op,args) in
+       let (op,lhs,rhs) = parse_op gl (op,args) in
        let (e1,env) = parse_expr env lhs in
        let (e2,env) = parse_expr env rhs in
         ({Mc.flhs = e1; Mc.fop = op;Mc.frhs = e2},env)
     |  _ -> failwith "error : parse_arith(2)"
 
-  let parse_zarith = parse_arith  parse_zop parse_zexpr
+  let parse_zarith = parse_arith parse_zop parse_zexpr
 
-  let parse_qarith = parse_arith  parse_qop parse_qexpr
+  let parse_qarith = parse_arith parse_qop parse_qexpr
 
-  let parse_rarith = parse_arith  parse_rop parse_rexpr
+  let parse_rarith = parse_arith parse_rop parse_rexpr
 
   (* generic parsing of arithmetic expressions *)
 
@@ -1105,11 +1113,11 @@ struct
     * This is the big generic function for formula parsers.
     *)
   
-  let parse_formula parse_atom env tg term =
+  let parse_formula gl parse_atom env tg term =
 
     let parse_atom env tg t =
       try
-        let (at,env) = parse_atom env t in
+        let (at,env) = parse_atom env t gl in
         (A(at,tg,t), env,Tag.next tg)
       with e when Errors.noncritical e -> (X(t),env,tg) in
 
@@ -1313,13 +1321,13 @@ let rec pp_proof_term o = function
 	(pp_psatz pp_z) c1 (pp_psatz pp_z) c2
      (pp_list "[" "]" pp_proof_term) rst
 
-let rec parse_hyps parse_arith env tg hyps =
+let rec parse_hyps gl parse_arith env tg hyps =
  match hyps with
   | [] -> ([],env,tg)
   | (i,t)::l ->
-     let (lhyps,env,tg) = parse_hyps parse_arith env tg l in
+     let (lhyps,env,tg) = parse_hyps gl parse_arith env tg l in
       try
-       let (c,env,tg) = parse_formula parse_arith env  tg t in
+       let (c,env,tg) = parse_formula gl parse_arith env  tg t in
 	((i,c)::lhyps, env,tg)
       with e when Errors.noncritical e -> (lhyps,env,tg)
        (*(if debug then Printf.printf "parse_arith : %s\n" x);*)
@@ -1327,10 +1335,10 @@ let rec parse_hyps parse_arith env tg hyps =
 
 (*exception ParseError*)
 
-let parse_goal parse_arith env hyps term =
+let parse_goal gl parse_arith env hyps term =
  (*  try*)
- let (f,env,tg) = parse_formula parse_arith env (Tag.from 0) term in
- let (lhyps,env,tg) = parse_hyps parse_arith env tg hyps in
+ let (f,env,tg) = parse_formula gl parse_arith env (Tag.from 0) term in
+ let (lhyps,env,tg) = parse_hyps gl parse_arith env tg hyps in
   (lhyps,f,env)
    (*  with Failure x -> raise ParseError*)
 
@@ -1374,22 +1382,31 @@ let rcst_domain_spec  = lazy {
   * witness.
   *)
 
-let micromega_order_change spec cert cert_typ env ff gl =
+
+
+let micromega_order_change spec cert cert_typ env ff : Tacmach.tactic = 
+ let ids = Util.List.map_i (fun i _ -> (Names.Id.of_string ("__z"^(string_of_int i)))) 0 env in 
  let formula_typ = (Term.mkApp (Lazy.force coq_Cstr,[|spec.coeff|])) in
- let ff = dump_formula formula_typ (dump_cstr spec.coeff spec.dump_coeff) ff in
+ let ff  = dump_formula formula_typ (dump_cstr spec.coeff spec.dump_coeff) ff in
  let vm = dump_varmap (spec.typ) env in
-  Tactics.change_in_concl None
+ (* todo : directly generate the proof term - or generalize befor conversion? *)
+ Tacticals.tclTHENSEQ [
+  (fun gl -> 
+   Proofview.V82.of_tactic (Tactics.change_concl
    (set
      [
       ("__ff", ff, Term.mkApp(Lazy.force coq_Formula, [|formula_typ |]));
       ("__varmap", vm, Term.mkApp
        (Coqlib.gen_constant_in_modules "VarMap"
-	 [["Coq" ; "micromega" ; "VarMap"] ; ["VarMap"]] "t", [|spec.typ|]));
+	 [["Coq" ; "micromega" ; "VarMap"] ; ["VarMap"]] "t", [|spec.typ|])); 
       ("__wit", cert, cert_typ)
      ]
-     (Tacmach.pf_concl gl)
-   )
-   gl
+     (Tacmach.pf_concl gl))) gl);
+  Tactics.generalize env ;
+  Tacticals.tclTHENSEQ (List.map (fun id -> Proofview.V82.of_tactic (Tactics.introduction id)) ids) ; 
+ ] 
+
+
 
 (**
   * The datastructures that aggregate prover attributes.
@@ -1633,7 +1650,7 @@ let micromega_gen
   let concl = Tacmach.pf_concl gl in
   let hyps  = Tacmach.pf_hyps_types gl in
   try
-   let (hyps,concl,env) = parse_goal parse_arith Env.empty hyps concl in
+   let (hyps,concl,env) = parse_goal gl parse_arith Env.empty hyps concl in
    let env = Env.elements env in
    let spec = Lazy.force spec in
 
@@ -1666,7 +1683,7 @@ let micromega_order_changer cert env ff gl =
  let formula_typ = (Term.mkApp (Lazy.force coq_Cstr,[| coeff|])) in
  let ff = dump_formula formula_typ (dump_cstr coeff dump_coeff) ff in
  let vm = dump_varmap (typ) env in
-  Tactics.change_in_concl None
+  Proofview.V82.of_tactic (Tactics.change_concl
    (set
      [
       ("__ff", ff, Term.mkApp(Lazy.force coq_Formula, [|formula_typ |]));
@@ -1676,7 +1693,7 @@ let micromega_order_changer cert env ff gl =
       ("__wit", cert, cert_typ)
      ]
      (Tacmach.pf_concl gl)
-   )
+   ))
    gl
 
 
@@ -1697,7 +1714,7 @@ let micromega_genr prover gl =
   let concl = Tacmach.pf_concl gl in
   let hyps  = Tacmach.pf_hyps_types gl in
   try
-   let (hyps,concl,env) = parse_goal parse_arith Env.empty hyps concl in
+   let (hyps,concl,env) = parse_goal gl parse_arith Env.empty hyps concl in
    let env = Env.elements env in
    let spec = Lazy.force spec in
 

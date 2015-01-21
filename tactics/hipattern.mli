@@ -1,6 +1,6 @@
 (************************************************************************)
 (*  v      *   The Coq Proof Assistant  /  The Coq Development Team     *)
-(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2012     *)
+(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2015     *)
 (*   \VV/  **************************************************************)
 (*    //   *      This file is distributed under the terms of the       *)
 (*         *       GNU Lesser General Public License Version 2.1        *)
@@ -120,20 +120,20 @@ val match_with_equation:
 
 (** Match terms [eq A t u], [identity A t u] or [JMeq A t A u] 
    Returns associated lemmas and [A,t,u] or fails PatternMatchingFailure *)
-val find_eq_data_decompose : 'a Proofview.Goal.t -> constr ->
-      coq_eq_data * (types * constr * constr)
+val find_eq_data_decompose : [ `NF ] Proofview.Goal.t -> constr ->
+      coq_eq_data * Univ.universe_instance * (types * constr * constr)
 
 (** Idem but fails with an error message instead of PatternMatchingFailure *)
-val find_this_eq_data_decompose : 'a Proofview.Goal.t -> constr ->
-      coq_eq_data * (types * constr * constr)
+val find_this_eq_data_decompose : [ `NF ] Proofview.Goal.t -> constr ->
+      coq_eq_data * Univ.universe_instance * (types * constr * constr)
 
 (** A variant that returns more informative structure on the equality found *)
-val find_eq_data : constr -> coq_eq_data * equation_kind
+val find_eq_data : constr -> coq_eq_data * Univ.universe_instance * equation_kind
 
 (** Match a term of the form [(existT A P t p)] 
    Returns associated lemmas and [A,P,t,p] *)
 val find_sigma_data_decompose : constr ->
-  coq_sigma_data * (constr * constr * constr * constr)
+  coq_sigma_data * (Univ.universe_instance * constr * constr * constr * constr)
 
 (** Match a term of the form [{x:A|P}], returns [A] and [P] *)
 val match_sigma : constr -> constr * constr
@@ -147,7 +147,7 @@ val match_eqdec : constr -> bool * constr * constr * constr * constr
 (** Match an equality up to conversion; returns [(eq,t1,t2)] in normal form *)
 open Proof_type
 open Tacmach
-val dest_nf_eq : 'a Proofview.Goal.t -> constr -> (constr * constr * constr)
+val dest_nf_eq : [ `NF ] Proofview.Goal.t -> constr -> (constr * constr * constr)
 
 (** Match a negation *)
 val is_matching_not : constr -> bool

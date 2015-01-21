@@ -1,6 +1,6 @@
 (************************************************************************)
 (*  v      *   The Coq Proof Assistant  /  The Coq Development Team     *)
-(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2012     *)
+(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2015     *)
 (*   \VV/  **************************************************************)
 (*    //   *      This file is distributed under the terms of the       *)
 (*         *       GNU Lesser General Public License Version 2.1        *)
@@ -80,3 +80,13 @@ Delimit Scope core_scope with core.
 
 Open Scope core_scope.
 Open Scope type_scope.
+
+(** ML Tactic Notations *)
+
+Declare ML Module "coretactics".
+Declare ML Module "extratactics".
+Declare ML Module "eauto".
+Declare ML Module "g_class".
+Declare ML Module "g_eqdecide".
+Declare ML Module "g_rewrite".
+Declare ML Module "tauto".

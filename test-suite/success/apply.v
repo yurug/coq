@@ -164,8 +164,8 @@ intros.
 apply H with (y:=y).
 (* [x] had two possible instances: [S 0], coming from unifying the
    type of [y] with [I ?n] and [succ 0] coming from the unification with
-   the goal; only the first one allows to make the next apply (which
-   does not work modulo delta) working *)
+   the goal; only the first one allows the next apply (which
+   does not work modulo delta) work *)
 apply H0.
 Qed.
 
@@ -336,25 +336,43 @@ Qed.
 (* From 12612, descent in conjunctions is more powerful *)
 (* The following, which was failing badly in bug 1980, is now
    properly rejected, as descend in conjunctions builds an
-   ill-formed elimination from Prop to Type. *)
+   ill-formed elimination from Prop to Type.
+
+   Added Aug 2014: why it fails is now that trivial unification ?x = goal is
+   rejected by the descent in conjunctions to avoid surprising results. *)
 
 Goal True.
 Fail eapply ex_intro.
 exact I.
 Qed.
 
-(* The following, which were not accepted, are now accepted as
-    expected by descent in conjunctions *)
+Goal True.
+Fail eapply (ex_intro _).
+exact I.
+Qed.
+
+(* Note: the following succeed directly (i.e. w/o "exact I") since
+   Aug 2014 since the descent in conjunction does not use a "cut"
+   anymore: the iota-redex is contracted and we get rid of the
+   uninstantiated evars
+
+   Is it good or not? Maybe it does not matter so much.
 
 Goal True.
 eapply (ex_intro (fun _ => True) I).    
-exact I.
+exact I. (* Not needed since Aug 2014 *)
+Qed.
+
+Goal True.
+eapply (ex_intro (fun _ => True) I _).    
+exact I. (* Not needed since Aug 2014 *)
 Qed.
 
 Goal True.
 eapply (fun (A:Prop) (x:A) => conj I x).
-exact I.
+exact I. (* Not needed since Aug 2014 *)
 Qed.
+*)
 
 (* The following was not accepted from r12612 to r12657 *)
 
@@ -429,4 +447,92 @@ apply H with (n:=n).
 Undo.
 (* H' is displayed as (forall n0, n=n0) *)
 apply H' with (n0:=0).
+Qed.
+
+(* Check that evars originally present in goal do not prevent apply in to work*)
+
+Goal (forall x, x <= 0 -> x = 0) -> exists x, x <= 0 -> 0 = 0.
+intros.
+eexists.
+intros.
+apply H in H0.
+Abort.
+
+(* Check correct failure of apply in when hypothesis is dependent *)
+
+Goal forall H:0=0, H = H.
+intros.
+Fail apply eq_sym in H.
+
+(* Check that unresolved evars not originally present in goal prevent
+   apply in to work*)
+
+Goal (forall x y, x <= 0 -> x + y = 0) -> exists x, x <= 0 -> 0 = 0.
+intros.
+eexists.
+intros.
+Fail apply H in H0.
+Abort.
+
+(* Check naming pattern in apply in *)
+
+Goal ((False /\ (True -> True))) -> True -> True.
+intros F H.
+apply F in H as H0. (* Check that H0 is not used internally *)
+exact H0.
+Qed.
+
+Goal ((False /\ (True -> True/\True))) -> True -> True/\True.
+intros F H.
+apply F in H as (?,?).
+split.
+exact H. (* Check that generated names are H and H0 *)
+exact H0.
+Qed.
+
+(* This failed at some time in between 18 August 2014 and 2 September 2014 *)
+
+Goal forall A B C: Prop, (True -> A -> B /\ C) -> A -> B.
+intros * H.
+apply H.
+Abort.
+
+(* This failed between 2 and 3 September 2014 *)
+
+Goal forall A B C D:Prop, (A<->B)/\(C<->D) -> A -> B.
+intros.
+apply H in H0.
+pose proof I as H1. (* Test that H1 does not exist *)
+Abort.
+
+Goal forall A B C D:Prop, (A<->B)/\(C<->D) -> A.
+intros.
+apply H.
+pose proof I as H0. (* Test that H0 does not exist *)
+Abort.
+
+(* The first example below failed at some time in between 18 August
+   2014 and 2 September 2014 *)
+
+Goal forall x, 2=0 -> x+1=2 -> (forall x, S x = 0) -> True.
+intros x H H0 H1.
+eapply eq_trans in H. 2:apply H0.
+rewrite H1 in H.
+change (x+0=0) in H. (* Check the result in H1 *)
+Abort.
+
+Goal forall x, 2=x+1 -> (forall x, S x = 0) -> 2 = 0.
+intros x H H0.
+eapply eq_trans. apply H.
+rewrite H0.
+change (x+0=0).
+Abort.
+
+(* 2nd order apply used to have delta on local definitions even though
+   it does not have delta on global definitions; keep it by
+   compatibility while finding a more uniform way to proceed. *)
+
+Goal forall f:nat->nat, (forall P x, P (f x)) -> let x:=f 0 in x = 0.
+intros f H x.
+apply H.
 Qed.

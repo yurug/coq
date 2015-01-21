@@ -1,6 +1,6 @@
 (************************************************************************)
 (*  v      *   The Coq Proof Assistant  /  The Coq Development Team     *)
-(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2012     *)
+(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2015     *)
 (*   \VV/  **************************************************************)
 (*    //   *      This file is distributed under the terms of the       *)
 (*         *       GNU Lesser General Public License Version 2.1        *)
@@ -12,23 +12,35 @@ val boot : bool ref
 val load_init : bool ref
 
 val batch_mode : bool ref
-type compilation_mode = BuildVo | BuildVi | Vi2Vo
+type compilation_mode = BuildVo | BuildVio | Vio2Vo
 val compilation_mode : compilation_mode ref
 
-type async_proofs = APoff | APonLazy | APonParallel of int
+type async_proofs = APoff | APonLazy | APon
 val async_proofs_mode : async_proofs ref
+type cache = Force
+val async_proofs_cache : cache option ref
 val async_proofs_n_workers : int ref
-val async_proofs_worker_flags : string option ref
-
+val async_proofs_n_tacworkers : int ref
+val async_proofs_private_flags : string option ref
 val async_proofs_is_worker : unit -> bool
+val async_proofs_is_master : unit -> bool
+val async_proofs_full : bool ref
+val async_proofs_never_reopen_branch : bool ref
+val async_proofs_flags_for_workers : string list ref
+val async_proofs_worker_id : string ref
+type priority = Low | High
+val async_proofs_worker_priority : priority ref
+val string_of_priority : priority -> string
+val priority_of_string : string -> priority
 
 val debug : bool ref
+val in_debugger : bool ref
+val in_toplevel : bool ref
+
+val profile : bool
 
 val print_emacs : bool ref
-
-val term_quality : bool ref
-
-val xml_export : bool ref
+val coqtop_ui : bool ref
 
 val ide_slave : bool ref
 val ideslave_coqtop_flags : string option ref
@@ -37,11 +49,9 @@ val time : bool ref
 
 val we_are_parsing : bool ref
 
-type load_proofs = Force | Lazy | Dont
-val load_proofs : load_proofs ref
-
 val raw_print : bool ref
 val record_print : bool ref
+val univ_print : bool ref
 
 type compat_version = V8_2 | V8_3 | V8_4 | Current
 val compat_version : compat_version ref
@@ -65,12 +75,16 @@ val if_verbose : ('a -> unit) -> 'a -> unit
 val make_auto_intros : bool -> unit
 val is_auto_intros : unit -> bool
 
-(** Terminal colouring *)
-val make_term_color : bool -> unit
-val is_term_color : unit -> bool
-
 val program_mode : bool ref
 val is_program_mode : unit -> bool
+
+(** Global universe polymorphism flag. *)
+val make_universe_polymorphism : bool -> unit
+val is_universe_polymorphism : unit -> bool
+
+(** Local universe polymorphism flag. *)
+val make_polymorphic_flag : bool -> unit
+val use_polymorphic_flag : unit -> bool
 
 val make_warn : bool -> unit
 val if_warn : ('a -> unit) -> 'a -> unit
@@ -91,9 +105,6 @@ val with_extra_values : 'c list ref -> 'c list -> ('a -> 'b) -> 'a -> 'b
 (** If [None], no limit *)
 val set_print_hyps_limit : int option -> unit
 val print_hyps_limit : unit -> int option
-
-val add_unsafe : string -> unit
-val is_unsafe : string -> bool
 
 (** Options for external tools *)
 

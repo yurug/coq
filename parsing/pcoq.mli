@@ -1,6 +1,6 @@
 (************************************************************************)
 (*  v      *   The Coq Proof Assistant  /  The Coq Development Team     *)
-(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2012     *)
+(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2015     *)
 (*   \VV/  **************************************************************)
 (*    //   *      This file is distributed under the terms of the       *)
 (*         *       GNU Lesser General Public License Version 2.1        *)
@@ -103,10 +103,13 @@ val gram_token_of_string : string -> Gram.symbol
 (** The superclass of all grammar entries *)
 type grammar_object
 
+(** Type of reinitialization data *)
+type gram_reinit = gram_assoc * gram_position
+
 (** Add one extension at some camlp4 position of some camlp4 entry *)
 val grammar_extend :
   grammar_object Gram.entry ->
-  gram_assoc option (** for reinitialization if ever needed *) ->
+  gram_reinit option (** for reinitialization if ever needed *) ->
   Gram.extend_statment -> unit
 
 (** Remove the last n extensions *)
@@ -213,12 +216,13 @@ module Tactic :
     val constr_with_bindings : constr_expr with_bindings Gram.entry
     val bindings : constr_expr bindings Gram.entry
     val constr_may_eval : (constr_expr,reference or_by_notation,constr_expr) may_eval Gram.entry
+    val uconstr : constr_expr Gram.entry
     val quantified_hypothesis : quantified_hypothesis Gram.entry
     val int_or_var : int or_var Gram.entry
     val red_expr : raw_red_expr Gram.entry
-    val simple_tactic : raw_atomic_tactic_expr Gram.entry
-    val simple_intropattern : intro_pattern_expr located Gram.entry
-    val clause_dft_concl : Names.Id.t Loc.located Tacexpr.or_metaid Locus.clause_expr Gram.entry
+    val simple_tactic : raw_tactic_expr Gram.entry
+    val simple_intropattern : constr_expr intro_pattern_expr located Gram.entry
+    val clause_dft_concl : Names.Id.t Loc.located Locus.clause_expr Gram.entry
     val tactic_arg : raw_tactic_arg Gram.entry
     val tactic_expr : raw_tactic_expr Gram.entry
     val binder_tactic : raw_tactic_expr Gram.entry
@@ -282,19 +286,22 @@ val symbol_of_prod_entry_key :
 val interp_entry_name : bool (** true to fail on unknown entry *) ->
   int option -> string -> string -> entry_type * prod_entry_key
 
+(** Recover the list of all known tactic notation entries. *)
+val list_entry_names : unit -> (string * entry_type) list
+
 (** Registering/resetting the level of a constr entry *)
 
 val find_position :
   bool (** true if for creation in pattern entry; false if in constr entry *) ->
   Extend.gram_assoc option -> int option ->
     Extend.gram_position option * Extend.gram_assoc option * string option *
-    (** for reinitialization: *) Extend.gram_assoc option
+    (** for reinitialization: *) gram_reinit option
 
 val synchronize_level_positions : unit -> unit
 
 val register_empty_levels : bool -> int list ->
     (Extend.gram_position option * Extend.gram_assoc option *
-     string option * Extend.gram_assoc option) list
+     string option * gram_reinit option) list
 
 val remove_levels : int -> unit
 

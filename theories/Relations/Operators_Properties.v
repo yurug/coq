@@ -1,6 +1,6 @@
 (************************************************************************)
 (*  v      *   The Coq Proof Assistant  /  The Coq Development Team     *)
-(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2012     *)
+(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2015     *)
 (*   \VV/  **************************************************************)
 (*    //   *      This file is distributed under the terms of the       *)
 (*         *       GNU Lesser General Public License Version 2.1        *)
@@ -35,7 +35,8 @@ Section Properties.
 
   Section Clos_Refl_Trans.
 
-    Local Notation "R *" := (clos_refl_trans R) (at level 8, left associativity).
+    Local Notation "R *" := (clos_refl_trans R)
+      (at level 8, left associativity, format "R *").
 
     (** Correctness of the reflexive-transitive closure operator *)
 
@@ -402,6 +403,13 @@ Section Properties.
     Qed.
 
   End Equivalences.
+
+  Lemma clos_trans_transp_permute : forall x y,
+    transp _ (clos_trans R) x y <-> clos_trans (transp _ R) x y.
+  Proof.
+    split; induction 1;
+    (apply t_step; assumption) || eapply t_trans; eassumption.
+  Qed.
 
 End Properties.
 

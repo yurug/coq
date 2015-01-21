@@ -1,6 +1,6 @@
 (************************************************************************)
 (*  v      *   The Coq Proof Assistant  /  The Coq Development Team     *)
-(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2012     *)
+(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2015     *)
 (*   \VV/  **************************************************************)
 (*    //   *      This file is distributed under the terms of the       *)
 (*         *       GNU Lesser General Public License Version 2.1        *)
@@ -41,7 +41,7 @@ let introCaseAssumsThen tac ba =
       (ba.Tacticals.branchnames, []),
        if n1 > n2 then snd (List.chop n2 case_thin_sign) else [] in
   let introCaseAssums =
-    tclTHEN (intros_pattern MoveLast l1) (intros_clearing l3) in
+    tclTHEN (intro_patterns l1) (intros_clearing l3) in
   (tclTHEN introCaseAssums (case_on_ba (tac l2) ba))
 
 (* The following tactic Decompose repeatedly applies the
@@ -77,15 +77,15 @@ and general_decompose_aux recognizer id =
                (ids_of_named_context bas.Tacticals.assums))))
     id
 
-(* Faudrait ajouter un COMPLETE pour que l'hypothèse créée ne reste
-   pas si aucune élimination n'est possible *)
+(* We should add a COMPLETE to be sure that the created hypothesis
+   doesn't stay if no elimination is possible *)
 
-(* Meilleures stratégies mais perte de compatibilité *)
+(* Best strategies but loss of compatibility *)
 let tmphyp_name = Id.of_string "_TmpHyp"
 let up_to_delta = ref false (* true *)
 
 let general_decompose recognizer c =
-  Proofview.Goal.raw_enter begin fun gl ->
+  Proofview.Goal.enter begin fun gl ->
   let type_of = pf_type_of gl in
   let typc = type_of c in
   tclTHENS (cut typc)
@@ -104,12 +104,12 @@ let head_in indl t gl =
       if !up_to_delta
       then find_mrectype env sigma t
       else extract_mrectype t
-    in List.exists (fun i -> eq_ind i ity) indl
+    in List.exists (fun i -> eq_ind (fst i) (fst ity)) indl
   with Not_found -> false
 
 let decompose_these c l =
-  Proofview.Goal.raw_enter begin fun gl ->
-  let indl = (*List.map inductive_of*) l in
+  Proofview.Goal.enter begin fun gl ->
+  let indl = List.map (fun x -> x, Univ.Instance.empty) l in
   general_decompose (fun (_,t) -> head_in indl t gl) c
   end
 
@@ -139,7 +139,7 @@ let induction_trailer abs_i abs_j bargs =
     (tclDO (abs_j - abs_i) intro)
     (onLastHypId
        (fun id ->
-          Proofview.Goal.enter begin fun gl ->
+          Proofview.Goal.nf_enter begin fun gl ->
 	  let idty = pf_type_of gl (mkVar id) in
 	  let fvty = global_vars (pf_env gl) idty in
 	  let possible_bring_hyps =
@@ -161,7 +161,7 @@ let induction_trailer abs_i abs_j bargs =
           ))
 
 let double_ind h1 h2 =
-  Proofview.Goal.enter begin fun gl ->
+  Proofview.Goal.nf_enter begin fun gl ->
   let abs_i = of_old (depth_of_quantified_hypothesis true h1) gl in
   let abs_j = of_old (depth_of_quantified_hypothesis true h2) gl in
   let abs =

@@ -1,6 +1,6 @@
 (************************************************************************)
 (*  v      *   The Coq Proof Assistant  /  The Coq Development Team     *)
-(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2012     *)
+(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2015     *)
 (*   \VV/  **************************************************************)
 (*    //   *      This file is distributed under the terms of the       *)
 (*         *       GNU Lesser General Public License Version 2.1        *)
@@ -106,7 +106,7 @@ Qed.
 
 Theorem one_succ : one == succ zero.
 Proof.
-zify; simpl. now rewrite one_mod_wB.
+zify; simpl Z.add. now rewrite one_mod_wB.
 Qed.
 
 Theorem two_succ : two == succ one.
@@ -126,9 +126,7 @@ Let B (n : Z) := A (ZnZ.of_Z n).
 
 Lemma B0 : B 0.
 Proof.
-unfold B.
-setoid_replace (ZnZ.of_Z 0) with zero. assumption.
-red; zify. apply ZnZ.of_Z_correct. auto using gt_wB_0 with zarith.
+unfold B. apply A0.
 Qed.
 
 Lemma BS : forall n : Z, 0 <= n -> n < wB - 1 -> B n -> B (n + 1).

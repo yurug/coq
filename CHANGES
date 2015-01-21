@@ -1,43 +1,162 @@
-Changes from V8.4
-=================
+Changes from V8.4 to V8.5beta1
+==============================
+
+Logic
+
+- Primitive projections for records allow for a compact representation
+  of projections, without parameters and avoid the behavior of defined
+  projections that can unfold to a case expression. To turn the use of
+  native projections on, use [Set Primitive Projections]. Record,
+  Class and Structure types defined while this option is set will be
+  defined with primitive projections instead of the usual encoding as
+  a case expression. For compatibility, when p is a primitive
+  projection, @p can be used to refer to the projection with explicit
+  parameters, i.e. [@p] is definitionally equal to [λ params r. r.(p)].
+  Records with primitive projections have eta-conversion, the
+  canonical form being [mkR pars (p1 t) ... (pn t)].
+
+- New universe polymorphism (see reference manual)
+- New option -type-in-type to collapse the universe hierarchy (this makes the
+  logic inconsistent).
+- The guard condition for fixpoints is now a bit stricter. Propagation of
+subterm value through pattern matching is restricted according to the return
+predicate. Restores compatibility of Coq's logic with the propositional
+extensionality axiom. May create incompatibilities in recursive programs heavily
+using dependent types.
 
 Vernacular commands
 
+- A command "Variant" allows to define non-recursive variant types.
 - The command "Record foo ..." does not generate induction principles
-  (foo_rect, foo_rec, foo_ind) anymore by default (feature wish #2693).
-  A flag "Set/Unset Record Elimination Schemes" allows to change this.
-  The tactic "induction" on a record is now actually doing "destruct".
+  (foo_rect, foo_rec, foo_ind) anymore by default (feature wish
+  #2693). The command "Variant foo ..." does not either. A flag
+  "Set/Unset Nonrecursive Elimination Schemes" allows changing this.
+  The tactic "induction" on a "Record" or a "Variant" is now actually
+  doing "destruct".
 - The "Open Scope" command can now be given also a delimiter (e.g. Z).
-- The "Definition" command now allows the "Local" modifier.
+- The "Definition" command now allows the "Local" modifier, allowing
+  for non-importable definitions. The same goes for "Axiom" and "Parameter".
+- Section-specific commands such as "Let" (resp. "Variable", "Hypothesis") used
+  out of a section now behave like the corresponding "Local" command, i.e.
+  "Local Definition" (resp. "Local Parameter", "Local Axiom"). (potential source
+  of rare incompatibilities).
 - The "Let" command can now define local (co)fixpoints.
 - Command "Search" has been renamed into "SearchHead". The command
   name "Search" now behaves like former "SearchAbout". The latter name
   is deprecated.
+- "Search" "About" "SearchHead" "SearchRewrite" and "SearchPattern"
+  now search for hypothesis (of the current goal by default) first.
+  They now also support the goal selector prefix to specify another
+  goal to search: e.g. "n:Search id". This is also true for
+  SearchAbout although it is deprecated.
 - The coq/user-contrib directory and the XDG directories are no longer
   recursively added to the load path, so files from installed libraries
   now need to be fully qualified for the "Require" command to find them.
   The tools/update-require script can be used to convert a development.
-
-Notations
-
-- The syntax "x -> y" is now declared at level 99. In particular, it has
-  now a lower priority than "<->": "A -> B <-> C" is now "A -> (B <-> C)"
-  (possible source of incompatibilities)
-- Notations accept term-provinding tactics using the $(...)$ syntax.
+- A new Print Strategies command allows visualizing the opacity status
+  of the whole engine.
+- The "Locate" command now searches through all sorts of qualified namespaces of
+  Coq: terms, modules, tactics, etc. The old behavior of the command can be
+  retrieved using the "Locate Term" command.
+- New "Derive" command to help writing program by derivation.
+- "Undo" undoes any command, not just tactics.
+- New "Refine Instance Mode" option that allows to deactivate the generation of
+  obligations in incomplete typeclass instances, raising an error instead.
+- "Collection" command to name sets of section hypotheses.  Named collections
+  can be used in the syntax of "Proof using" to assert with section variables
+  are used in a proof.
+- The "Optimize Proof" command can be placed in the middle of a proof to
+  force the compaction the data structure used to represent the ongoing
+  proof (evar map).  This may result in a lower memory footprint and speed up
+  the execution of the following tactics.
+- "Optimize Heap" command to tell the OCaml runtime to performa a major
+  garbage collection step and heap compaction.
 
 Specification Language
 
 - Slight changes in unification error messages.
-- Added a syntax $(...)$ allowing to put tactics in terms.
+- Added a syntax $(...)$ that allows putting tactics in terms (may
+  break user notations using "$(", fixable by inserting a space or
+  rewriting the notation).
 - Constants in pattern-matching branches now respect the same rules regarding
-  implicit arguments than in applicative position. The old behaviour can be
+  implicit arguments than in applicative position. The old behavior can be
   recovered by the command "Set Asymmetric Patterns". (possible source of
   incompatibilities)
+- Type inference algorithm now granting opacity of constants. This might also
+  affect behavior of tactics (source of incompatibilities, solvable by
+  re-declaring transparent constants which were set opaque).
+- Existential variables are now referred to by an identifier and the
+  relevant part of their instance is displayed by default. They can be
+  reparsed. The naming policy is yet unstable and subject to changes
+  in future releases.
 
 Tactics
 
+- New tactic engine allowing dependent subgoals, fully backtracking
+  (also known as multiple success) tactics, as well as tactics which
+  can consider multiple goals together. In the new tactic engine,
+  instantiation information of existential variables is always
+  propagated to tactics, removing the need to manually use the
+  "instantiate" tactics to mark propagation points.
+  * New tactical (a+b) insert a backtracking point. When (a+b);c fails
+    during the execution of c, it can backtrack and try b instead of a.
+  * New tactical (once a) removes all the backtracking point from a
+    (i.e. it selects the first success of a).
+  * Tactic "constructor" is now fully backtracking, thus deprecating
+    the need of the undocumented "constructor <tac>" syntax which is
+    now equivalent to "once (constructor; tac)". (potential source of
+    rare incompatibilities).
+  * New "multimatch" variant of "match" tactic which backtracks to
+    new branches in case of a later failure. The "match" tactic is
+    equivalent to "once multimatch".
+  * New selector all: to qualify a tactic allows applying a tactic to
+    all the focused goal, instead of just the first one as is the
+    default.
+  * A corresponding new option Set Default Goal Selector "all" makes
+    the tactics in scripts be applied to all the focused goal by default
+  * New selector par: to qualify a tactic allows applying a (terminating)
+    tactic to all the focused goal in parallel.  The number of worker can
+    be selected with -async-proofs-tac-j and also limited using the
+    coqworkmgr utility.
+  * New tactics "revgoals", "cycle" and "swap" to reorder goals.
+  * The semantics of recursive tactics (introduced with Ltac t :=
+    ... or let rec t := ... in ...) changes slightly as t is now
+    applied to every goal not each goal independently, in particular
+    it may be applied when no goal are left. This may cause tactics
+    such as let rec t := constructor;t to loop indefinitely. The
+    simple fix is to rewrite the recursive calls as follows: let rec t
+    := constructor;[t..] which recovers the earlier behavior (source
+    of rare incompatibilities).
+  * New tactic language feature "numgoals" to count number of goals.
+    Accompanied by "guard" tactic which fails if a Boolean test does
+    not pass.
+  * New tactical "[> ... ]" to apply tactics to individual goals.
+  * New tactic "gfail" which works like "fail" except it will also
+    fail if every goal has been solved.
+  * The refine tactic is changed not to use an ad hoc typing algorithm
+    to generate subgoals. It also uses the dependent subgoal feature
+    to generate goals to materialize every existential variable which
+    is introduced by the refinement (source of incompatibilities).
+  * A tactic shelve is introduced to manage the subgoals which may be
+    solved by unification: shelve removes every goal it is applied to
+    from focus. These goals can later be called back into focus by the
+    Unshelve command.
+  * A variant shelve_unifiable only removes those goals which appear
+    as existential variables in other goals. To emulate the old
+    refine, use (refine c;shelve_unifiable). This can still cause
+    incompatibilities in rare occasions.
+  * New "give_up" tactic to skip over a goal without admitting it.
+- Matching using "lazymatch" was fundamentally modified. It now behaves
+  like "match" (immediate execution of the matching branch) but without
+  the backtracking mechanism in case of failure.
+- New "tryif t then u else v" tactical which executes "u" in case of success
+  of "t" and "v" in case of failure.
+- New conversion tactic "native_compute": evaluates the goal (or an hypothesis)
+  with a call-by-value strategy, using the OCaml native compiler. Useful on
+  very intensive computations.
+- New "cbn" tactic, a well-behaved simpl.
 - Repeated identical calls to omega should now produce identical proof terms.
-- Tactics btauto, a reflexive boolean tautology solver.
+- Tactics btauto, a reflexive Boolean tautology solver.
 - Tactic "tauto" was exceptionally able to destruct other connectives
   than the binary connectives "and", "or", "prod", "sum", "iff". This
   non-uniform behavior has been fixed (bug #2680) and tauto is
@@ -57,14 +176,26 @@ Tactics
   behaves like if matching on "?X pat1 ... patn", i.e. accepting "_"
   to be instantiated by an applicative term (experimental at this
   stage, potential source of incompatibilities).
-- "change ... in ..." and "simpl ... in ..." now consider nested
+- In Ltac matching on goal, types of hypotheses are now interpreted in
+  the %type scope (possible source of incompatibilities).
+- "change ... in ..." and "simpl ... in ..." now properly consider nested
   occurrences (possible source of incompatibilities since this alters
-  the numbering of occurrences).
-- Now "appcontext" and "context" behave the same. The old buggy behaviour of
+  the numbering of occurrences), but do not support nested occurrences.
+- Tactics simpl, vm_compute and native_compute can be given a notation string
+  to a constant as argument.
+- When given a reference as argument, simpl, vm_compute and
+  native_compute now strictly interpret it as the head of a pattern
+  starting with this reference.
+- The "change p with c" tactic semantics changed, now type-checking 
+  "c" at each matching occurrence "t" of the pattern "p", and 
+  converting "t" with "c".
+- Now "appcontext" and "context" behave the same. The old buggy behavior of
   "context" can be retrieved at parse time by setting the
-  "Tactic Compat Context" flag. (possible source of incompatibilities).
+  "Tactic Compat Context" flag (possible source of incompatibilities).
+- New introduction pattern p/c which applies lemma c on the fly on the
+  hypothesis under consideration before continuing with introduction pattern p.
 - New introduction pattern [= x1 .. xn] applies "injection as [x1 .. xn]"
-  on the fly if next hypothesis to introduce is an injectible equality
+  on the fly if injection is applicable to the hypothesis under consideration
   (idea borrowed from Georges Gonthier). Introduction pattern [=] applies
   "discriminate" if a discriminable equality.
 - Tactic "injection c as ipats" now clears c if c refers to an
@@ -72,11 +203,56 @@ Tactics
   independently of the number of ipats, which has itself to be less
   than the number of new hypotheses (possible source of incompatibilities;
   former behavior obtainable by "Unset Injection L2R Pattern Order").
+- Tactic "injection" now automatically simplifies subgoals
+  "existT n p = existT n p'" into "p = p'" when "n" is in an inductive type for
+  which a decidable equality scheme has been generated with "Scheme Equality"
+  (possible source of incompatibilities).
 - New tactic "rewrite_strat" for generalized rewriting with user-defined
-  strategies, subsumming autorewrite.
-- Injection now also deduces equality of arguments of sort Prop. Old behavior
-  can be restored by "Unset Injection On Proofs". Also improved the error
-  messages.
+  strategies, subsuming autorewrite.
+- Injection can now also deduce equality of arguments of sort Prop, by using
+  the option "Set Injection On Proofs" (disabled by default). Also improved the
+  error messages.
+- Tactic "subst id" now supports id occurring in dependent local definitions.
+- Bugs fixed about intro-pattern "*" might lead to some rare incompatibilities.
+- New tactical "time" to display time spent executing its argument.
+- Tactics referring or using a constant dependent in a section variable which
+  has been cleared or renamed in the current goal context now fail
+  (possible source of incompatibilities solvable by avoiding clearing
+  the relevant hypotheses).
+- New construct "uconstr:c" and "type_term c" to build untyped terms.
+- Binders in terms defined in Ltac (either "constr" or "uconstr") can
+  now take their names from identifier defined in Ltac. As a
+  consequence, a name cannot be used in a binder (constr:(fun x =>
+  ...)) if an Ltac variable of that name already exists and does not
+  contain an identifier. Source of occasional incompatibilities.
+- The "refine" tactic now accepts untyped terms built with "uconstr"
+  so that terms with holes can be constructed piecewise in Ltac.
+- New bullets --, ++, **, ---, +++, ***, ... made available.
+- More informative messages when wrong bullet is used.
+- bullet suggestion when a subgoal is solved.
+- New tactic "enough", symmetric to "assert", but with subgoals
+  swapped, as a more friendly replacement of "cut".
+- In destruct/induction, experimental modifier "!" prefixing the
+  hypothesis name to tell not erasing the hypothesis.
+- Bug fixes in "inversion as" may occasionally lead to incompatibilities.
+- Behavior of introduction patterns -> and <- made more uniform
+  (hypothesis is cleared, rewrite in hypotheses and conclusion and
+  erasing the variable when rewriting a variable).
+- Tactics from plugins are now active only when the corresponding
+  module is imported (source of incompatibilities, solvable by adding
+  an "Import", like e.g. "Import Omega").
+- Semantics of destruct/induction has been made more regular in some
+  edge cases, possibly leading to incompatibilities:
+  - new goals are now opened when the term does not match a subterm of
+    the goal and has unresolved holes, while in 8.4 these holes were
+    turned into existential variables
+  - when no "at" option is given, the historical semantics which
+    selects all subterms syntactically identical to the first subterm
+    matching the given pattern is used
+  - non-dependent destruct/induction on an hypothesis with premises in
+    an inductive type with indices is fixed
+  - residual local definitions are now correctly removed.
+- The rename tactic may now replace variables in parallel.
 
 Program
 
@@ -89,12 +265,18 @@ Program
 
 Notations
 
+- The syntax "x -> y" is now declared at level 99. In particular, it has
+  now a lower priority than "<->": "A -> B <-> C" is now "A -> (B <-> C)"
+  (possible source of incompatibilities)
+- Notations accept term-providing tactics using the $(...)$ syntax.
 - "Bind Scope" can no longer bind "Funclass" and "Sortclass".
 - A notation can be given a (compat "8.x") annotation, making
   it behave like a (only parsing), but flags may active warning
   or error when this notation is used.
 - More systematic insertion of spaces as a default for printing
   notations ("format" still available to override the default).
+- In notations, a level modifier referring to a non-existent variable is
+  now considered an error rather than silently ignored.
 
 Tools
 
@@ -107,17 +289,51 @@ Tools
   unchanged.)
 - Option -nois prevents coq/theories and coq/plugins to be recursively
   added to the load path. (Same behavior as with coq/user-contrib.)
+- coqdep accepts a -dumpgraph option generating a dot file.
+- Makefiles generated through coq_makefile have three new targets "quick"
+  "checkproof" and "vio2vo", allowing respectively to asynchronously compile
+  the files without playing the proof scripts, asynchronously checking
+  that the quickly generated proofs are correct and generating the object
+  files from the quickly generated proofs.
+- The XML plugin was discontinued and removed from the source.
+- A new utility called coqworkmgr can be used to limit the number of
+  concurrent workers started by independent processes, like make and CoqIDE.
+  This is of interest for users of the par: goal selector.
+
+Interfaces
+
+- CoqIDE supports asynchronous edition of the document, ongoing tasks and
+  errors are reported in the bottom right window.  The number of workers
+  taking care of processing proofs can be selected with -async-proofs-j.
+- CoqIDE highlight in yellow "unsafe" commands such as axiom
+  declarations, and tactics like "admit".
+- CoqIDE supports Proof General like key bindings;
+  to activate the PG mode go to Edit -> Preferences -> Editor.
+  For the documentation see Help -> Help for PG mode.
+- CoqIDE automatically retracts the locked area when one edits the
+  locked text.
+- CoqIDE search and replace got regular expressions power.  See the
+  documentation of OCaml's Str module for the supported syntax.
+- Many CoqIDE windows, including the query one, are now detachable to
+  improve usability on multi screen work stations.
+
+- Coqtop outputs highlighted syntax. Colors can be configured thanks
+  to the COQ_COLORS environment variable, and their current state can
+  be displayed with the -list-tags command line option.
+
+- Third party user interfaces can install their main loop in $COQLIB/toploop
+  and call coqtop with the -toploop flag to select it.
 
 Internal Infrastructure
 
-- Many reorganisations in the ocaml source files. For instance,
+- Many reorganizations in the ocaml source files. For instance,
   many internal a.s.t. of Coq are now placed in mli files in
   a new directory intf/, for instance constrexpr.mli or glob_term.mli.
   More details in dev/doc/changes.
 - The file states/initial.coq does not exist anymore. Instead, coqtop
   initially does a "Require" of Prelude.vo (or nothing when given
   the options -noinit or -nois).
-- The format of vo files has slightly changed : cf final comments in
+- The format of vo files has slightly changed: cf final comments in
   checker/cic.mli
 - The build system does not produce anymore programs named coqtop.opt
   and a symbolic link to coqtop. Instead, coqtop is now directly
@@ -128,6 +344,12 @@ Internal Infrastructure
   * The -coqrunbyteflags and its blank-separated argument is replaced
     by option -vmbyteflags which expects a comma-separated argument.
   * The -coqtoolsbyteflags option is discontinued, see -no-custom instead.
+
+Miscellaneous
+
+- ML plugins now require a "DECLARE PLUGIN \"foo\"" statement. The "foo" name
+  must be exactly the name of the ML module that will be loaded through a
+  "Declare ML \"foo\"" command.
 
 Changes from V8.4beta2 to V8.4
 ==============================
@@ -165,6 +387,9 @@ Libraries
 - Reals: changed definition of PI, no more axiom about sin(PI/2).
 - SetoidPermutation: a notion of permutation for lists modulo a setoid equality.
 - BigN: fixed the ocaml code doing the parsing/printing of big numbers.
+- List: a couple of lemmas added especially about no-duplication, partitions.
+- Init: Removal of the coercions between variants of sigma-types and
+  subset types (possible source of incompatibility).
 
 Changes from V8.4beta to V8.4beta2
 ==================================
@@ -541,6 +766,9 @@ Other tactics
   clears (resp. reverts) H and all the hypotheses that depend on H.
 - Ltac's pattern-matching now supports matching metavariables that
   depend on variables bound upwards in the pattern.
+- New experimental option "Set Standard Proposition Elimination Names"
+  so that case analysis or induction on schemes in Type containing
+  propositions now produces "H"-based names.
 
 Tactic definitions
 

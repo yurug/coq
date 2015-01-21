@@ -1,6 +1,6 @@
 (************************************************************************)
 (*  v      *   The Coq Proof Assistant  /  The Coq Development Team     *)
-(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2012     *)
+(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2015     *)
 (*   \VV/  **************************************************************)
 (*    //   *      This file is distributed under the terms of the       *)
 (*         *       GNU Lesser General Public License Version 2.1        *)
@@ -108,7 +108,7 @@ struct
 
   module Hname = Hashcons.Make(Self_Hashcons)
 
-  let hcons = Hashcons.simple_hcons Hname.generate Id.hcons
+  let hcons = Hashcons.simple_hcons Hname.generate Hname.hcons Id.hcons
 
 end
 
@@ -175,7 +175,7 @@ struct
 
   module Hdir = Hashcons.Hlist(Id)
 
-  let hcons = Hashcons.recursive_hcons Hdir.generate Id.hcons
+  let hcons = Hashcons.recursive_hcons Hdir.generate Hdir.hcons Id.hcons
 
 end
 
@@ -239,7 +239,7 @@ struct
 
   module HashMBId = Hashcons.Make(Self_Hashcons)
 
-  let hcons = Hashcons.simple_hcons HashMBId.generate (Id.hcons, DirPath.hcons)
+  let hcons = Hashcons.simple_hcons HashMBId.generate HashMBId.hcons (Id.hcons, DirPath.hcons)
 
 end
 
@@ -309,6 +309,11 @@ module ModPath = struct
 
   let initial = MPfile DirPath.initial
 
+  let rec dp = function
+  | MPfile sl -> sl
+  | MPbound (_,_,dp) -> dp
+  | MPdot (mp,l) -> dp mp
+
   module Self_Hashcons = struct
     type t = module_path
     type u = (DirPath.t -> DirPath.t) * (MBId.t -> MBId.t) *
@@ -330,7 +335,7 @@ module ModPath = struct
   module HashMP = Hashcons.Make(Self_Hashcons)
 
   let hcons =
-    Hashcons.simple_hcons HashMP.generate
+    Hashcons.simple_hcons HashMP.generate HashMP.hcons
       (DirPath.hcons,MBId.hcons,String.hcons)
 
 end
@@ -422,9 +427,8 @@ module KerName = struct
   module HashKN = Hashcons.Make(Self_Hashcons)
 
   let hcons =
-    Hashcons.simple_hcons HashKN.generate
+    Hashcons.simple_hcons HashKN.generate HashKN.hcons
       (ModPath.hcons,DirPath.hcons,String.hcons)
-
 end
 
 module KNmap = HMap.Make(KerName)
@@ -567,6 +571,7 @@ let constr_modpath (ind,_) = ind_modpath ind
 
 let ith_mutual_inductive (mind, _) i = (mind, i)
 let ith_constructor_of_inductive ind i = (ind, i)
+let ith_constructor_of_pinductive (ind,u) i = ((ind,i),u)
 let inductive_of_constructor (ind, i) = ind
 let index_of_constructor (ind, i) = i
 
@@ -658,13 +663,12 @@ module Hconstruct = Hashcons.Make(
     let hash = constructor_hash
   end)
 
-let hcons_con = Hashcons.simple_hcons Constant.HashKP.generate KerName.hcons
-let hcons_mind = Hashcons.simple_hcons MutInd.HashKP.generate KerName.hcons
-let hcons_ind = Hashcons.simple_hcons Hind.generate hcons_mind
-let hcons_construct = Hashcons.simple_hcons Hconstruct.generate hcons_ind
+let hcons_con = Hashcons.simple_hcons Constant.HashKP.generate Constant.HashKP.hcons KerName.hcons
+let hcons_mind = Hashcons.simple_hcons MutInd.HashKP.generate MutInd.HashKP.hcons KerName.hcons
+let hcons_ind = Hashcons.simple_hcons Hind.generate Hind.hcons hcons_mind
+let hcons_construct = Hashcons.simple_hcons Hconstruct.generate Hconstruct.hcons hcons_ind
 
-
-(*******)
+(*****************)
 
 type transparent_state = Id.Pred.t * Cpred.t
 
@@ -674,21 +678,18 @@ let var_full_transparent_state = (Id.Pred.full, Cpred.empty)
 let cst_full_transparent_state = (Id.Pred.empty, Cpred.full)
 
 type 'a tableKey =
-  | ConstKey of Constant.t
+  | ConstKey of 'a
   | VarKey of Id.t
-  | RelKey of 'a
-
+  | RelKey of Int.t
 
 type inv_rel_key = int (* index in the [rel_context] part of environment
 			  starting by the end, {\em inverse}
 			  of de Bruijn indice *)
 
-type id_key = inv_rel_key tableKey
-
-let eq_id_key ik1 ik2 =
+let eq_table_key f ik1 ik2 =
   if ik1 == ik2 then true
   else match ik1,ik2 with
-  | ConstKey c1, ConstKey c2 -> Constant.UserOrd.equal c1 c2
+  | ConstKey c1, ConstKey c2 -> f c1 c2
   | VarKey id1, VarKey id2 -> Id.equal id1 id2
   | RelKey k1, RelKey k2 -> Int.equal k1 k2
   | _ -> false
@@ -778,6 +779,46 @@ let kn_ord = KerName.compare
 
 type constant = Constant.t
 
+
+module Projection = 
+struct 
+  type t = constant * bool
+    
+  let make c b = (c, b)
+
+  let constant = fst
+  let unfolded = snd
+  let unfold (c, b as p) = if b then p else (c, true)
+  let equal (c, b) (c', b') = Constant.equal c c' && b == b'
+
+  let hash (c, b) = (if b then 0 else 1) + Constant.hash c
+
+  module Self_Hashcons =
+    struct
+      type _t = t
+      type t = _t
+      type u = Constant.t -> Constant.t
+      let hashcons hc (c,b) = (hc c,b)
+      let equal ((c,b) as x) ((c',b') as y) =
+        x == y || (c == c' && b == b')
+      let hash = hash
+    end
+
+  module HashProjection = Hashcons.Make(Self_Hashcons)
+
+  let hcons = Hashcons.simple_hcons HashProjection.generate HashProjection.hcons hcons_con
+
+  let compare (c, b) (c', b') =
+    if b == b' then Constant.CanOrd.compare c c'
+    else if b then 1 else -1
+
+  let map f (c, b as x) =
+    let c' = f c in
+      if c' == c then x else (c', b)
+end
+
+type projection = Projection.t
+
 let constant_of_kn = Constant.make1
 let constant_of_kn_equiv = Constant.make
 let make_con = Constant.make3
@@ -787,6 +828,7 @@ let user_con = Constant.user
 let con_label = Constant.label
 let con_modpath = Constant.modpath
 let eq_constant = Constant.equal
+let eq_constant_key = Constant.UserOrd.equal
 let con_ord = Constant.CanOrd.compare
 let con_user_ord = Constant.UserOrd.compare
 let string_of_con = Constant.to_string

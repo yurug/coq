@@ -1,6 +1,6 @@
 (************************************************************************)
 (*  v      *   The Coq Proof Assistant  /  The Coq Development Team     *)
-(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2012     *)
+(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2015     *)
 (*   \VV/  **************************************************************)
 (*    //   *      This file is distributed under the terms of the       *)
 (*         *       GNU Lesser General Public License Version 2.1        *)
@@ -11,7 +11,6 @@
 open Errors
 open Util
 open Names
-open Univ
 open Esubst
 
 open Cic
@@ -24,6 +23,11 @@ let family_of_sort = function
   | Type _ -> InType
 
 let family_equal = (==)
+
+let sort_of_univ u =
+  if Univ.is_type0m_univ u then Prop Null
+  else if Univ.is_type0_univ u then Prop Pos
+  else Type u
 
 (********************************************************************)
 (*       Constructions as implemented                               *)
@@ -76,6 +80,7 @@ let iter_constr_with_binders g f n c = match c with
   | CoFix (_,(_,tl,bl)) ->
       Array.iter (f n) tl;
       Array.iter (f (iterate g (Array.length tl) n)) bl
+  | Proj (p, c) -> f n c
 
 exception LocalOccur
 
@@ -152,6 +157,7 @@ let map_constr_with_binders g f l c = match c with
   | CoFix(ln,(lna,tl,bl)) ->
       let l' = iterate g (Array.length tl) l in
       CoFix (ln,(lna,Array.map (f l) tl,Array.map (f l') bl))
+  | Proj (p, c) -> Proj (p, f l c)
 
 (* The generic lifting function *)
 let rec exliftn el c = match c with
@@ -347,9 +353,12 @@ let compare_sorts s1 s2 = match s1, s2 with
   | Pos, Null -> false
   | Null, Pos -> false
   end
-| Type u1, Type u2 -> Universe.equal u1 u2
+| Type u1, Type u2 -> Univ.Universe.equal u1 u2
 | Prop _, Type _ -> false
 | Type _, Prop _ -> false
+
+let eq_puniverses f (c1,u1) (c2,u2) =
+  Univ.Instance.equal u1 u2 && f c1 c2
 
 let compare_constr f t1 t2 =
   match t1, t2 with
@@ -372,9 +381,10 @@ let compare_constr f t1 t2 =
           f h1 h2 && List.for_all2 f l1 l2
         else false
   | Evar (e1,l1), Evar (e2,l2) -> Int.equal e1 e2 && Array.equal f l1 l2
-  | Const c1, Const c2 -> eq_con_chk c1 c2
-  | Ind c1, Ind c2 -> eq_ind_chk c1 c2
-  | Construct (c1,i1), Construct (c2,i2) -> Int.equal i1 i2 && eq_ind_chk c1 c2
+  | Const c1, Const c2 -> eq_puniverses eq_con_chk c1 c2
+  | Ind c1, Ind c2 -> eq_puniverses eq_ind_chk c1 c2
+  | Construct ((c1,i1),u1), Construct ((c2,i2),u2) -> Int.equal i1 i2 && eq_ind_chk c1 c2
+    && Univ.Instance.equal u1 u2
   | Case (_,p1,c1,bl1), Case (_,p2,c2,bl2) ->
       f p1 p2 && f c1 c2 && Array.equal f bl1 bl2
   | Fix ((ln1, i1),(_,tl1,bl1)), Fix ((ln2, i2),(_,tl2,bl2)) ->
@@ -382,6 +392,7 @@ let compare_constr f t1 t2 =
       Array.equal f tl1 tl2 && Array.equal f bl1 bl2
   | CoFix(ln1,(_,tl1,bl1)), CoFix(ln2,(_,tl2,bl2)) ->
       Int.equal ln1 ln2 && Array.equal f tl1 tl2 && Array.equal f bl1 bl2
+  | Proj (p1,c1), Proj(p2,c2) -> eq_con_chk p1 p2 && f c1 c2
   | _ -> false
 
 let rec eq_constr m n =
@@ -389,3 +400,45 @@ let rec eq_constr m n =
   compare_constr eq_constr m n
 
 let eq_constr m n = eq_constr m n (* to avoid tracing a recursive fun *)
+
+(* Universe substitutions *)
+
+let map_constr f c = map_constr_with_binders (fun x -> x) (fun _ c -> f c) 0 c
+
+let subst_instance_constr subst c =
+  if Univ.Instance.is_empty subst then c
+  else
+    let f u = Univ.subst_instance_instance subst u in
+    let changed = ref false in
+    let rec aux t = 
+      match t with
+      | Const (c, u) -> 
+	if Univ.Instance.is_empty u then t
+	else 
+          let u' = f u in 
+	    if u' == u then t
+	    else (changed := true; Const (c, u'))
+      | Ind (i, u) ->
+	if Univ.Instance.is_empty u then t
+	else 
+	  let u' = f u in 
+	    if u' == u then t
+	    else (changed := true; Ind (i, u'))
+      | Construct (c, u) ->
+	if Univ.Instance.is_empty u then t
+	else 
+          let u' = f u in 
+	    if u' == u then t
+	    else (changed := true; Construct (c, u'))
+      | Sort (Type u) -> 
+         let u' = Univ.subst_instance_universe subst u in
+	   if u' == u then t else 
+	     (changed := true; Sort (sort_of_univ u'))
+      | _ -> map_constr aux t
+    in
+    let c' = aux c in
+      if !changed then c' else c
+
+let subst_instance_context s ctx = 
+  if Univ.Instance.is_empty s then ctx
+  else map_rel_context (fun x -> subst_instance_constr s x) ctx

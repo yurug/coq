@@ -1,6 +1,6 @@
 (************************************************************************)
 (*  v      *   The Coq Proof Assistant  /  The Coq Development Team     *)
-(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2012     *)
+(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2015     *)
 (*   \VV/  **************************************************************)
 (*    //   *      This file is distributed under the terms of the       *)
 (*         *       GNU Lesser General Public License Version 2.1        *)
@@ -65,8 +65,8 @@ Ltac pi := repeat f_equal ; apply proof_irrelevance.
 
 Lemma subset_eq : forall A (P : A -> Prop) (n m : sig P), n = m <-> `n = `m.
 Proof.
-  induction n.
-  induction m.
+  destruct n as (x,p).
+  destruct m as (x',p').
   simpl.
   split ; intros ; subst.
 

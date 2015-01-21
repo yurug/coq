@@ -1,19 +1,19 @@
 (************************************************************************)
 (*  v      *   The Coq Proof Assistant  /  The Coq Development Team     *)
-(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2012     *)
+(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2015     *)
 (*   \VV/  **************************************************************)
 (*    //   *      This file is distributed under the terms of the       *)
 (*         *       GNU Lesser General Public License Version 2.1        *)
 (************************************************************************)
 
-(** THIS FILE IS DEPRECATED. Use [NPeano.Nat] instead. *)
+(** THIS FILE IS DEPRECATED. Use [PeanoNat.Nat] instead. *)
 
-Require Import NPeano.
+Require Import PeanoNat.
 
 Local Open Scope nat_scope.
 Implicit Types m n p : nat.
 
-Notation max := Peano.max (only parsing).
+Notation max := Nat.max (only parsing).
 
 Definition max_0_l := Nat.max_0_l.
 Definition max_0_r := Nat.max_0_r.

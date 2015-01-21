@@ -136,3 +136,56 @@ Goal True -> True.
 intro.
 Fail inversion H using False.
 Fail inversion foo using True_ind.
+
+(* Was failing at some time between 7 and 10 September 2014 *)
+(* even though, it is not clear that the resulting context is interesting *)
+
+Parameter P:nat*nat->Prop.
+Inductive IND : nat * nat -> { x : nat * nat | P x } * nat -> Prop :=
+CONSTR a b (H:P (a,b)) c : IND (a,b) (exist _ (a,b) H, c).
+
+Goal forall x y z t u (H':P (z,t)), IND (x,y) (exist _ (z,t) H', u) -> x = z.
+intros * Hyp.
+inversion Hyp.
+  (* By the way, why is "H" removed even in non-clear mode ? *)
+reflexivity.
+Qed.
+
+Goal forall x y z t u (H':P (z,t)), IND (x,y) (exist _ (z,t) H', u) -> x = z.
+intros * Hyp.
+inversion Hyp as (a,b,H,c,(H1_1,H1_2),(H2_1,H2_2,H2_3)).
+reflexivity.
+Qed.
+
+(* Up to September 2014, Mapp below was called MApp0 because of a bug
+   in intro_replacing (short version of bug 2164.v)
+   (example taken from CoLoR) *)
+
+Parameter Term : Type.
+Parameter isApp : Term -> Prop.
+Parameter appBodyL : forall M, isApp M -> Prop.
+Parameter lower : forall M Mapp, appBodyL M Mapp -> Term.
+
+Inductive BetaStep : Term -> Term -> Prop :=
+  Beta M Mapp Mabs : BetaStep M (lower M Mapp Mabs).
+
+Goal forall M N, BetaStep M N -> True.
+intros M N H.
+inversion H as (P,Mapp,Mabs,H0,H1).
+clear Mapp Mabs H0 H1.
+exact Logic.I.
+Qed.
+
+(* Up to September 2014, H0 below was renamed called H1 because of a collision
+   with the automaticallly generated names for equations.
+   (example taken from CoLoR) *)
+
+Inductive term := Var | Fun : term -> term -> term.
+Inductive lt : term -> term -> Prop :=
+  mpo f g ss ts : lt Var (Fun f ts) -> lt (Fun f ss) (Fun g ts).
+
+Goal forall f g ss ts, lt (Fun f ss) (Fun g ts) -> lt Var (Fun f ts).
+intros.
+inversion H as (f',g',ss',ts',H0).
+exact H0.
+Qed.

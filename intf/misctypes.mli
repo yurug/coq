@@ -1,6 +1,6 @@
 (************************************************************************)
 (*  v      *   The Coq Proof Assistant  /  The Coq Development Team     *)
-(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2012     *)
+(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2015     *)
 (*   \VV/  **************************************************************)
 (*    //   *      This file is distributed under the terms of the       *)
 (*         *       GNU Lesser General Public License Version 2.1        *)
@@ -16,16 +16,22 @@ type patvar = Id.t
 
 (** Introduction patterns *)
 
-type intro_pattern_expr =
-  | IntroOrAndPattern of or_and_intro_pattern_expr
-  | IntroInjection of (Loc.t * intro_pattern_expr) list
-  | IntroWildcard
-  | IntroRewrite of bool
+type 'constr intro_pattern_expr =
+  | IntroForthcoming of bool
+  | IntroNaming of intro_pattern_naming_expr
+  | IntroAction of 'constr intro_pattern_action_expr
+and intro_pattern_naming_expr =
   | IntroIdentifier of Id.t
   | IntroFresh of Id.t
-  | IntroForthcoming of bool
   | IntroAnonymous
-and or_and_intro_pattern_expr = (Loc.t * intro_pattern_expr) list list
+and 'constr intro_pattern_action_expr =
+  | IntroWildcard
+  | IntroOrAndPattern of 'constr or_and_intro_pattern_expr
+  | IntroInjection of (Loc.t * 'constr intro_pattern_expr) list
+  | IntroApplyOn of 'constr * (Loc.t * 'constr intro_pattern_expr)
+  | IntroRewrite of bool
+and 'constr or_and_intro_pattern_expr =
+  (Loc.t * 'constr intro_pattern_expr) list list
 
 (** Move destination for hypothesis *)
 
@@ -37,8 +43,12 @@ type 'id move_location =
 
 (** Sorts *)
 
-type sort_info = string option
-type glob_sort = GProp | GSet | GType of sort_info
+type 'a glob_sort_gen = GProp | GSet | GType of 'a
+type sort_info = string list
+type level_info = string option
+
+type glob_sort = sort_info glob_sort_gen
+type glob_level = level_info glob_sort_gen
 
 (** A synonym of [Evar.t], also defined in Term *)
 

@@ -437,12 +437,6 @@ intros; do 2 rewrite mem_find_b; rewrite remove_o; unfold eqb.
 destruct (eq_dec x y); auto.
 Qed.
 
-Definition option_map (A B:Type)(f:A->B)(o:option A) : option B :=
- match o with
-  | Some a => Some (f a)
-  | None => None
- end.
-
 Lemma map_o : forall m x (f:elt->elt'),
  find x (map f m) = option_map f (find x m).
 Proof.
@@ -678,7 +672,7 @@ Qed.
 Add Parametric Morphism elt : (@Empty elt)
  with signature Equal ==> iff as Empty_m.
 Proof.
-unfold Empty; intros m m' Hm; intuition.
+unfold Empty; intros m m' Hm. split; intros; intro. 
 rewrite <-Hm in H0; eapply H, H0.
 rewrite Hm in H0; eapply H, H0.
 Qed.
@@ -708,18 +702,18 @@ Add Parametric Morphism elt : (@add elt)
  with signature E.eq ==> eq ==> Equal ==> Equal as add_m.
 Proof.
 intros k k' Hk e m m' Hm y.
-rewrite add_o, add_o; do 2 destruct eq_dec; auto.
-elim n; rewrite <-Hk; auto.
-elim n; rewrite Hk; auto.
+rewrite add_o, add_o; do 2 destruct eq_dec as [|?Hnot]; auto.
+elim Hnot; rewrite <-Hk; auto.
+elim Hnot; rewrite Hk; auto.
 Qed.
 
 Add Parametric Morphism elt : (@remove elt)
  with signature E.eq ==> Equal ==> Equal as remove_m.
 Proof.
 intros k k' Hk m m' Hm y.
-rewrite remove_o, remove_o; do 2 destruct eq_dec; auto.
-elim n; rewrite <-Hk; auto.
-elim n; rewrite Hk; auto.
+rewrite remove_o, remove_o; do 2 destruct eq_dec as [|?Hnot]; auto.
+elim Hnot; rewrite <-Hk; auto.
+elim Hnot; rewrite Hk; auto.
 Qed.
 
 Add Parametric Morphism elt elt' : (@map elt elt')
@@ -867,7 +861,7 @@ Module WProperties_fun (E:DecidableType)(M:WSfun E).
   inversion_clear Hnodup as [| ? ? Hnotin Hnodup'].
   specialize (IH k Hnodup'); clear Hnodup'.
   rewrite add_o, IH.
-  unfold eqb; do 2 destruct eq_dec; auto; elim n; eauto.
+  unfold eqb; do 2 destruct eq_dec as [|?Hnot]; auto; elim Hnot; eauto.
   Qed.
 
   Lemma of_list_2 : forall l, NoDupA eqk l ->
@@ -934,7 +928,7 @@ Module WProperties_fun (E:DecidableType)(M:WSfun E).
    apply InA_eqke_eqk with k e'; auto.
    rewrite <- of_list_1; auto.
    intro k'. rewrite Hsame, add_o, of_list_1b. simpl.
-   unfold eqb. do 2 destruct eq_dec; auto; elim n; eauto.
+   unfold eqb. do 2 destruct eq_dec as [|?Hnot]; auto; elim Hnot; eauto.
    inversion_clear Hdup; auto.
   apply IHl.
    intros; eapply Hstep'; eauto.
@@ -1123,6 +1117,27 @@ Module WProperties_fun (E:DecidableType)(M:WSfun E).
   rewrite 2 InA_rev, <- 2 elements_mapsto_iff, 2 find_mapsto_iff, H;
    auto with *.
   Qed.
+
+  Lemma fold_Equal2 : forall m1 m2 i j, Equal m1 m2 -> eqA i j ->
+    eqA (fold f m1 i) (fold f m2 j).
+  Proof.
+  intros.
+  rewrite 2 fold_spec_right.
+  assert (NoDupA eqk (rev (elements m1))) by (auto with * ).
+  assert (NoDupA eqk (rev (elements m2))) by (auto with * ).
+  apply fold_right_equivlistA_restr2 with (R:=complement eqk)(eqA:=eqke)
+  ; auto with *.
+  - intros (k1,e1) (k2,e2) (Hk,He) a1 a2 Ha; simpl in *; apply Comp; auto.
+  - unfold complement, eq_key, eq_key_elt; repeat red. intuition eauto.
+  - intros (k,e) (k',e') z z' h h'; unfold eq_key, uncurry;simpl; auto.
+    rewrite h'.
+    auto.
+  - rewrite <- NoDupA_altdef; auto.
+  - intros (k,e).
+    rewrite 2 InA_rev, <- 2 elements_mapsto_iff, 2 find_mapsto_iff, H;
+      auto with *.
+  Qed.
+
 
   Lemma fold_Add : forall m1 m2 k e i, ~In k m1 -> Add k e m1 m2 ->
    eqA (fold f m2 i) (f k e (fold f m1 i)).
@@ -1896,7 +1911,7 @@ Module OrdProperties (M:S).
    find_mapsto_iff, (H0 t0), <- find_mapsto_iff,
    add_mapsto_iff by (auto with *).
   unfold O.eqke; simpl. intuition.
-  destruct (E.eq_dec x t0); auto.
+  destruct (E.eq_dec x t0) as [Heq|Hneq]; auto.
   exfalso.
   assert (In t0 m).
    exists e0; auto.
@@ -1925,7 +1940,7 @@ Module OrdProperties (M:S).
     find_mapsto_iff, (H0 t0), <- find_mapsto_iff,
     add_mapsto_iff by (auto with *).
   unfold O.eqke; simpl. intuition.
-  destruct (E.eq_dec x t0); auto.
+  destruct (E.eq_dec x t0) as [Heq|Hneq]; auto.
   exfalso.
   assert (In t0 m).
    exists e0; auto.
@@ -1981,7 +1996,7 @@ Module OrdProperties (M:S).
   inversion_clear H1; [ | inversion_clear H2; eauto ].
   red in H3; simpl in H3; destruct H3.
   destruct p as (p1,p2).
-  destruct (E.eq_dec p1 x).
+  destruct (E.eq_dec p1 x) as [Heq|Hneq].
   apply ME.lt_eq with p1; auto.
    inversion_clear H2.
    inversion_clear H5.

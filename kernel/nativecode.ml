@@ -1,6 +1,6 @@
 (************************************************************************)
 (*  v      *   The Coq Proof Assistant  /  The Coq Development Team     *)
-(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2013     *)
+(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2015     *)
 (*   \VV/  **************************************************************)
 (*    //   *      This file is distributed under the terms of the       *)
 (*         *       GNU Lesser General Public License Version 2.1        *)
@@ -45,9 +45,10 @@ let fresh_lname n =
 
 (** Global names **)
 type gname = 
-  | Gind of string * inductive (* prefix, inductive name *)
-  | Gconstruct of string * constructor (* prefix, constructor name *)
-  | Gconstant of string * constant (* prefix, constant name *)
+  | Gind of string * pinductive (* prefix, inductive name *)
+  | Gconstruct of string * pconstructor (* prefix, constructor name *)
+  | Gconstant of string * pconstant (* prefix, constant name *)
+  | Gproj of string * constant (* prefix, constant name *)
   | Gcase of label option * int
   | Gpred of label option * int
   | Gfixtype of label option * int
@@ -59,11 +60,12 @@ type gname =
 
 let eq_gname gn1 gn2 =
   match gn1, gn2 with
-  | Gind (s1, ind1), Gind (s2, ind2) -> String.equal s1 s2 && eq_ind ind1 ind2
+  | Gind (s1, ind1), Gind (s2, ind2) ->
+     String.equal s1 s2 && Univ.eq_puniverses eq_ind ind1 ind2
   | Gconstruct (s1, c1), Gconstruct (s2, c2) ->
-      String.equal s1 s2 && eq_constructor c1 c2
+      String.equal s1 s2 && Univ.eq_puniverses eq_constructor c1 c2
   | Gconstant (s1, c1), Gconstant (s2, c2) ->
-      String.equal s1 s2 && Constant.equal c1 c2
+      String.equal s1 s2 && Univ.eq_puniverses Constant.equal c1 c2
   | Gcase (None, i1), Gcase (None, i2) -> Int.equal i1 i2
   | Gcase (Some l1, i1), Gcase (Some l2, i2) -> Int.equal i1 i2 && Label.equal l1 l2
   | Gpred (None, i1), Gpred (None, i2) -> Int.equal i1 i2
@@ -84,9 +86,12 @@ let eq_gname gn1 gn2 =
 open Hashset.Combine
 
 let gname_hash gn = match gn with
-| Gind (s, i) -> combinesmall 1 (combine (String.hash s) (ind_hash i))
-| Gconstruct (s, c) -> combinesmall 2 (combine (String.hash s) (constructor_hash c))
-| Gconstant (s, c) -> combinesmall 3 (combine (String.hash s) (Constant.hash c))
+| Gind (s, (ind,u)) ->
+   combinesmall 1 (combine3 (String.hash s) (ind_hash ind) (Univ.Instance.hash u))
+| Gconstruct (s, (c,u)) ->
+   combinesmall 2 (combine3 (String.hash s) (constructor_hash c) (Univ.Instance.hash u))
+| Gconstant (s, (c,u)) ->
+   combinesmall 3 (combine3 (String.hash s) (Constant.hash c) (Univ.Instance.hash u))
 | Gcase (l, i) -> combinesmall 4 (combine (Option.hash Label.hash l) (Int.hash i))
 | Gpred (l, i) -> combinesmall 5 (combine (Option.hash Label.hash l) (Int.hash i))
 | Gfixtype (l, i) -> combinesmall 6 (combine (Option.hash Label.hash l) (Int.hash i))
@@ -95,6 +100,7 @@ let gname_hash gn = match gn with
 | Ginternal s -> combinesmall 9 (String.hash s)
 | Grel i -> combinesmall 10 (Int.hash i)
 | Gnamed id -> combinesmall 11 (Id.hash id)
+| Gproj (s, p) -> combinesmall 12 (combine (String.hash s) (Constant.hash p))
 
 let case_ctr = ref (-1)
 
@@ -147,6 +153,7 @@ type symbol =
   | SymbInd of inductive
   | SymbMeta of metavariable
   | SymbEvar of existential
+  | SymbLevel of Univ.Level.t
 
 let dummy_symb = SymbValue (dummy_value ())
 
@@ -161,6 +168,7 @@ let eq_symbol sy1 sy2 =
   | SymbMeta m1, SymbMeta m2 -> Int.equal m1 m2
   | SymbEvar (evk1,args1), SymbEvar (evk2,args2) ->
      Evar.equal evk1 evk2 && Array.for_all2 eq_constr args1 args2
+  | SymbLevel l1, SymbLevel l2 -> Univ.Level.equal l1 l2
   | _, _ -> false
 
 let hash_symbol symb =
@@ -176,6 +184,7 @@ let hash_symbol symb =
      let evh = Evar.hash evk in
      let hl = Array.fold_left (fun h t -> combine h (Constr.hash t)) evh args in
      combinesmall 8 hl
+  | SymbLevel l -> combinesmall 9 (Univ.Level.hash l)
 
 module HashedTypeSymbol = struct
   type t = symbol
@@ -229,6 +238,11 @@ let get_evar tbl i =
     | SymbEvar ev -> ev
     | _ -> anomaly (Pp.str "get_evar failed")
 
+let get_level tbl i =
+  match tbl.(i) with
+    | SymbLevel u -> u
+    | _ -> anomaly (Pp.str "get_level failed")
+
 let push_symbol x =
   try HashtblSymbol.find symb_tbl x
   with Not_found ->
@@ -253,6 +267,7 @@ type primitive =
   | Mk_cofix of int
   | Mk_rel of int
   | Mk_var of identifier
+  | Mk_proj
   | Is_accu
   | Is_int
   | Cast_accu
@@ -279,6 +294,8 @@ type primitive =
   | MLsub
   | MLmul
   | MLmagic
+  | MLarrayget
+  | Mk_empty_instance
   | Coq_primitive of Primitives.t * (prefix * constant) option
 
 let eq_primitive p1 p2 =
@@ -298,6 +315,9 @@ let eq_primitive p1 p2 =
   | Force_cofix, Force_cofix -> true
   | Mk_meta, Mk_meta -> true
   | Mk_evar, Mk_evar -> true
+  | Mk_proj, Mk_proj -> true
+  | MLarrayget, MLarrayget -> true
+
   | _ -> false
 
 let primitive_hash = function
@@ -344,6 +364,9 @@ let primitive_hash = function
   | Coq_primitive (prim, None) -> combinesmall 36 (Primitives.hash prim)
   | Coq_primitive (prim, Some (prefix,kn)) ->
      combinesmall 37 (combine3 (String.hash prefix) (Constant.hash kn) (Primitives.hash prim))
+  | Mk_proj -> 38
+  | MLarrayget -> 39
+  | Mk_empty_instance -> 40
 
 type mllambda =
   | MLlocal        of lname 
@@ -362,6 +385,7 @@ type mllambda =
   | MLuint         of Uint31.t
   | MLsetref       of string * mllambda
   | MLsequence     of mllambda * mllambda
+  | MLarray        of mllambda array
 
 and mllam_branches = ((constructor * lname option array) list * mllambda) array
 
@@ -423,10 +447,13 @@ let rec eq_mllambda gn1 gn2 n env1 env2 t1 t2 =
   | MLsetref (id1, ml1), MLsetref (id2, ml2) ->
       String.equal id1 id2 &&
       eq_mllambda gn1 gn2 n env1 env2 ml1 ml2
-   | MLsequence (ml1, ml'1), MLsequence (ml2, ml'2) ->
-       eq_mllambda gn1 gn2 n env1 env2 ml1 ml2 &&
-       eq_mllambda gn1 gn2 n env1 env2 ml'1 ml'2
-   | _, _ -> false
+  | MLsequence (ml1, ml'1), MLsequence (ml2, ml'2) ->
+      eq_mllambda gn1 gn2 n env1 env2 ml1 ml2 &&
+      eq_mllambda gn1 gn2 n env1 env2 ml'1 ml'2
+  | MLarray arr1, MLarray arr2 ->
+      Array.equal (eq_mllambda gn1 gn2 n env1 env2) arr1 arr2
+
+  | _, _ -> false
 
 and eq_letrec gn1 gn2 n env1 env2 defs1 defs2 =
   let eq_def (_,args1,ml1) (_,args2,ml2) =
@@ -499,6 +526,8 @@ let rec hash_mllambda gn n env t =
       let hml = hash_mllambda gn n env ml in
       let hml' = hash_mllambda gn n env ml' in
       combinesmall 14 (combine hml hml')
+  | MLarray arr ->
+      combinesmall 15 (hash_mllambda_array gn n env 1 arr)
 
 and hash_mllambda_letrec gn n env init defs =
   let hash_def (_,args,ml) =
@@ -563,7 +592,9 @@ let fv_lam l =
     | MLconstruct (_,_,p) ->
 	Array.fold_right (fun a fv -> aux a bind fv) p fv
     | MLsetref(_,l) -> aux l bind fv
-    | MLsequence(l1,l2) -> aux l1 bind (aux l2 bind fv) in
+    | MLsequence(l1,l2) -> aux l1 bind (aux l2 bind fv)
+    | MLarray arr -> Array.fold_right (fun a fv -> aux a bind fv) arr fv
+  in
   aux l LNset.empty LNset.empty
 
 
@@ -692,13 +723,15 @@ type env =
       env_bound : int; (* length of env_rel *)
       (* free variables *)
       env_urel : (int * mllambda) list ref; (* list of unbound rel *)
-      env_named : (identifier * mllambda) list ref }
+      env_named : (identifier * mllambda) list ref;
+      env_univ : lname option}
 
-let empty_env () =
+let empty_env univ () =
   { env_rel = [];
     env_bound = 0;
     env_urel = ref [];
-    env_named = ref []
+    env_named = ref [];
+    env_univ = univ
   }
 
 let push_rel env id = 
@@ -735,7 +768,10 @@ let get_var env id =
     let local = MLlocal (fresh_lname (Name id)) in
     env.env_named := (id, local)::!(env.env_named);
     local
-   
+
+let fresh_univ () =
+  fresh_lname (Name (Id.of_string "univ"))
+
 (*s Traduction of lambda to mllambda *)
 
 let get_prod_name codom = 
@@ -748,14 +784,18 @@ let get_lname (_,l) =
   | MLlocal id -> id
   | _ -> invalid_arg "Nativecode.get_lname"
 
+(* Collects free variables from env in an array of local names *)
 let fv_params env = 
   let fvn, fvr = !(env.env_named), !(env.env_urel) in 
   let size = List.length fvn + List.length fvr in
-  if Int.equal size 0 then empty_params 
+  let start,params = match env.env_univ with
+    | None -> 0, Array.make size dummy_lname
+    | Some u -> 1, let t = Array.make (size + 1) dummy_lname in t.(0) <- u; t
+  in
+  if Array.is_empty params then empty_params
   else begin
-    let params = Array.make size dummy_lname in
     let fvn = ref fvn in
-    let i = ref 0 in
+    let i = ref start in
     while not (List.is_empty !fvn) do
       params.(!i) <- get_lname (List.hd !fvn);
       fvn := List.tl !fvn;
@@ -777,12 +817,15 @@ let empty_args = [||]
 
 let fv_args env fvn fvr =
   let size = List.length fvn + List.length fvr in
-  if Int.equal size 0 then empty_args 
+  let start,args = match env.env_univ with
+    | None -> 0, Array.make size (MLint 0)
+    | Some u -> 1, let t = Array.make (size + 1) (MLint 0) in t.(0) <- MLlocal u; t
+  in
+  if Array.is_empty args then empty_args
   else 
     begin
-      let args = Array.make size (MLint 0) in
       let fvn = ref fvn in
-      let i = ref 0 in
+      let i = ref start in
       while not (List.is_empty !fvn) do
 	args.(!i) <- get_var env (fst (List.hd !fvn));
 	fvn := List.tl !fvn;
@@ -829,6 +872,10 @@ let get_meta_code i =
 
 let get_evar_code i =
   MLapp (MLglobal (Ginternal "get_evar"),
+    [|MLglobal symbols_tbl_name; MLint i|])
+
+let get_level_code i =
+  MLapp (MLglobal (Ginternal "get_level"),
     [|MLglobal symbols_tbl_name; MLint i|])
 
 type rlist =
@@ -972,6 +1019,19 @@ let compile_prim decl cond paux =
     List.fold_left (fun body (x,d) -> MLlet(x,d,body)) body decl in
   add_decl decl (compile_cond cond paux)
 
+let ml_of_instance instance u =
+  let ml_of_level l =
+    match Univ.Level.var_index l with
+    | Some i ->
+       let univ = MLapp(MLprimitive MLmagic, [|MLlocal (Option.get instance)|]) in
+       mkMLapp (MLprimitive MLarrayget) [|univ; MLint i|]
+    | None -> let i = push_symbol (SymbLevel l) in get_level_code i
+  in
+  let u = Univ.Instance.to_array u in
+  if Array.is_empty u then [||]
+  else let u = Array.map ml_of_level u in
+       [|MLapp (MLprimitive MLmagic, [|MLarray u|])|]
+
  let rec ml_of_lam env l t =
   match t with
   | Lrel(id ,i) -> get_rel env id i
@@ -1001,7 +1061,10 @@ let compile_prim decl cond paux =
       MLlet(lname,def,body)
   | Lapp(f,args) ->
       MLapp(ml_of_lam env l f, Array.map (ml_of_lam env l) args)
-  | Lconst (prefix,c) -> MLglobal(Gconstant (prefix,c))
+  | Lconst (prefix,c) ->
+     let args = ml_of_instance env.env_univ (snd c) in
+     mkMLapp (MLglobal(Gconstant (prefix,c))) args
+  | Lproj (prefix,c) -> MLglobal(Gproj (prefix,c))
   | Lprim _ ->
       let decl,cond,paux = extract_prim (ml_of_lam env l) t in
       compile_prim decl cond paux
@@ -1016,20 +1079,21 @@ let compile_prim decl cond paux =
          (* Remark: if we do not want to compile the predicate we 
             should a least compute the fv, then store the lambda representation
             of the predicate (not the mllambda) *)
-      let env_p = empty_env () in
+      let env_p = empty_env env.env_univ () in
       let pn = fresh_gpred l in
       let mlp = ml_of_lam env_p l p in
       let mlp = generalize_fv env_p mlp in
       let (pfvn,pfvr) = !(env_p.env_named), !(env_p.env_urel) in
       let pn = push_global_let pn mlp in
       (* Compilation of the case *)
-      let env_c = empty_env () in
+      let env_c = empty_env env.env_univ () in
       let a_uid = fresh_lname Anonymous in
       let la_uid = MLlocal a_uid in
       (* compilation of branches *)
       let ml_br (c,params, body) = 
-	let lnames, env = push_rels env_c params in
-	(c, lnames, ml_of_lam env l body) in
+	let lnames, env_c = push_rels env_c params in
+	(c, lnames, ml_of_lam env_c l body)
+      in
       let bs = Array.map ml_br bs in
       let cn = fresh_gcase l in
       (* Compilation of accu branch *)
@@ -1073,7 +1137,7 @@ let compile_prim decl cond paux =
 	   start
       *)
       (* Compilation of type *)
-      let env_t = empty_env () in
+      let env_t = empty_env env.env_univ () in
       let ml_t = Array.map (ml_of_lam env_t l) tt in
       let params_t = fv_params env_t in
       let args_t = fv_args env !(env_t.env_named) !(env_t.env_urel) in
@@ -1082,7 +1146,7 @@ let compile_prim decl cond paux =
       let mk_type = MLapp(MLglobal gft, args_t) in
       (* Compilation of norm_i *)
       let ndef = Array.length ids in
-      let lf,env_n = push_rels (empty_env ()) ids in
+      let lf,env_n = push_rels (empty_env env.env_univ ()) ids in
       let t_params = Array.make ndef [||] in
       let t_norm_f = Array.make ndef (Gnorm (l,-1)) in
       let mk_let envi (id,def) t = MLlet (id,def,t) in
@@ -1138,7 +1202,7 @@ let compile_prim decl cond paux =
       MLletrec(Array.mapi mkrec lf, lf_args.(start))
   | Lcofix (start, (ids, tt, tb)) -> 
       (* Compilation of type *)
-      let env_t = empty_env () in
+      let env_t = empty_env env.env_univ () in
       let ml_t = Array.map (ml_of_lam env_t l) tt in
       let params_t = fv_params env_t in
       let args_t = fv_args env !(env_t.env_named) !(env_t.env_urel) in
@@ -1147,7 +1211,7 @@ let compile_prim decl cond paux =
       let mk_type = MLapp(MLglobal gft, args_t) in
       (* Compilation of norm_i *) 
       let ndef = Array.length ids in
-      let lf,env_n = push_rels (empty_env ()) ids in
+      let lf,env_n = push_rels (empty_env env.env_univ ()) ids in
       let t_params = Array.make ndef [||] in
       let t_norm_f = Array.make ndef (Gnorm (l,-1)) in
       let ml_of_fix i body =
@@ -1205,33 +1269,42 @@ let compile_prim decl cond paux =
 	(lname, paramsi, body) in
       MLletrec(Array.mapi mkrec lf, lf_args.(start)) *)
 
-  | Lmakeblock (prefix,cn,_,args) ->
-      MLconstruct(prefix,cn,Array.map (ml_of_lam env l) args)
-  | Lconstruct (prefix, cn) ->
-      MLglobal (Gconstruct (prefix, cn))
+  | Lmakeblock (prefix,(cn,u),_,args) ->
+     let args = Array.map (ml_of_lam env l) args in
+     MLconstruct(prefix,cn,args)
+  | Lconstruct (prefix, (cn,u)) ->
+     let uargs = ml_of_instance env.env_univ u in
+      mkMLapp (MLglobal (Gconstruct (prefix, (cn,u)))) uargs
   | Luint v ->
      (match v with
      | UintVal i -> MLapp(MLprimitive Mk_uint, [|MLuint i|])
      | UintDigits (prefix,cn,ds) ->
-	let c = MLglobal (Gconstruct (prefix, cn)) in
+	let c = MLglobal (Gconstruct (prefix, (cn, Univ.Instance.empty))) in
 	let ds = Array.map (ml_of_lam env l) ds in
 	let i31 = MLapp (MLprimitive Mk_I31_accu, [|c|]) in
 	MLapp(i31, ds)
      | UintDecomp (prefix,cn,t) ->
-	let c = MLglobal (Gconstruct (prefix, cn)) in
+	let c = MLglobal (Gconstruct (prefix, (cn, Univ.Instance.empty))) in
 	let t = ml_of_lam env l t in
 	MLapp (MLprimitive Decomp_uint, [|c;t|]))
   | Lval v ->
       let i = push_symbol (SymbValue v) in get_value_code i
   | Lsort s ->
     let i = push_symbol (SymbSort s) in
-    MLapp(MLprimitive Mk_sort, [|get_sort_code i|])
-  | Lind (prefix, ind) -> MLglobal (Gind (prefix, ind))
+    let uarg = match env.env_univ with
+      | None -> MLarray [||]
+      | Some u -> MLlocal u
+    in
+    let uarg = MLapp(MLprimitive MLmagic, [|uarg|]) in
+    MLapp(MLprimitive Mk_sort, [|get_sort_code i; uarg|])
+  | Lind (prefix, pind) ->
+     let uargs = ml_of_instance env.env_univ (snd pind) in
+     mkMLapp (MLglobal (Gind (prefix, pind))) uargs
   | Llazy -> MLglobal (Ginternal "lazy")
   | Lforce -> MLglobal (Ginternal "Lazy.force")
 
-let mllambda_of_lambda auxdefs l t =
-  let env = empty_env () in
+let mllambda_of_lambda univ auxdefs l t =
+  let env = empty_env univ () in
   global_stack := auxdefs;
   let ml = ml_of_lam env l t in
   let fv_rel = !(env.env_urel) in
@@ -1278,6 +1351,7 @@ let subst s l =
       | MLconstruct(prefix,c,args) -> MLconstruct(prefix,c,Array.map aux args)
       | MLsetref(s,l1) -> MLsetref(s,aux l1) 
       | MLsequence(l1,l2) -> MLsequence(aux l1, aux l2)
+      | MLarray arr -> MLarray (Array.map aux arr)
     in
     aux l
 
@@ -1384,6 +1458,7 @@ let optimize gdef l =
         MLconstruct(prefix,c,Array.map (optimize s) args)
     | MLsetref(r,l) -> MLsetref(r, optimize s l) 
     | MLsequence(l1,l2) -> MLsequence(optimize s l1, optimize s l2)
+    | MLarray arr -> MLarray (Array.map (optimize s) arr)
   in
   optimize LNmap.empty l
 
@@ -1423,7 +1498,7 @@ let string_of_dirpath s = "N"^string_of_dirpath s
 let mod_uid_of_dirpath dir = string_of_dirpath (repr_dirpath dir)
 
 let link_info_of_dirpath dir =
-  ref (Linked (mod_uid_of_dirpath dir ^ "."))
+  Linked (mod_uid_of_dirpath dir ^ ".")
 
 let string_of_name x =
   match x with
@@ -1455,12 +1530,14 @@ let string_of_mind mind = string_of_kn (user_mind mind)
 
 let string_of_gname g =
   match g with
-  | Gind (prefix, (mind, i)) ->
+  | Gind (prefix, ((mind,i), _)) ->
       Format.sprintf "%sindaccu_%s_%i" prefix (string_of_mind mind) i
-  | Gconstruct (prefix, ((mind, i), j)) ->
+  | Gconstruct (prefix, (((mind, i), j), _)) ->
       Format.sprintf "%sconstruct_%s_%i_%i" prefix (string_of_mind mind) i (j-1)
-  | Gconstant (prefix, c) ->
+  | Gconstant (prefix, (c,_)) ->
       Format.sprintf "%sconst_%s" prefix (string_of_con c)
+  | Gproj (prefix, c) ->
+      Format.sprintf "%sproj_%s" prefix (string_of_con c)
   | Gcase (l,i) ->
       Format.sprintf "case_%s_%i" (string_of_label_def l) i
   | Gpred (l,i) ->
@@ -1518,12 +1595,12 @@ let pp_mllam fmt l =
     | MLif(t,l1,l2) ->
 	Format.fprintf fmt "@[(if %a then@\n  %a@\nelse@\n  %a)@]"
 	  pp_mllam t pp_mllam l1 pp_mllam l2 
-    | MLmatch (asw, c, accu_br, br) ->
-	let mind,i = asw.asw_ind in
-    let prefix = asw.asw_prefix in
-	let accu = Format.sprintf "%sAccu_%s_%i" prefix (string_of_mind mind) i in
-	Format.fprintf fmt 
-	  "@[begin match Obj.magic (%a) with@\n| %s _ ->@\n  %a@\n%aend@]"
+    | MLmatch (annot, c, accu_br, br) ->
+	  let mind,i = annot.asw_ind in
+      let prefix = annot.asw_prefix in
+	  let accu = Format.sprintf "%sAccu_%s_%i" prefix (string_of_mind mind) i in
+	  Format.fprintf fmt 
+	    "@[begin match Obj.magic (%a) with@\n| %s _ ->@\n  %a@\n%aend@]"
 	  pp_mllam c accu pp_mllam accu_br (pp_branches prefix) br
 	  
     | MLconstruct(prefix,c,args) ->
@@ -1535,6 +1612,17 @@ let pp_mllam fmt l =
 	Format.fprintf fmt "@[%s@ :=@\n %a@]" s pp_mllam body
     | MLsequence(l1,l2) ->
 	Format.fprintf fmt "@[%a;@\n%a@]" pp_mllam l1 pp_mllam l2
+    | MLarray arr ->
+       let len = Array.length arr in
+       Format.fprintf fmt "@[[|";
+       if 0 < len then begin
+	 for i = 0 to len - 2 do
+           Format.fprintf fmt "%a;" pp_mllam arr.(i)
+	 done;
+         pp_mllam fmt arr.(len-1)
+       end;
+       Format.fprintf fmt "|]@]"
+
 
   and pp_letrec fmt defs =
     let len = Array.length defs in
@@ -1626,6 +1714,7 @@ let pp_mllam fmt l =
     | Mk_rel i -> Format.fprintf fmt "mk_rel_accu %i" i
     | Mk_var id ->
         Format.fprintf fmt "mk_var_accu (Names.id_of_string \"%s\")" (string_of_id id)
+    | Mk_proj -> Format.fprintf fmt "mk_proj_accu"
     | Is_accu -> Format.fprintf fmt "is_accu"
     | Is_int -> Format.fprintf fmt "is_int"
     | Cast_accu -> Format.fprintf fmt "cast_accu"
@@ -1652,11 +1741,14 @@ let pp_mllam fmt l =
     | MLsub -> Format.fprintf fmt "(-)"
     | MLmul -> Format.fprintf fmt "( * )"
     | MLmagic -> Format.fprintf fmt "Obj.magic"
+    | MLarrayget -> Format.fprintf fmt "Array.get"
+    | Mk_empty_instance -> Format.fprintf fmt "Univ.Instance.empty"
     | Coq_primitive (op,None) ->
        Format.fprintf fmt "no_check_%s" (Primitives.to_string op)
     | Coq_primitive (op, Some (prefix,kn)) ->
+       let u = Univ.Instance.empty in
         Format.fprintf fmt "%s %a" (Primitives.to_string op)
-		       pp_mllam (MLglobal (Gconstant (prefix,kn)))
+		       pp_mllam (MLglobal (Gconstant (prefix,(kn,u))))
   in
   Format.fprintf fmt "@[%a@]" pp_mllam l
   
@@ -1707,18 +1799,18 @@ let pp_global fmt g =
       Format.fprintf fmt "@[(* %s *)@]@." s
 
 (** Compilation of elements in environment **)
-let rec compile_with_fv env sigma auxdefs l t =
-  let (auxdefs,(fv_named,fv_rel),ml) = mllambda_of_lambda auxdefs l t in
+let rec compile_with_fv env sigma univ auxdefs l t =
+  let (auxdefs,(fv_named,fv_rel),ml) = mllambda_of_lambda univ auxdefs l t in
   if List.is_empty fv_named && List.is_empty fv_rel then (auxdefs,ml)
-  else apply_fv env sigma (fv_named,fv_rel) auxdefs ml
+  else apply_fv env sigma univ (fv_named,fv_rel) auxdefs ml
 
-and apply_fv env sigma (fv_named,fv_rel) auxdefs ml =
+and apply_fv env sigma univ (fv_named,fv_rel) auxdefs ml =
   let get_rel_val (n,_) auxdefs =
     (*
     match !(lookup_rel_native_val n env) with
     | NVKnone ->
     *)
-        compile_rel env sigma auxdefs n
+        compile_rel env sigma univ auxdefs n
 (*    | NVKvalue (v,d) -> assert false *)
   in
   let get_named_val (id,_) auxdefs =
@@ -1726,7 +1818,7 @@ and apply_fv env sigma (fv_named,fv_rel) auxdefs ml =
     match !(lookup_named_native_val id env) with
     | NVKnone ->
         *)
-        compile_named env sigma auxdefs id
+        compile_named env sigma univ auxdefs id
 (*    | NVKvalue (v,d) -> assert false *)
   in
   let auxdefs = List.fold_right get_rel_val fv_rel auxdefs in
@@ -1737,30 +1829,36 @@ and apply_fv env sigma (fv_named,fv_rel) auxdefs ml =
   let aux_name = fresh_lname Anonymous in
   auxdefs, MLlet(aux_name, ml, mkMLapp (MLlocal aux_name) (Array.of_list (fv_rel@fv_named)))
 
-and compile_rel env sigma auxdefs n =
+and compile_rel env sigma univ auxdefs n =
   let (_,body,_) = lookup_rel n env.env_rel_context in
   let n = rel_context_length env.env_rel_context - n in
   match body with
   | Some t ->
       let code = lambda_of_constr env sigma t in
-      let auxdefs,code = compile_with_fv env sigma auxdefs None code in
+      let auxdefs,code = compile_with_fv env sigma univ auxdefs None code in
       Glet(Grel n, code)::auxdefs
   | None -> 
       Glet(Grel n, MLprimitive (Mk_rel n))::auxdefs
 
-and compile_named env sigma auxdefs id =
+and compile_named env sigma univ auxdefs id =
   let (_,body,_) = lookup_named id env.env_named_context in
   match body with
   | Some t ->
       let code = lambda_of_constr env sigma t in
-      let auxdefs,code = compile_with_fv env sigma auxdefs None code in
+      let auxdefs,code = compile_with_fv env sigma univ auxdefs None code in
       Glet(Gnamed id, code)::auxdefs
   | None -> 
       Glet(Gnamed id, MLprimitive (Mk_var id))::auxdefs
 
-let compile_constant env sigma prefix ~interactive con body =
-  match body with
-  | Def t ->
+let compile_constant env sigma prefix ~interactive con cb =
+  match cb.const_proj with
+  | None ->
+     let u =
+       if cb.const_polymorphic then Univ.UContext.instance cb.const_universes
+       else Univ.Instance.empty
+     in
+    begin match cb.const_body with
+    | Def t ->
       let t = Mod_subst.force_constr t in
       let code = lambda_of_constr env sigma t in
       if !Flags.debug then Pp.msg_debug (Pp.str "Generated lambda code");
@@ -1771,18 +1869,63 @@ let compile_constant env sigma prefix ~interactive con body =
         else Linked prefix
       in
       let l = con_label con in
-      let auxdefs,code = compile_with_fv env sigma [] (Some l) code in
+      let auxdefs,code =
+	if Univ.Instance.is_empty u then compile_with_fv env sigma None [] (Some l) code
+	else
+	  let univ = fresh_univ () in
+	  let (auxdefs,code) = compile_with_fv env sigma (Some univ) [] (Some l) code in
+          (auxdefs,mkMLlam [|univ|] code)
+      in
       if !Flags.debug then Pp.msg_debug (Pp.str "Generated mllambda code");
       let code =
-        optimize_stk (Glet(Gconstant ("",con),code)::auxdefs)
+        optimize_stk (Glet(Gconstant ("",(con,u)),code)::auxdefs)
       in
       if !Flags.debug then Pp.msg_debug (Pp.str "Optimized mllambda code");
       code, name
-  | _ -> 
+    | _ -> 
+        let i = push_symbol (SymbConst con) in
+	let args =
+	  if Univ.Instance.is_empty u then [|get_const_code i; MLarray [||]|]
+	  else [|get_const_code i|]
+	in
+	(*
+	let t = mkMLlam [|univ|] (mkMLapp (MLprimitive Mk_const)
+	 *)
+        [Glet(Gconstant ("",(con,u)), mkMLapp (MLprimitive Mk_const) args)],
+	  if interactive then LinkedInteractive prefix
+	  else Linked prefix
+    end
+  | Some pb ->
+      let u = Univ.Instance.empty in
+      let mind = pb.proj_ind in
+      let ind = (mind,0) in
+      let mib = lookup_mind mind env in
+      let oib = mib.mind_packets.(0) in
+      let tbl = oib.mind_reloc_tbl in 
+      (* Building info *)
+      let prefix = get_mind_prefix env mind in
+      let ci = { ci_ind = ind; ci_npar = mib.mind_nparams; 
+		 ci_cstr_nargs = [|0|];
+		 ci_cstr_ndecls = [||] (*FIXME*);
+		 ci_pp_info = { ind_tags = []; cstr_tags = [||] (*FIXME*); style = RegularStyle } } in
+      let asw = { asw_ind = ind; asw_prefix = prefix; asw_ci = ci;
+		  asw_reloc = tbl; asw_finite = true } in
+      let c_uid = fresh_lname Anonymous in
+      let _, arity = tbl.(0) in
+      let ci_uid = fresh_lname Anonymous in
+      let cargs = Array.init arity
+        (fun i -> if Int.equal i pb.proj_arg then Some ci_uid else None)
+      in
       let i = push_symbol (SymbConst con) in
-      [Glet(Gconstant ("",con), MLapp (MLprimitive Mk_const, [|get_const_code i|]))],
-      if interactive then LinkedInteractive prefix
-      else Linked prefix
+      let accu = MLapp (MLprimitive Cast_accu, [|MLlocal c_uid|]) in
+      let accu_br = MLapp (MLprimitive Mk_proj, [|get_const_code i;accu|]) in
+      let code = MLmatch(asw,MLlocal c_uid,accu_br,[|[((ind,1),cargs)],MLlocal ci_uid|]) in
+      let gn = Gproj ("",con) in
+      let fargs = Array.init (pb.proj_npars + 1) (fun _ -> fresh_lname Anonymous) in
+      let arg = fargs.(pb.proj_npars) in
+        Glet(Gconstant ("",(con,u)), mkMLlam fargs (MLapp (MLglobal gn, [|MLlocal
+          arg|])))::
+            [Glet(gn, mkMLlam [|c_uid|] code)], Linked prefix
 
 let loaded_native_files = ref ([] : string list)
 
@@ -1806,12 +1949,18 @@ let param_name = Name (id_of_string "params")
 let arg_name = Name (id_of_string "arg")
 
 let compile_mind prefix ~interactive mb mind stack =
+  let u = Declareops.inductive_instance mb in
   let f i stack ob =
     let gtype = Gtype((mind, i), Array.map snd ob.mind_reloc_tbl) in
     let j = push_symbol (SymbInd (mind,i)) in
-    let name = Gind ("", (mind, i)) in
+    let name = Gind ("", ((mind, i), u)) in
     let accu =
-      Glet(name, MLapp (MLprimitive Mk_ind, [|get_ind_code j|]))
+      let args =
+	if Univ.Instance.is_empty u then
+	  [|get_ind_code j; MLarray [||]|]
+	else [|get_ind_code j|]
+      in
+      Glet(name, MLapp (MLprimitive Mk_ind, args))
     in
     let nparams = mb.mind_nparams in
     let params = 
@@ -1819,7 +1968,7 @@ let compile_mind prefix ~interactive mb mind stack =
     let add_construct j acc (_,arity) = 
       let args = Array.init arity (fun k -> {lname = arg_name; luid = k}) in 
       let c = (mind,i), (j+1) in
-	  Glet(Gconstruct ("",c),
+	  Glet(Gconstruct ("",(c,u)),
 	     mkMLlam (Array.append params args)
 	       (MLconstruct("", c, Array.map (fun id -> MLlocal id) args)))::acc
     in
@@ -1858,9 +2007,9 @@ let compile_mind_deps env prefix ~interactive
    reverse order, as well as linking information updates *)
 let rec compile_deps env sigma prefix ~interactive init t =
   match kind_of_term t with
-  | Ind (mind,_) -> compile_mind_deps env prefix ~interactive init mind
+  | Ind ((mind,_),u) -> compile_mind_deps env prefix ~interactive init mind
   | Const c ->
-      let c = get_allias env c in
+      let c,u = get_allias env c in
       let cb,(nameref,_) = lookup_constant_key c env in
       let (_, (_, const_updates)) = init in
       if is_code_loaded ~interactive nameref
@@ -1873,12 +2022,15 @@ let rec compile_deps env sigma prefix ~interactive init t =
         | _ -> init
       in
       let code, name =
-	compile_constant env sigma prefix ~interactive c cb.const_body
+	compile_constant env sigma prefix ~interactive c cb
       in
       let comp_stack = code@comp_stack in
       let const_updates = Cmap_env.add c (nameref, name) const_updates in
       comp_stack, (mind_updates, const_updates)
-  | Construct ((mind,_),_) -> compile_mind_deps env prefix ~interactive init mind
+  | Construct (((mind,_),_),u) -> compile_mind_deps env prefix ~interactive init mind
+  | Proj (p,c) ->
+    let term = mkApp (mkConst (Projection.constant p), [|c|]) in
+      compile_deps env sigma prefix ~interactive init term
   | Case (ci, p, c, ac) ->
       let mind = fst ci.ci_ind in
       let init = compile_mind_deps env prefix ~interactive init mind in
@@ -1888,7 +2040,7 @@ let rec compile_deps env sigma prefix ~interactive init t =
 let compile_constant_field env prefix con acc cb =
     let (gl, _) =
       compile_constant ~interactive:false env empty_evars prefix
-        con cb.const_body
+        con cb
     in
     gl@acc
 
@@ -1903,6 +2055,8 @@ let mk_internal_let s code =
 
 (* ML Code for conversion function *)
 let mk_conv_code env sigma prefix t1 t2 =
+  clear_symb_tbl ();
+  clear_global_tbl ();
   let gl, (mind_updates, const_updates) =
     let init = ([], empty_updates) in
     compile_deps env sigma prefix ~interactive:true init t1
@@ -1913,8 +2067,8 @@ let mk_conv_code env sigma prefix t1 t2 =
   in
   let code1 = lambda_of_constr env sigma t1 in
   let code2 = lambda_of_constr env sigma t2 in
-  let (gl,code1) = compile_with_fv env sigma gl None code1 in
-  let (gl,code2) = compile_with_fv env sigma gl None code2 in
+  let (gl,code1) = compile_with_fv env sigma None gl None code1 in
+  let (gl,code2) = compile_with_fv env sigma None gl None code2 in
   let t1 = mk_internal_let "t1" code1 in
   let t2 = mk_internal_let "t2" code2 in
   let g1 = MLglobal (Ginternal "t1") in
@@ -1928,12 +2082,14 @@ let mk_conv_code env sigma prefix t1 t2 =
   header::gl, (mind_updates, const_updates)
 
 let mk_norm_code env sigma prefix t =
+  clear_symb_tbl ();
+  clear_global_tbl ();
   let gl, (mind_updates, const_updates) =
     let init = ([], empty_updates) in
     compile_deps env sigma prefix ~interactive:true init t
   in
   let code = lambda_of_constr env sigma t in
-  let (gl,code) = compile_with_fv env sigma gl None code in
+  let (gl,code) = compile_with_fv env sigma None gl None code in
   let t1 = mk_internal_let "t1" code in
   let g1 = MLglobal (Ginternal "t1") in
   let setref = Glet(Ginternal "_", MLsetref("rt1",g1)) in

@@ -1,6 +1,6 @@
 (************************************************************************)
 (*  v      *   The Coq Proof Assistant  /  The Coq Development Team     *)
-(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2012     *)
+(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2015     *)
 (*   \VV/  **************************************************************)
 (*    //   *      This file is distributed under the terms of the       *)
 (*         *       GNU Lesser General Public License Version 2.1        *)
@@ -19,7 +19,10 @@ val exclude_search_in_dirname : string -> unit
 val all_subdirs : unix_path:string -> (CUnix.physical_path * string list) list
 val is_in_path : CUnix.load_path -> string -> bool
 val is_in_system_path : string -> bool
-val where_in_path : ?warn:bool -> CUnix.load_path -> string -> CUnix.physical_path * string
+val where_in_path :
+  ?warn:bool -> CUnix.load_path -> string -> CUnix.physical_path * string
+val where_in_path_rex :
+  CUnix.load_path -> Str.regexp -> (CUnix.physical_path * string) list
 
 val exists_dir : string -> bool
 
@@ -56,10 +59,6 @@ val marshal_out_segment : string -> out_channel -> 'a -> unit
 val marshal_in_segment : string -> in_channel -> 'a * int * Digest.t
 val skip_in_segment : string -> in_channel -> int * Digest.t
 
-(** {6 Sending/receiving once with external executable } *)
-
-val connect : (out_channel -> unit) -> (in_channel -> 'a) -> string -> 'a
-
 (** {6 Time stamps.} *)
 
 type time
@@ -67,3 +66,8 @@ type time
 val get_time : unit -> time
 val time_difference : time -> time -> float (** in seconds *)
 val fmt_time_difference : time -> time -> Pp.std_ppcmds
+
+val with_time : bool -> ('a -> 'b) -> 'a -> 'b
+
+(** {6 Name of current process.} *)
+val process_id : unit -> string

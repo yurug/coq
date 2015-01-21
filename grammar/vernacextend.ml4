@@ -1,6 +1,6 @@
 (************************************************************************)
 (*  v      *   The Coq Proof Assistant  /  The Coq Development Team     *)
-(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2012     *)
+(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2015     *)
 (*   \VV/  **************************************************************)
 (*    //   *      This file is distributed under the terms of the       *)
 (*         *       GNU Lesser General Public License Version 2.1        *)
@@ -26,13 +26,6 @@ let rec make_let e = function
       let e = make_let e l in
       <:expr< let $lid:p$ = Genarg.out_gen $make_rawwit loc t$ $lid:p$ in $e$ >>
   | _::l -> make_let e l
-
-let check_unicity s l =
-  let l' = List.map (fun (_,l,_,_) -> extract_signature l) l in
-  if not (Util.List.distinct l') then
-    msg_warning
-      (strbrk ("Two distinct rules of entry "^s^" have the same "^
-      "non-terminals in the same order: put them in distinct vernac entries"))
 
 let make_clause (_,pt,_,e) =
   (make_patt pt,
@@ -83,11 +76,12 @@ let make_clause_classifier cg s (_,pt,c,_) =
       <:expr< fun () -> (Vernacexpr.VtUnknown, Vernacexpr.VtNow) >>)
 
 let make_fun_clauses loc s l =
-  check_unicity s l;
-  Compat.make_fun loc (List.map make_clause l)
+  let cl = List.map (fun c -> Compat.make_fun loc [make_clause c]) l in
+  mlexpr_of_list (fun x -> x) cl
 
 let make_fun_classifiers loc s c l =
-  Compat.make_fun loc (List.map (make_clause_classifier c s) l)
+  let cl = List.map (fun x -> Compat.make_fun loc [make_clause_classifier c s x]) l in
+  mlexpr_of_list (fun x -> x) cl
 
 let mlexpr_of_clause =
   mlexpr_of_list
@@ -101,15 +95,15 @@ let declare_command loc s c nt cl =
   let classl = make_fun_classifiers loc s c cl in
   declare_str_items loc
     [ <:str_item< do {
-	try do { 
-          Vernacinterp.vinterp_add $se$ $funcl$;
-          Vernac_classifier.declare_vernac_classifier $se$ $classl$ }
+	try do {
+          CList.iteri (fun i f -> Vernacinterp.vinterp_add ($se$, i) f) $funcl$;
+          CList.iteri (fun i f -> Vernac_classifier.declare_vernac_classifier ($se$, i) f) $classl$ }
 	with [ e when Errors.noncritical e ->
 	  Pp.msg_warning
 	    (Pp.app
 	       (Pp.str ("Exception in vernac extend " ^ $se$ ^": "))
 	       (Errors.print e)) ];
-	Egramml.extend_vernac_command_grammar $se$ $nt$ $gl$
+	CList.iteri (fun i r -> Egramml.extend_vernac_command_grammar ($se$, i) $nt$ r) $gl$;
       } >> ]
 
 open Pcaml
@@ -125,7 +119,13 @@ EXTEND
       | "VERNAC"; nt = LIDENT ; "EXTEND"; s = UIDENT; c = OPT classification;
         OPT "|"; l = LIST1 rule SEP "|";
         "END" ->
-          declare_command loc s c <:expr<Some $lid:nt$>> l ] ]
+          declare_command loc s c <:expr<Some $lid:nt$>> l
+      | "DECLARE"; "PLUGIN"; name = STRING ->
+        declare_str_items loc [
+          <:str_item< value __coq_plugin_name = $str:name$ >>;
+          <:str_item< value _ = Mltop.add_known_module $str:name$ >>;
+        ]
+      ] ]
   ;
   classification:
     [ [ "CLASSIFIED"; "BY"; c = LIDENT -> <:expr< $lid:c$ >>

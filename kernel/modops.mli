@@ -1,6 +1,6 @@
 (************************************************************************)
 (*  v      *   The Coq Proof Assistant  /  The Coq Development Team     *)
-(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2012     *)
+(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2015     *)
 (*   \VV/  **************************************************************)
 (*    //   *      This file is distributed under the terms of the       *)
 (*         *       GNU Lesser General Public License Version 2.1        *)
@@ -50,7 +50,7 @@ val add_module : module_body -> env -> env
 
 (** same as add_module, but for a module whose native code has been linked by
 the native compiler. The linking information is updated. *)
-val add_linked_module : module_body -> Pre_env.link_info ref -> env -> env
+val add_linked_module : module_body -> Pre_env.link_info -> env -> env
 
 (** same, for a module type *)
 val add_module_type : module_path -> module_type_body -> env -> env
@@ -80,8 +80,8 @@ val clean_bounded_mod_expr : module_signature -> module_signature
 
 (** {6 Stm machinery } *)
 
-val join_module : module_body -> unit
-val join_structure : structure_body -> unit
+val join_structure :
+  Future.UUIDSet.t -> Opaqueproof.opaquetab -> structure_body -> unit
 
 (** {6 Errors } *)
 
@@ -94,6 +94,7 @@ type signature_mismatch_error =
   | NotConvertibleConstructorField of Id.t
   | NotConvertibleBodyField
   | NotConvertibleTypeField of env * types * types
+  | PolymorphicStatusExpected of bool
   | NotSameConstructorNamesField
   | NotSameInductiveNameInBlockField
   | FiniteInductiveFieldExpected of bool
@@ -103,6 +104,10 @@ type signature_mismatch_error =
   | RecordProjectionsExpected of Name.t list
   | NotEqualInductiveAliases
   | NoTypeConstraintExpected
+  | IncompatibleInstances
+  | IncompatibleUniverses of Univ.univ_inconsistency
+  | IncompatiblePolymorphism of env * types * types
+  | IncompatibleConstraints of Univ.constraints
 
 type module_typing_error =
   | SignatureMismatch of

@@ -1,52 +1,61 @@
 (************************************************************************)
 (*  v      *   The Coq Proof Assistant  /  The Coq Development Team     *)
-(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2012     *)
+(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2015     *)
 (*   \VV/  **************************************************************)
 (*    //   *      This file is distributed under the terms of the       *)
 (*         *       GNU Lesser General Public License Version 2.1        *)
 (************************************************************************)
 
-Require Import Decidable.
+Require Import Decidable PeanoNat.
 Require Eqdep_dec.
-Require Import Le Lt.
 Local Open Scope nat_scope.
 
 Implicit Types m n x y : nat.
 
-Theorem O_or_S : forall n, {m : nat | S m = n} + {0 = n}.
+Theorem O_or_S n : {m : nat | S m = n} + {0 = n}.
 Proof.
   induction n.
-  auto.
-  left; exists n; auto.
+  - now right.
+  - left; exists n; auto.
 Defined.
 
-Theorem eq_nat_dec : forall n m, {n = m} + {n <> m}.
-Proof.
-  induction n; destruct m; auto.
-  elim (IHn m); auto.
-Defined.
+Notation eq_nat_dec := Nat.eq_dec (compat "8.4").
 
 Hint Resolve O_or_S eq_nat_dec: arith.
 
-Theorem dec_eq_nat : forall n m, decidable (n = m).
-  intros x y; unfold decidable; elim (eq_nat_dec x y); auto with arith.
+Theorem dec_eq_nat n m : decidable (n = m).
+Proof.
+  elim (Nat.eq_dec n m); [left|right]; trivial.
 Defined.
 
-Definition UIP_nat:= Eqdep_dec.UIP_dec eq_nat_dec.
+Definition UIP_nat:= Eqdep_dec.UIP_dec Nat.eq_dec.
 
-Lemma le_unique: forall m n (h1 h2: m <= n), h1 = h2.
+Import EqNotations.
+
+Lemma le_unique: forall m n (le_mn1 le_mn2 : m <= n), le_mn1 = le_mn2.
 Proof.
-fix 3.
-refine (fun m _ h1 => match h1 as h' in _ <= k return forall hh: m <= k, h' = hh
-  with le_n _ => _ |le_S _ i H => _ end).
-refine (fun hh => match hh as h' in _ <= k return forall eq: m = k, 
-  le_n m = match eq in _ = p return m <= p -> m <= m with |eq_refl => fun bli => bli end h' with
-    |le_n _ => fun eq => _ |le_S _ j H' => fun eq => _ end eq_refl).
-rewrite (UIP_nat _ _ eq eq_refl). reflexivity.
-subst m. destruct (Lt.lt_irrefl j H').
-refine (fun hh => match hh as h' in _ <= k return match k as k' return m <= k' -> Prop
-  with |0 => fun _ => True |S i' => fun h'' => forall H':m <= i', le_S m i' H' = h'' end h'
-    with |le_n _ => _ |le_S _ j H2 => fun H' => _ end H).
-destruct m. exact I. intros; destruct (Lt.lt_irrefl m H').
-f_equal. apply le_unique.
+intros m n.
+generalize (eq_refl (S n)).
+generalize n at -1.
+induction (S n) as [|n0 IHn0]; try discriminate.
+clear n; intros n H; injection H; clear H; intro H.
+rewrite <- H; intros le_mn1 le_mn2; clear n H.
+pose (def_n2 := eq_refl n0); transitivity (eq_ind _ _ le_mn2 _ def_n2).
+  2: reflexivity.
+generalize def_n2; revert le_mn1 le_mn2.
+generalize n0 at 1 4 5 7; intros n1 le_mn1.
+destruct le_mn1; intros le_mn2; destruct le_mn2.
++ now intros def_n0; rewrite (UIP_nat _ _ def_n0 eq_refl).
++ intros def_n0; generalize le_mn2; rewrite <-def_n0; intros le_mn0.
+  now destruct (Nat.nle_succ_diag_l _ le_mn0).
++ intros def_n0; generalize le_mn1; rewrite def_n0; intros le_mn0.
+  now destruct (Nat.nle_succ_diag_l _ le_mn0).
++ intros def_n0; injection def_n0; intros ->.
+  rewrite (UIP_nat _ _ def_n0 eq_refl); simpl.
+  assert (H : le_mn1 = le_mn2).
+    now apply IHn0.
+now rewrite H.
 Qed.
+
+(** For compatibility *)
+Require Import Le Lt.

@@ -1,6 +1,6 @@
 (************************************************************************)
 (*  v      *   The Coq Proof Assistant  /  The Coq Development Team     *)
-(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2012     *)
+(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2015     *)
 (*   \VV/  **************************************************************)
 (*    //   *      This file is distributed under the terms of the       *)
 (*         *       GNU Lesser General Public License Version 2.1        *)
@@ -31,6 +31,7 @@ type cl_typ =
   | CL_SECVAR of variable
   | CL_CONST of constant
   | CL_IND of inductive
+  | CL_PROJ of constant
 
 type cl_info_typ = {
   cl_param : int
@@ -44,7 +45,9 @@ type coe_info_typ = {
   coe_value : constr;
   coe_type : types;
   coe_local : bool;
+  coe_context : Univ.universe_context_set;
   coe_is_identity : bool;
+  coe_is_projection : bool;
   coe_param : int }
 
 let coe_info_typ_equal c1 c2 =
@@ -52,11 +55,13 @@ let coe_info_typ_equal c1 c2 =
     eq_constr c1.coe_type c2.coe_type &&
     c1.coe_local == c2.coe_local &&
     c1.coe_is_identity == c2.coe_is_identity &&
+    c1.coe_is_projection == c2.coe_is_projection &&
     Int.equal c1.coe_param c2.coe_param
 
 let cl_typ_ord t1 t2 = match t1, t2 with
   | CL_SECVAR v1, CL_SECVAR v2 -> Id.compare v1 v2
   | CL_CONST c1, CL_CONST c2 -> con_user_ord c1 c2
+  | CL_PROJ c1, CL_PROJ c2 -> con_user_ord c1 c2
   | CL_IND i1, CL_IND i2 -> ind_user_ord i1 i2
   | _ -> Pervasives.compare t1 t2 (** OK *)
 
@@ -184,16 +189,18 @@ let coercion_info coe = CoeTypMap.find coe !coercion_tab
 
 let coercion_exists coe = CoeTypMap.mem coe !coercion_tab
 
-(* find_class_type : evar_map -> constr -> cl_typ * constr list *)
+(* find_class_type : evar_map -> constr -> cl_typ * universe_list * constr list *)
 
 let find_class_type sigma t =
   let t', args = Reductionops.whd_betaiotazeta_stack sigma t in
   match kind_of_term t' with
-    | Var id -> CL_SECVAR id, args
-    | Const sp -> CL_CONST sp, args
-    | Ind ind_sp -> CL_IND ind_sp, args
-    | Prod (_,_,_) -> CL_FUN, []
-    | Sort _ -> CL_SORT, []
+    | Var id -> CL_SECVAR id, Univ.Instance.empty, args
+    | Const (sp,u) -> CL_CONST sp, u, args
+    | Proj (p, c) when not (Projection.unfolded p) ->
+      CL_PROJ (Projection.constant p), Univ.Instance.empty, c :: args
+    | Ind (ind_sp,u) -> CL_IND ind_sp, u, args
+    | Prod (_,_,_) -> CL_FUN, Univ.Instance.empty, []
+    | Sort _ -> CL_SORT, Univ.Instance.empty, []
     |  _ -> raise Not_found
 
 
@@ -201,43 +208,45 @@ let subst_cl_typ subst ct = match ct with
     CL_SORT
   | CL_FUN
   | CL_SECVAR _ -> ct
-  | CL_CONST kn ->
-      let kn',t = subst_con subst kn in
-	if kn' == kn then ct else
-         fst (find_class_type Evd.empty t)
-  | CL_IND (kn,i) ->
-      let kn' = subst_ind subst kn in
-	if kn' == kn then ct else
-	  CL_IND (kn',i)
+  | CL_PROJ c ->
+    let c',t = subst_con_kn subst c in
+      if c' == c then ct else CL_PROJ c'
+  | CL_CONST c ->
+      let c',t = subst_con_kn subst c in
+	if c' == c then ct else
+         pi1 (find_class_type Evd.empty t)
+  | CL_IND i ->
+      let i' = subst_ind subst i in
+	if i' == i then ct else CL_IND i'
 
 (*CSC: here we should change the datatype for coercions: it should be possible
        to declare any term as a coercion *)
-let subst_coe_typ subst t = fst (subst_global subst t)
+let subst_coe_typ subst t = subst_global_reference subst t
 
 (* class_of : Term.constr -> int *)
 
 let class_of env sigma t =
-  let (t, n1, i, args) =
+  let (t, n1, i, u, args) =
     try
-      let (cl,args) = find_class_type sigma t in
+      let (cl, u, args) = find_class_type sigma t in
       let (i, { cl_param = n1 } ) = class_info cl in
-      (t, n1, i, args)
+      (t, n1, i, u, args)
     with Not_found ->
       let t = Tacred.hnf_constr env sigma t in
-      let (cl, args) = find_class_type sigma t in
+      let (cl, u, args) = find_class_type sigma t in
       let (i, { cl_param = n1 } ) = class_info cl in
-      (t, n1, i, args)
+      (t, n1, i, u, args)
   in
   if Int.equal (List.length args) n1 then t, i else raise Not_found
 
 let inductive_class_of ind = fst (class_info (CL_IND ind))
 
-let class_args_of env sigma c = snd (find_class_type sigma c)
+let class_args_of env sigma c = pi3 (find_class_type sigma c)
 
 let string_of_class = function
   | CL_FUN -> "Funclass"
   | CL_SORT -> "Sortclass"
-  | CL_CONST sp ->
+  | CL_CONST sp | CL_PROJ sp ->
       string_of_qualid (shortest_qualid_of_global Id.Set.empty (ConstRef sp))
   | CL_IND sp ->
       string_of_qualid (shortest_qualid_of_global Id.Set.empty (IndRef sp))
@@ -261,14 +270,14 @@ let lookup_path_to_sort_from_class s =
 
 let apply_on_class_of env sigma t cont =
   try
-    let (cl,args) = find_class_type sigma t in
+    let (cl,u,args) = find_class_type sigma t in
     let (i, { cl_param = n1 } ) = class_info cl in
     if not (Int.equal (List.length args) n1) then raise Not_found;
     t, cont i
   with Not_found ->
     (* Is it worth to be more incremental on the delta steps? *)
     let t = Tacred.hnf_constr env sigma t in
-    let (cl, args) = find_class_type sigma t in
+    let (cl, u, args) = find_class_type sigma t in
     let (i, { cl_param = n1 } ) = class_info cl in
     if not (Int.equal (List.length args) n1) then raise Not_found;
     t, cont i
@@ -286,25 +295,29 @@ let lookup_path_to_fun_from env sigma s =
 let lookup_path_to_sort_from env sigma s =
   apply_on_class_of env sigma s lookup_path_to_sort_from_class
 
-let get_coercion_constructor coe =
+let get_coercion_constructor env coe =
   let c, _ =
-    Reductionops.whd_betadeltaiota_stack (Global.env()) Evd.empty coe.coe_value
+    Reductionops.whd_betadeltaiota_stack env Evd.empty coe.coe_value
   in
   match kind_of_term c with
-  | Construct cstr ->
-      (cstr, Inductiveops.constructor_nrealargs (Global.env()) cstr -1)
+  | Construct (cstr,u) ->
+      (cstr, Inductiveops.constructor_nrealargs cstr -1)
   | _ ->
       raise Not_found
 
-let lookup_pattern_path_between (s,t) =
+let lookup_pattern_path_between env (s,t) =
   let i = inductive_class_of s in
   let j = inductive_class_of t in
-  List.map get_coercion_constructor (ClPairMap.find (i,j) !inheritance_graph)
+  List.map (get_coercion_constructor env) (ClPairMap.find (i,j) !inheritance_graph)
 
 (* coercion_value : coe_index -> unsafe_judgment * bool *)
 
-let coercion_value { coe_value = c; coe_type = t; coe_is_identity = b } =
-  (make_judge c t, b)
+let coercion_value { coe_value = c; coe_type = t; coe_context = ctx; 
+		     coe_is_identity = b; coe_is_projection = b' } =
+  let subst, ctx = Universes.fresh_universe_context_set_instance ctx in
+  let c' = Vars.subst_univs_level_constr subst c 
+  and t' = Vars.subst_univs_level_constr subst t in
+    (make_judge c' t', b, b'), ctx
 
 (* pretty-print functions are now in Pretty *)
 (* rajouter une coercion dans le graphe *)
@@ -323,9 +336,15 @@ let message_ambig l =
 (* add_coercion_in_graph : coe_index * cl_index * cl_index -> unit
                          coercion,source,target *)
 
-let different_class_params i j =
-  (snd (class_info_from_index i)).cl_param > 0
-
+let different_class_params i =
+  let ci = class_info_from_index i in
+    if (snd ci).cl_param > 0 then true
+    else 
+      match fst ci with
+      | CL_IND i -> Global.is_polymorphic (IndRef i)
+      | CL_CONST c -> Global.is_polymorphic (ConstRef c)
+      | _ -> false
+	
 let add_coercion_in_graph (ic,source,target) =
   let old_inheritance_graph = !inheritance_graph in
   let ambig_paths =
@@ -333,12 +352,12 @@ let add_coercion_in_graph (ic,source,target) =
   let try_add_new_path (i,j as ij) p =
     try
       if Bijint.Index.equal i j then begin
-	if different_class_params i j then begin
+	if different_class_params i then begin
 	  let _ = lookup_path_between_class ij in
           ambig_paths := (ij,p)::!ambig_paths
 	end
       end else begin
-        let _ = lookup_path_between_class (i,j) in
+        let _ = lookup_path_between_class ij in
         ambig_paths := (ij,p)::!ambig_paths
       end;
       false
@@ -374,20 +393,27 @@ type coercion = {
   coercion_type   : coe_typ;
   coercion_local  : bool;
   coercion_is_id  : bool;
+  coercion_is_proj  : bool;
   coercion_source : cl_typ;
   coercion_target : cl_typ;
   coercion_params : int;
 }
 
-(* Calcul de l'arité d'une classe *)
+(* Computation of the class arity *)
 
 let reference_arity_length ref =
-  let t = Global.type_of_global ref in
+  let t = Universes.unsafe_type_of_global ref in
   List.length (fst (Reductionops.splay_arity (Global.env()) Evd.empty t))
+
+let projection_arity_length p =
+  let len = reference_arity_length (ConstRef p) in
+  let pb = Environ.lookup_projection (Projection.make p false) (Global.env ()) in 
+    len - pb.Declarations.proj_npars
 
 let class_params = function
   | CL_FUN | CL_SORT -> 0
   | CL_CONST sp -> reference_arity_length (ConstRef sp)
+  | CL_PROJ sp -> projection_arity_length sp
   | CL_SECVAR sp -> reference_arity_length (VarRef sp)
   | CL_IND sp  -> reference_arity_length (IndRef sp)
 
@@ -413,11 +439,15 @@ let cache_coercion (_, c) =
   let () = add_class c.coercion_target in
   let is, _ = class_info c.coercion_source in
   let it, _ = class_info c.coercion_target in
+  let value, ctx = Universes.fresh_global_instance (Global.env()) c.coercion_type in
+  let typ = Retyping.get_type_of (Global.env ()) Evd.empty value in
   let xf =
-    { coe_value = constr_of_global c.coercion_type;
-      coe_type = Global.type_of_global c.coercion_type;
+    { coe_value = value;
+      coe_type = typ;
+      coe_context = ctx;
       coe_local = c.coercion_local;
       coe_is_identity = c.coercion_is_id;
+      coe_is_projection = c.coercion_is_proj;
       coe_param = c.coercion_params } in
   let () = add_new_coercion c.coercion_type xf in
   add_coercion_in_graph (xf,is,it)
@@ -441,10 +471,10 @@ let subst_coercion (subst, c) =
   if c.coercion_type == coe && c.coercion_source == cls && c.coercion_target == clt then c
   else { c with coercion_type = coe; coercion_source = cls; coercion_target = clt }
 
-
 let discharge_cl = function
   | CL_CONST kn -> CL_CONST (Lib.discharge_con kn)
   | CL_IND ind -> CL_IND (Lib.discharge_inductive ind)
+  | CL_PROJ p -> CL_PROJ (Lib.discharge_con p)
   | cl -> cl
 
 let discharge_coercion (_, c) =
@@ -453,7 +483,7 @@ let discharge_coercion (_, c) =
     let n =
       try
         let ins = Lib.section_instance c.coercion_type in
-        Array.length ins
+        Array.length (snd ins)
       with Not_found -> 0
     in
     let nc = { c with
@@ -477,10 +507,16 @@ let inCoercion : coercion -> obj =
     discharge_function = discharge_coercion }
 
 let declare_coercion coef ?(local = false) ~isid ~src:cls ~target:clt ~params:ps =
+  let isproj = 
+    match coef with
+    | ConstRef c -> Environ.is_projection c (Global.env ())
+    | _ -> false
+  in
   let c = {
     coercion_type = coef;
     coercion_local = local;
     coercion_is_id = isid;
+    coercion_is_proj = isproj;
     coercion_source = cls;
     coercion_target = clt;
     coercion_params = ps;

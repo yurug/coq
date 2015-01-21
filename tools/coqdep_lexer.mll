@@ -1,6 +1,6 @@
 (************************************************************************)
 (*  v      *   The Coq Proof Assistant  /  The Coq Development Team     *)
-(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2012     *)
+(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2015     *)
 (*   \VV/  **************************************************************)
 (*    //   *      This file is distributed under the terms of the       *)
 (*         *       GNU Lesser General Public License Version 2.1        *)
@@ -22,8 +22,6 @@
     | Load of string
     | AddLoadPath of string
     | AddRecLoadPath of string * qualid
-
-  let comment_depth = ref 0
 
   exception Fin_fichier
   exception Syntax_error of int*int
@@ -49,6 +47,11 @@
 
   let syntax_error lexbuf =
     raise (Syntax_error (Lexing.lexeme_start lexbuf, Lexing.lexeme_end lexbuf))
+
+  (** This is the prefix that should be pre-prepended to files due to the use
+   ** of [From], i.e. [From Xxx... Require ...]
+   **)
+  let from_pre_ident = ref None
 }
 
 let space = [' ' '\t' '\n' '\r']
@@ -79,29 +82,72 @@ let dot = '.' ( space+ | eof)
 
 rule coq_action = parse
   | "Require" space+
-      { require_file lexbuf }
-  | "Require" space+ "Export" space+
-      { require_file lexbuf}
-  | "Require" space+ "Import" space+
-      { require_file lexbuf}
+      { require_modifiers lexbuf }
   | "Local"? "Declare" space+ "ML" space+ "Module" space+
-      { mllist := []; modules lexbuf}
+      { mllist := []; modules lexbuf }
   | "Load" space+
       { load_file lexbuf }
   | "Add" space+ "LoadPath" space+
       { add_loadpath lexbuf }
+  | "Time" space+
+      { coq_action lexbuf }
+  | "Timeout" space+ ['0'-'9']+ space+
+      { coq_action lexbuf }
+  | "From" space+
+      { from_rule lexbuf }
   | space+
       { coq_action lexbuf }
   | "(*"
-      { comment_depth := 1; comment lexbuf; coq_action lexbuf }
+      { comment lexbuf; coq_action lexbuf }
   | eof
       { raise Fin_fichier}
   | _
       { skip_to_dot lexbuf; coq_action lexbuf }
 
+and from_rule = parse
+  | "(*"
+      { comment lexbuf; from_rule lexbuf }
+  | space+
+      { from_rule lexbuf }
+  | coq_ident
+      { module_current_name := [Lexing.lexeme lexbuf];
+	from_pre_ident := Some (coq_qual_id_tail lexbuf);
+	module_names := [];
+	consume_require lexbuf }
+  | eof
+      { syntax_error lexbuf }
+  | _
+      { syntax_error lexbuf }
+
+and require_modifiers = parse
+  | "(*"
+      { comment lexbuf; require_modifiers lexbuf }
+  | "Import" space+
+      { require_file lexbuf }
+  | "Export" space+
+      { require_file lexbuf }
+  | space+
+      { require_modifiers lexbuf }
+  | eof
+      { syntax_error lexbuf }
+  | _
+      { backtrack lexbuf ; require_file lexbuf }
+
+and consume_require = parse
+  | "(*"
+      { comment lexbuf; consume_require lexbuf }
+  | space+
+      { consume_require lexbuf }
+  | "Require" space+
+      { require_modifiers lexbuf }
+  | eof
+      { syntax_error lexbuf }
+  | _
+      { syntax_error lexbuf }
+
 and add_loadpath = parse
   | "(*"
-      { comment_depth := 1; comment lexbuf; add_loadpath lexbuf }
+      { comment lexbuf; add_loadpath lexbuf }
   | space+
       { add_loadpath lexbuf }
   | eof
@@ -112,7 +158,7 @@ and add_loadpath = parse
 
 and add_loadpath_as = parse
   | "(*"
-      { comment_depth := 1; comment lexbuf; add_loadpath_as lexbuf }
+      { comment lexbuf; add_loadpath_as lexbuf }
   | space+
       { add_loadpath_as lexbuf }
   | "as"
@@ -148,8 +194,8 @@ and caml_action = parse
       { caml_action lexbuf }
   | "'" '\\' ['0'-'9'] ['0'-'9'] ['0'-'9'] "'"
       { caml_action lexbuf }
-  | "(*" (* "*)" *)
-      { comment_depth := 1; comment lexbuf; caml_action lexbuf }
+  | "(*"
+      { comment lexbuf; caml_action lexbuf }
   | "#" | "&"  | "&&" | "'" | "(" | ")" | "*" | "," | "?" | "->" | "." | ".."
    | ".(" | ".[" | ":" | "::" | ":=" | ";" | ";;" | "<-" | "=" | "[" | "[|"
    | "[<" | "]" | "_" | "{" | "|" | "||" | "|]" | ">]" | "}" | "!=" | "-"
@@ -174,11 +220,10 @@ and caml_action = parse
   | _ { caml_action lexbuf }
 
 and comment = parse
-  | "(*" (* "*)" *)
-      { comment_depth := succ !comment_depth; comment lexbuf }
+  | "(*"
+      { comment lexbuf; comment lexbuf }
   | "*)"
-      { comment_depth := pred !comment_depth;
-        if !comment_depth > 0 then comment lexbuf }
+      { () }
   | "'" [^ '\\' '\''] "'"
       { comment lexbuf }
   | "'" '\\' ['\\' '\'' 'n' 't' 'b' 'r'] "'"
@@ -218,7 +263,7 @@ and load_file = parse
 
 and require_file = parse
   | "(*"
-      { comment_depth := 1; comment lexbuf; require_file lexbuf }
+      { comment lexbuf; require_file lexbuf }
   | space+
       { require_file lexbuf }
   | coq_ident
@@ -226,7 +271,12 @@ and require_file = parse
         module_names := [coq_qual_id_tail lexbuf];
         let qid = coq_qual_id_list lexbuf in
         parse_dot lexbuf;
-        Require qid }
+	match !from_pre_ident with
+	  None ->
+          Require qid
+	| Some from ->
+	  (from_pre_ident := None ;
+	   Require (List.map (fun x -> from @ x) qid)) }
   | '"' [^'"']* '"' (*'"'*)
       { let s = Lexing.lexeme lexbuf in
         parse_dot lexbuf;
@@ -248,7 +298,7 @@ and parse_dot = parse
 
 and coq_qual_id = parse
   | "(*"
-      { comment_depth := 1; comment lexbuf; coq_qual_id lexbuf }
+      { comment lexbuf; coq_qual_id lexbuf }
   | space+
       { coq_qual_id lexbuf }
   | coq_ident
@@ -264,7 +314,7 @@ and coq_qual_id = parse
 
 and coq_qual_id_tail = parse
   | "(*"
-      { comment_depth := 1; comment lexbuf; coq_qual_id_tail lexbuf }
+      { comment lexbuf; coq_qual_id_tail lexbuf }
   | space+
       { coq_qual_id_tail lexbuf }
   | coq_field
@@ -281,7 +331,7 @@ and coq_qual_id_tail = parse
 
 and coq_qual_id_list = parse
   | "(*"
-      { comment_depth := 1; comment lexbuf; coq_qual_id_list lexbuf }
+      { comment lexbuf; coq_qual_id_list lexbuf }
   | space+
       { coq_qual_id_list lexbuf }
   | coq_ident
@@ -299,8 +349,7 @@ and modules = parse
   | space+
       { modules lexbuf }
   | "(*"
-      { comment_depth := 1; comment lexbuf;
-        modules lexbuf }
+      { comment lexbuf; modules lexbuf }
   | '"' [^'"']* '"'
       { let lex = (Lexing.lexeme lexbuf) in
 	let str = String.sub lex 1 (String.length lex - 2) in

@@ -1,6 +1,6 @@
 (************************************************************************)
 (*  v      *   The Coq Proof Assistant  /  The Coq Development Team     *)
-(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2012     *)
+(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2015     *)
 (*   \VV/  **************************************************************)
 (*    //   *      This file is distributed under the terms of the       *)
 (*         *       GNU Lesser General Public License Version 2.1        *)
@@ -16,7 +16,6 @@ open Context
 open Declarations
 open Tacmach
 open Clenv
-open Clenvtac
 open Misctypes
 
 (************************************************************************)
@@ -145,14 +144,14 @@ let ifOnHyp pred tac1 tac2 id gl =
   the elimination. *)
 
 type branch_args = {
-  ity        : inductive;   (* the type we were eliminating on *)
+  ity        : pinductive;   (* the type we were eliminating on *)
   largs      : constr list; (* its arguments *)
   branchnum  : int;         (* the branch number *)
   pred       : constr;      (* the predicate we used *)
   nassums    : int;         (* the number of assumptions to be introduced *)
   branchsign : bool list;   (* the signature of the branch.
                                true=recursive argument, false=constant *)
-  branchnames : intro_pattern_expr Loc.located list}
+  branchnames : Tacexpr.intro_patterns}
 
 type branch_assumptions = {
   ba        : branch_args;     (* the branch args *)
@@ -178,14 +177,12 @@ let check_or_and_pattern_size loc names n =
 let compute_induction_names n = function
   | None ->
       Array.make n []
-  | Some (loc,IntroOrAndPattern names) ->
+  | Some (loc,names) ->
       let names = fix_empty_or_and_pattern n names in
       check_or_and_pattern_size loc names n;
       Array.of_list names
-  | Some (loc,_) ->
-      user_err_loc (loc,"",str "Disjunctive/conjunctive introduction pattern expected.")
 
-let compute_construtor_signatures isrec (_,k as ity) =
+let compute_construtor_signatures isrec ((_,k as ity),u) =
   let rec analrec c recargs =
     match kind_of_term c, recargs with
     | Prod (_,_,c), recarg::rest ->
@@ -214,10 +211,19 @@ let elimination_sort_of_clause = function
   | None -> elimination_sort_of_goal
   | Some id -> elimination_sort_of_hyp id
 
+
+let pf_with_evars glsev k gls = 
+  let evd, a = glsev gls in
+    tclTHEN (Refiner.tclEVARS evd) (k a) gls
+
+let pf_constr_of_global gr k =
+  pf_with_evars (fun gls -> pf_apply Evd.fresh_global gls gr) k
+
 (* computing the case/elim combinators *)
 
 let gl_make_elim ind gl =
-  Indrec.lookup_eliminator ind (elimination_sort_of_goal gl)
+  let gr = Indrec.lookup_eliminator (fst ind) (elimination_sort_of_goal gl) in
+    pf_apply Evd.fresh_global gl gr
 
 let gl_make_case_dep ind gl =
   pf_apply Indrec.build_case_analysis_scheme gl ind true
@@ -292,8 +298,13 @@ module New = struct
   let tclFAIL lvl msg =
     tclZERO (Refiner.FailError (lvl,lazy msg))
 
-  let tclZEROMSG msg =
-    tclZERO (UserError ("", msg))
+  let tclZEROMSG ?loc msg =
+    let err = UserError ("", msg) in
+    let info = match loc with
+    | None -> Exninfo.null
+    | Some loc -> Loc.add_loc Exninfo.null loc
+    in
+    tclZERO ~info err
 
   let catch_failerror e =
     try
@@ -315,9 +326,25 @@ module New = struct
         end
     end
 
+  let tclORD t1 t2 =
+    tclINDEPENDENT begin
+      Proofview.tclOR
+        t1
+        begin fun e ->
+          catch_failerror e <*> t2 ()
+        end
+    end
+
   let tclONCE = Proofview.tclONCE
 
   let tclEXACTLY_ONCE t = Proofview.tclEXACTLY_ONCE (Refiner.FailError(0,lazy (assert false))) t
+
+  let tclIFCATCH t tt te =
+    tclINDEPENDENT begin
+      Proofview.tclIFCATCH t
+        tt
+        (fun e -> catch_failerror e <*> te ())
+    end
 
   let tclORELSE0 t1 t2 =
     tclINDEPENDENT begin
@@ -335,9 +362,14 @@ module New = struct
       t1 <*>
         Proofview.tclORELSE (* converts the [SizeMismatch] error into an ltac error *)
           begin tclEXTEND (Array.to_list l1) repeat (Array.to_list l2) end
-          begin function
-            | SizeMismatch -> tclFAIL 0 (str"Incorrect number of goals")
-            | reraise -> tclZERO reraise
+          begin function (e, info) -> match e with
+            | SizeMismatch (i,_)->
+                let errmsg =
+                  str"Incorrect number of goals" ++ spc() ++
+                  str"(expected "++int i++str(String.plural i " tactic") ++ str")"
+                in
+                tclFAIL 0 errmsg
+            | reraise -> tclZERO ~info reraise
           end
     end
   let tclTHENSFIRSTn t1 l repeat =
@@ -353,9 +385,14 @@ module New = struct
     tclINDEPENDENT begin
       t <*>Proofview.tclORELSE (* converts the [SizeMismatch] error into an ltac error *)
           begin tclDISPATCH l end
-          begin function
-            | SizeMismatch -> tclFAIL 0 (str"Incorrect number of goals")
-            | reraise -> tclZERO reraise
+          begin function (e, info) -> match e with
+            | SizeMismatch (i,_)->
+                let errmsg =
+                  str"Incorrect number of goals" ++ spc() ++
+                  str"(expected "++int i++str(String.plural i " tactic") ++ str")"
+                in
+                tclFAIL 0 errmsg
+            | reraise -> tclZERO ~info reraise
           end
     end
   let tclTHENLIST l =
@@ -371,12 +408,12 @@ module New = struct
 
   let tclIFTHENELSE t1 t2 t3 =
     tclINDEPENDENT begin
-      tclIFCATCH t1
+      Proofview.tclIFCATCH t1
         (fun () -> t2)
-        (fun _ -> t3)
+        (fun (e, info) -> Proofview.tclORELSE t3 (fun e' -> tclZERO ~info e))
     end
   let tclIFTHENSVELSE t1 a t3 =
-    tclIFCATCH t1
+    Proofview.tclIFCATCH t1
       (fun () -> tclDISPATCH (Array.to_list a))
       (fun _ -> t3)
   let tclIFTHENTRYELSEMUST t1 t2 =
@@ -404,14 +441,14 @@ module New = struct
 
   let rec tclREPEAT0 t =
     tclINDEPENDENT begin
-      tclIFCATCH t
-        (fun () -> tclREPEAT0 t)
+      Proofview.tclIFCATCH t
+        (fun () -> tclCHECKINTERRUPT <*> tclREPEAT0 t)
         (fun e -> catch_failerror e <*> tclUNIT ())
     end
   let tclREPEAT t =
     tclREPEAT0 (tclPROGRESS t)
   let rec tclREPEAT_MAIN0 t =
-    tclIFCATCH t
+    Proofview.tclIFCATCH t
       (fun () -> tclTRYFOCUS 1 1 (tclREPEAT_MAIN0 t))
       (fun e -> catch_failerror e <*> tclUNIT ())
   let tclREPEAT_MAIN t =
@@ -430,13 +467,40 @@ module New = struct
   let tclPROGRESS t =
     Proofview.tclINDEPENDENT (Proofview.tclPROGRESS t)
 
+  (* Check that holes in arguments have been resolved *)
+
+  let check_evars env sigma extsigma origsigma =
+    let rec is_undefined_up_to_restriction sigma evk =
+      let evi = Evd.find sigma evk in
+      match Evd.evar_body evi with
+      | Evd.Evar_empty -> Some (evk,evi)
+      | Evd.Evar_defined c -> match Term.kind_of_term c with
+        | Term.Evar (evk,l) -> is_undefined_up_to_restriction sigma evk
+        | _ -> 
+          (* We make the assumption that there is no way to refine an
+            evar remaining after typing from the initial term given to
+            apply/elim and co tactics, is it correct? *)
+          None in
+    let rest =
+      Evd.fold_undefined (fun evk evi acc ->
+        match is_undefined_up_to_restriction sigma evk with
+        | Some (evk',evi) when not (Evd.mem origsigma evk) -> (evk',evi)::acc
+        | _ -> acc)
+        extsigma []
+    in
+    match rest with
+    | [] -> ()
+    | (evk,evi) :: _ ->
+      let (loc,_) = evi.Evd.evar_source in
+      Pretype_errors.error_unsolvable_implicit loc env sigma evk None
+
   let tclWITHHOLES accept_unresolved_holes tac sigma x =
     tclEVARMAP >>= fun sigma_initial ->
       if sigma == sigma_initial then tac x
       else
         let check_evars env new_sigma sigma initial_sigma =
           try
-            Refiner.check_evars env new_sigma sigma initial_sigma;
+            check_evars env new_sigma sigma initial_sigma;
             tclUNIT ()
           with e when Errors.noncritical e ->
             tclZERO e
@@ -449,15 +513,18 @@ module New = struct
           else
             tclUNIT ()
         in
-        Proofview.V82.tclEVARS sigma <*> tac x <*> check_evars_if
+        Proofview.Unsafe.tclEVARS sigma <*> tac x <*> check_evars_if
 
   let tclTIMEOUT n t =
     Proofview.tclOR
       (Proofview.tclTIMEOUT n t)
-      begin function
+      begin function (e, info) -> match e with
         | Proofview.Timeout as e -> Proofview.tclZERO (Refiner.FailError (0,lazy (Errors.print e)))
-        | e -> Proofview.tclZERO e
+        | e -> Proofview.tclZERO ~info e
       end
+
+  let tclTIME s t =
+    Proofview.tclTIME s t
 
   let nthDecl m gl =
     let hyps = Proofview.Goal.hyps gl in
@@ -478,21 +545,21 @@ module New = struct
     mkVar (nthHypId m gl)
 
   let onNthHypId m tac =
-    Proofview.Goal.raw_enter begin fun gl -> tac (nthHypId m gl) end
+    Proofview.Goal.enter begin fun gl -> tac (nthHypId m gl) end
   let onNthHyp m tac =
-    Proofview.Goal.raw_enter begin fun gl -> tac (nthHyp m gl) end
+    Proofview.Goal.enter begin fun gl -> tac (nthHyp m gl) end
 
   let onLastHypId = onNthHypId 1
   let onLastHyp   = onNthHyp 1
 
   let onNthDecl m tac =
-    Proofview.Goal.enter begin fun gl ->
+    Proofview.Goal.nf_enter begin fun gl ->
       Proofview.tclUNIT (nthDecl m gl) >>= tac
     end
   let onLastDecl  = onNthDecl 1
 
   let ifOnHyp pred tac1 tac2 id =
-    Proofview.Goal.enter begin fun gl ->
+    Proofview.Goal.nf_enter begin fun gl ->
     let typ = Tacmach.New.pf_get_hyp_typ id gl in
     if pred (id,typ) then
       tac1 id
@@ -500,10 +567,10 @@ module New = struct
       tac2 id
     end
 
-  let onHyps find tac = Proofview.Goal.enter (fun gl -> tac (find gl))
+  let onHyps find tac = Proofview.Goal.nf_enter (fun gl -> tac (find gl))
 
   let afterHyp id tac =
-    Proofview.Goal.enter begin fun gl ->
+    Proofview.Goal.nf_enter begin fun gl ->
     let hyps = Proofview.Goal.hyps gl in
     let rem, _ = List.split_when (fun (hyp,_,_) -> Id.equal hyp id) hyps in
     tac rem
@@ -514,17 +581,17 @@ module New = struct
     None :: List.map Option.make hyps
 
   let tryAllHyps tac =
-    Proofview.Goal.raw_enter begin fun gl ->
+    Proofview.Goal.enter begin fun gl ->
     let hyps = Tacmach.New.pf_ids_of_hyps gl in
     tclFIRST_PROGRESS_ON tac hyps
     end
   let tryAllHypsAndConcl tac =
-    Proofview.Goal.raw_enter begin fun gl ->
+    Proofview.Goal.enter begin fun gl ->
       tclFIRST_PROGRESS_ON tac (fullGoal gl)
     end
 
   let onClause tac cl =
-    Proofview.Goal.raw_enter begin fun gl ->
+    Proofview.Goal.enter begin fun gl ->
     let hyps = Tacmach.New.pf_ids_of_hyps gl in
     tclMAP tac (Locusops.simple_clause_of (fun () -> hyps) cl)
     end
@@ -533,9 +600,10 @@ module New = struct
   (* c should be of type A1->.. An->B with B an inductive definition *)
   let general_elim_then_using mk_elim
       isrec allnames tac predicate ind (c, t) =
-    Proofview.Goal.enter begin fun gl ->
+    Proofview.Goal.nf_enter begin fun gl ->
     let indclause = Tacmach.New.of_old (fun gl -> mk_clenv_from gl (c, t)) gl in
-    let elim = Tacmach.New.of_old (mk_elim ind) gl in
+    (** FIXME: evar leak. *)
+    let sigma, elim = Tacmach.New.of_old (mk_elim ind) gl in
     (* applying elimination_scheme just a little modified *)
     let elimclause = Tacmach.New.of_old (fun gls -> mk_clenv_from gls (elim,Tacmach.New.pf_type_of gl elim)) gl in
     let indmv =
@@ -550,7 +618,7 @@ module New = struct
       | _ ->
 	  let name_elim =
 	    match kind_of_term elim with
-	    | Const kn -> string_of_con kn
+	    | Const (kn, _) -> string_of_con kn
 	    | Var id -> string_of_id id
 	    | _ -> "\b"
 	  in
@@ -559,7 +627,7 @@ module New = struct
     let elimclause' = clenv_fchain indmv elimclause indclause in
     let branchsigns = compute_construtor_signatures isrec ind in
     let brnames = compute_induction_names (Array.length branchsigns) allnames in
-    let flags = Unification.elim_flags in
+    let flags = Unification.elim_flags () in
     let elimclause' =
       match predicate with
       | None   -> elimclause'
@@ -583,17 +651,17 @@ module New = struct
     in
     let branchtacs = List.init (Array.length branchsigns) after_tac in
     Proofview.tclTHEN
-      (Proofview.V82.tactic (clenv_refine false clenv'))
+      (Clenvtac.clenv_refine false clenv')
       (Proofview.tclEXTEND [] tclIDTAC branchtacs)
     end
 
   let elimination_then tac c =
-    Proofview.Goal.enter begin fun gl ->
+    Proofview.Goal.nf_enter begin fun gl ->
     let (ind,t) = pf_reduce_to_quantified_ind gl (pf_type_of gl c) in
     let isrec,mkelim =
-      if (Global.lookup_mind (fst ind)).mind_record
-      then false,gl_make_case_dep
-      else true,gl_make_elim
+      match (Global.lookup_mind (fst (fst ind))).mind_record with
+      | None -> true,gl_make_elim
+      | Some _ -> false,gl_make_case_dep
     in
     general_elim_then_using mkelim isrec None tac None ind (c, t)
     end
@@ -605,13 +673,13 @@ module New = struct
     general_elim_then_using gl_make_case_nodep false
 
   let elim_on_ba tac ba =
-    Proofview.Goal.enter begin fun gl ->
+    Proofview.Goal.nf_enter begin fun gl ->
     let branches = Tacmach.New.of_old (make_elim_branch_assumptions ba) gl in
     tac branches
     end
 
   let case_on_ba tac ba = 
-    Proofview.Goal.enter begin fun gl ->
+    Proofview.Goal.nf_enter begin fun gl ->
     let branches = Tacmach.New.of_old (make_case_branch_assumptions ba) gl in
     tac branches
     end
@@ -629,5 +697,13 @@ module New = struct
   let elimination_sort_of_clause id gl = match id with
   | None -> elimination_sort_of_goal gl
   | Some id -> elimination_sort_of_hyp id gl
+
+  let pf_constr_of_global ref tac =
+    Proofview.Goal.nf_enter begin fun gl ->
+      let env = Proofview.Goal.env gl in
+      let sigma = Proofview.Goal.sigma gl in
+      let (sigma, c) = Evd.fresh_global env sigma ref in
+      Proofview.Unsafe.tclEVARS sigma <*> (tac c)
+    end
 
 end

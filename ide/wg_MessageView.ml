@@ -1,6 +1,6 @@
 (************************************************************************)
 (*  v      *   The Coq Proof Assistant  /  The Coq Development Team     *)
-(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2012     *)
+(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2015     *)
 (*   \VV/  **************************************************************)
 (*    //   *      This file is distributed under the terms of the       *)
 (*         *       GNU Lesser General Public License Version 2.1        *)
@@ -12,7 +12,7 @@ class type message_view =
     method clear : unit
     method add : string -> unit
     method set : string -> unit
-    method push : Interface.message_level -> string -> unit
+    method push : Pp.message_level -> string -> unit
       (** same as [add], but with an explicit level instead of [Notice] *)
     method buffer : GText.buffer
       (** for more advanced text edition *)
@@ -43,8 +43,8 @@ let message_view () : message_view =
 
     method push level msg =
       let tags = match level with
-      | Interface.Error -> [Tags.Message.error]
-      | Interface.Warning -> [Tags.Message.warning]
+      | Pp.Error -> [Tags.Message.error]
+      | Pp.Warning -> [Tags.Message.warning]
       | _ -> []
       in
       if msg <> "" then begin
@@ -52,7 +52,7 @@ let message_view () : message_view =
         buffer#insert ~tags "\n"
       end
 
-    method add msg = self#push Interface.Notice msg
+    method add msg = self#push Pp.Notice msg
 
     method set msg = self#clear; self#add msg
 

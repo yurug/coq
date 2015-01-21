@@ -1,6 +1,6 @@
 (************************************************************************)
 (*  v      *   The Coq Proof Assistant  /  The Coq Development Team     *)
-(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2012     *)
+(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2015     *)
 (*   \VV/  **************************************************************)
 (*    //   *      This file is distributed under the terms of the       *)
 (*         *       GNU Lesser General Public License Version 2.1        *)
@@ -19,7 +19,7 @@ type red_expr =
 val out_with_occurrences : 'a with_occurrences -> occurrences * 'a
 
 val reduction_of_red_expr :
-  Environ.env -> red_expr -> reduction_function * cast_kind
+  Environ.env -> red_expr -> e_reduction_function * cast_kind
 
 (** [true] if we should use the vm to verify the reduction *)
 

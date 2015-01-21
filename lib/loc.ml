@@ -1,6 +1,6 @@
 (************************************************************************)
 (*  v      *   The Coq Proof Assistant  /  The Coq Development Team     *)
-(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2012     *)
+(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2015     *)
 (*   \VV/  **************************************************************)
 (*    //   *      This file is distributed under the terms of the       *)
 (*         *       GNU Lesser General Public License Version 2.1        *)
@@ -74,4 +74,6 @@ let add_loc e loc = Exninfo.add e location loc
 
 let get_loc e = Exninfo.get e location
 
-let raise loc e = raise (Exninfo.add e location loc)
+let raise loc e =
+  let info = Exninfo.add Exninfo.null location loc in
+  Exninfo.iraise (e, info)

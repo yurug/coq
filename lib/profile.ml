@@ -1,6 +1,6 @@
 (************************************************************************)
 (*  v      *   The Coq Proof Assistant  /  The Coq Development Team     *)
-(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2012     *)
+(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2015     *)
 (*   \VV/  **************************************************************)
 (*    //   *      This file is distributed under the terms of the       *)
 (*         *       GNU Lesser General Public License Version 2.1        *)
@@ -629,6 +629,48 @@ let profile7 e f a b c d g h i =
   try
     last_alloc := get_alloc ();
     let r = f a b c d g h i in
+    let dw = spent_alloc () in
+    let dt = get_time () - t in
+    e.tottime <- e.tottime + dt; e.owntime <- e.owntime + dt;
+    ajoute_ownalloc e dw;
+    ajoute_totalloc e dw;
+    p.owntime <- p.owntime - dt;
+    ajoute_totalloc p (e.totalloc -. totalloc0);
+    p.intcount <- p.intcount + e.intcount - intcount0 + 1;
+    p.immcount <- p.immcount + 1;
+    if not (p==e) then
+      (match !stack with [] -> assert false | _::s -> stack := s);
+    last_alloc := get_alloc ();
+    r
+  with reraise ->
+    let dw = spent_alloc () in
+    let dt = get_time () - t in
+    e.tottime <- e.tottime + dt; e.owntime <- e.owntime + dt;
+    ajoute_ownalloc e dw;
+    ajoute_totalloc e dw;
+    p.owntime <- p.owntime - dt;
+    ajoute_totalloc p (e.totalloc -. totalloc0);
+    p.intcount <- p.intcount + e.intcount - intcount0 + 1;
+    p.immcount <- p.immcount + 1;
+    if not (p==e) then
+      (match !stack with [] -> assert false | _::s -> stack := s);
+    last_alloc := get_alloc ();
+    raise reraise
+
+let profile8 e f a b c d g h i j =
+  let dw = spent_alloc () in
+  match !stack with [] -> assert false | p::_ ->
+  (* We add spent alloc since last measure to current caller own/total alloc *)
+  ajoute_ownalloc p dw;
+  ajoute_totalloc p dw;
+  e.owncount <- e.owncount + 1;
+  if not (p==e) then stack := e::!stack;
+  let totalloc0 = e.totalloc in
+  let intcount0 = e.intcount in
+  let t = get_time () in
+  try
+    last_alloc := get_alloc ();
+    let r = f a b c d g h i j in
     let dw = spent_alloc () in
     let dt = get_time () - t in
     e.tottime <- e.tottime + dt; e.owntime <- e.owntime + dt;

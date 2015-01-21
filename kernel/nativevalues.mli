@@ -1,6 +1,6 @@
 (************************************************************************)
 (*  v      *   The Coq Proof Assistant  /  The Coq Development Team     *)
-(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2013     *)
+(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2015     *)
 (*   \VV/  **************************************************************)
 (*    //   *      This file is distributed under the terms of the       *)
 (*         *       GNU Lesser General Public License Version 2.1        *)
@@ -41,8 +41,8 @@ val eq_rec_pos : rec_pos -> rec_pos -> bool
 
 type atom =
   | Arel of int
-  | Aconstant of constant
-  | Aind of inductive
+  | Aconstant of pconstant
+  | Aind of pinductive
   | Asort of sorts
   | Avar of identifier
   | Acase of annot_sw * accumulator * t * (t -> t) 
@@ -52,15 +52,16 @@ type atom =
   | Aprod of name * t * (t -> t)
   | Ameta of metavariable * t
   | Aevar of existential * t
+  | Aproj of constant * accumulator
 
 (* Constructors *)
 
 val mk_accu : atom -> t
 val mk_rel_accu : int -> t
 val mk_rels_accu : int -> int -> t array
-val mk_constant_accu : constant -> t
-val mk_ind_accu : inductive -> t
-val mk_sort_accu : sorts -> t
+val mk_constant_accu : constant -> Univ.Level.t array -> t
+val mk_ind_accu : inductive -> Univ.Level.t array -> t
+val mk_sort_accu : sorts -> Univ.Level.t array -> t
 val mk_var_accu : identifier -> t
 val mk_sw_accu : annot_sw -> accumulator -> t -> (t -> t)
 val mk_prod_accu : name -> t -> t -> t
@@ -68,6 +69,7 @@ val mk_fix_accu : rec_pos  -> int -> t array -> t array -> t
 val mk_cofix_accu : int -> t array -> t array -> t
 val mk_meta_accu : metavariable -> t
 val mk_evar_accu : existential -> t -> t
+val mk_proj_accu : constant -> accumulator -> t
 val upd_cofix : t -> t -> unit
 val force_cofix : t -> t 
 val mk_const : tag -> t

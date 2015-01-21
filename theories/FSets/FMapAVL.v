@@ -270,7 +270,7 @@ Fixpoint elements_aux (acc : list (key*elt)) m : list (key*elt) :=
    | Node l x d r _ => elements_aux ((x,d) :: elements_aux acc r) l
   end.
 
-(** then [elements] is an instanciation with an empty [acc] *)
+(** then [elements] is an instantiation with an empty [acc] *)
 
 Definition elements := elements_aux nil.
 
@@ -370,7 +370,7 @@ Fixpoint map_option (elt elt' : Type)(f : key -> elt -> option elt')(m : t elt)
 (** * Optimized map2
 
   Suggestion by B. Gregoire: a [map2] function with specialized
-  arguments allowing to bypass some tree traversal. Instead of one
+  arguments that allows bypassing some tree traversal. Instead of one
   [f0] of type [key -> option elt -> option elt' -> option elt''],
   we ask here for:
   - [f] which is a specialisation of [f0] when first option isn't [None]
@@ -1247,11 +1247,11 @@ Proof.
  intros m1 m2; functional induction (concat m1 m2); intros; auto;
  try factornode _x _x0 _x1 _x2 _x3 as m1.
  apply join_bst; auto.
- change (bst (m2',xd)#1); rewrite <-e1; eauto.
+ change (bst (m2',xd)#1). rewrite <-e1; eauto.
  intros y Hy.
  apply H1; auto.
  rewrite remove_min_in, e1; simpl; auto.
- change (gt_tree (m2',xd)#2#1 (m2',xd)#1); rewrite <-e1; eauto.
+ change (gt_tree (m2',xd)#2#1 (m2',xd)#1). rewrite <-e1; eauto.
 Qed.
 Hint Resolve concat_bst.
 
@@ -1270,10 +1270,10 @@ Proof.
 
  inv bst.
  rewrite H2, join_find; auto; clear H2.
- simpl; destruct X.compare; simpl; auto.
+ simpl; destruct X.compare as [Hlt| |Hlt]; simpl; auto.
  destruct (find y m2'); auto.
  symmetry; rewrite not_find_iff; auto; intro.
- apply (MX.lt_not_gt l); apply H1; auto; rewrite H3; auto.
+ apply (MX.lt_not_gt Hlt); apply H1; auto; rewrite H3; auto.
 
  intros z Hz; apply H1; auto; rewrite H3; auto.
 Qed.
@@ -1367,7 +1367,7 @@ Proof.
  induction s; simpl; intros; auto.
  rewrite IHs1, IHs2.
  unfold elements; simpl.
- rewrite 2 IHs1, IHs2, <- !app_nil_end, !app_ass; auto.
+ rewrite 2 IHs1, IHs2, !app_nil_r, !app_ass; auto.
 Qed.
 
 Lemma elements_node :
@@ -1376,7 +1376,7 @@ Lemma elements_node :
  elements (Node t1 x e t2 z) ++ l.
 Proof.
  unfold elements; simpl; intros.
- rewrite !elements_app, <- !app_nil_end, !app_ass; auto.
+ rewrite !elements_app, !app_nil_r, !app_ass; auto.
 Qed.
 
 (** * Fold *)
@@ -1433,14 +1433,14 @@ Lemma flatten_e_elements :
  elements l ++ flatten_e (More x d r e) =
  elements (Node l x d r z) ++ flatten_e e.
 Proof.
- intros; simpl; apply elements_node.
+ intros; apply elements_node.
 Qed.
 
 Lemma cons_1 : forall (s:t elt) e,
   flatten_e (cons s e) = elements s ++ flatten_e e.
 Proof.
-  induction s; simpl; auto; intros.
-  rewrite IHs1; apply flatten_e_elements; auto.
+  induction s; auto; intros.
+  simpl flatten_e; rewrite IHs1; apply flatten_e_elements; auto.
 Qed.
 
 (** Proof of correction for the comparison *)
@@ -1478,7 +1478,7 @@ Lemma equal_cont_IfEq : forall m1 cont e2 l,
   (forall e, IfEq (cont e) l (flatten_e e)) ->
   IfEq (equal_cont cmp m1 cont e2) (elements m1 ++ l) (flatten_e e2).
 Proof.
- induction m1 as [|l1 Hl1 x1 d1 r1 Hr1 h1]; simpl; intros; auto.
+ induction m1 as [|l1 Hl1 x1 d1 r1 Hr1 h1]; intros; auto.
  rewrite <- elements_node; simpl.
  apply Hl1; auto.
  clear e2; intros [|x2 d2 r2 e2].
@@ -1491,9 +1491,9 @@ Lemma equal_IfEq : forall (m1 m2:t elt),
   IfEq (equal cmp m1 m2) (elements m1) (elements m2).
 Proof.
  intros; unfold equal.
- rewrite (app_nil_end (elements m1)).
+ rewrite <- (app_nil_r (elements m1)).
  replace (elements m2) with (flatten_e (cons m2 (End _)))
-  by (rewrite cons_1; simpl; rewrite <-app_nil_end; auto).
+  by (rewrite cons_1; simpl; rewrite app_nil_r; auto).
  apply equal_cont_IfEq.
  intros.
  apply equal_end_IfEq; auto.
@@ -1622,8 +1622,8 @@ Lemma map_option_find : forall (m:t elt)(x:key),
 Proof.
 intros m; functional induction (map_option f m); simpl; auto; intros;
  inv bst; rewrite join_find || rewrite concat_find; auto; simpl;
- try destruct X.compare; simpl; auto.
-rewrite (f_compat d e); auto.
+ try destruct X.compare as [Hlt|Heq|Hlt]; simpl; auto.
+rewrite (f_compat d Heq); auto.
 intros y H;
  destruct (map_option_2 H) as (? & ? & ?); eauto using MapsTo_In.
 intros y H;
@@ -1631,7 +1631,7 @@ intros y H;
 
 rewrite <- IHt, IHt0; auto; nonify (find x0 r); auto.
 rewrite IHt, IHt0; auto; nonify (find x0 r); nonify (find x0 l); auto.
-rewrite (f_compat d e); auto.
+rewrite (f_compat d Heq); auto.
 rewrite <- IHt0, IHt; auto; nonify (find x0 l); auto.
  destruct (find x0 (map_option f r)); auto.
 
@@ -1930,7 +1930,7 @@ Module IntMake (I:Int)(X: OrderedType) <: S with Module E := X.
  Lemma Equivb_Equivb : forall cmp m m',
   Equivb cmp m m' <-> Raw.Proofs.Equivb cmp m m'.
  Proof.
- intros; unfold Equivb, Equiv, Raw.Proofs.Equivb, In; intuition.
+ intros; unfold Equivb, Equiv, Raw.Proofs.Equivb, In. intuition. 
  generalize (H0 k); do 2 rewrite In_alt; intuition.
  generalize (H0 k); do 2 rewrite In_alt; intuition.
  generalize (H0 k); do 2 rewrite <- In_alt; intuition.
@@ -2084,7 +2084,7 @@ Module IntMake_ord (I:Int)(X: OrderedType)(D : OrderedType) <:
    (forall e, Cmp (cont e) l (P.flatten_e e)) ->
    Cmp (compare_cont s1 cont e2) (R.elements s1 ++ l) (P.flatten_e e2).
   Proof.
-   induction s1 as [|l1 Hl1 x1 d1 r1 Hr1 h1]; simpl; intros; auto.
+   induction s1 as [|l1 Hl1 x1 d1 r1 Hr1 h1]; intros; auto.
    rewrite <- P.elements_node; simpl.
    apply Hl1; auto. clear e2. intros [|x2 d2 r2 e2].
    simpl; auto.
@@ -2096,9 +2096,9 @@ Module IntMake_ord (I:Int)(X: OrderedType)(D : OrderedType) <:
    Cmp (compare_pure s1 s2) (R.elements s1) (R.elements s2).
   Proof.
    intros; unfold compare_pure.
-   rewrite (app_nil_end (R.elements s1)).
+   rewrite <- (app_nil_r (R.elements s1)).
    replace (R.elements s2) with (P.flatten_e (R.cons s2 (R.End _))) by
-    (rewrite P.cons_1; simpl; rewrite <- app_nil_end; auto).
+    (rewrite P.cons_1; simpl; rewrite app_nil_r; auto).
    auto using compare_cont_Cmp, compare_end_Cmp.
   Qed.
 

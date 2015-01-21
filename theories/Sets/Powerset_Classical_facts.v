@@ -1,6 +1,6 @@
 (************************************************************************)
 (*  v      *   The Coq Proof Assistant  /  The Coq Development Team     *)
-(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2012     *)
+(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2015     *)
 (*   \VV/  **************************************************************)
 (*    //   *      This file is distributed under the terms of the       *)
 (*         *       GNU Lesser General Public License Version 2.1        *)
@@ -32,7 +32,7 @@ Require Export Partial_Order.
 Require Export Cpo.
 Require Export Powerset.
 Require Export Powerset_facts.
-Require Export Classical_Type.
+Require Export Classical.
 Require Export Classical_sets.
 
 Section Sets_as_an_algebra.

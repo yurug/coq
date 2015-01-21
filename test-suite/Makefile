@@ -32,8 +32,9 @@ LIB := ..
 
 coqtop := $(BIN)coqtop -boot -q -batch -R prerequisite TestSuite
 bincoqc := $(BIN)coqc -coqlib $(LIB) -R prerequisite TestSuite
+bincoqchk := $(BIN)coqchk -coqlib $(LIB) -R prerequisite TestSuite
 
-command := $(coqtop) -top Top -load-vernac-source
+command := $(coqtop) -top Top -async-proofs-cache force -load-vernac-source
 coqc := $(coqtop) -compile
 coqdep := $(BIN)coqdep -coqlib $(LIB)
 
@@ -42,7 +43,7 @@ HIDE := $(if $(VERBOSE),,@)
 REDIR := $(if $(VERBOSE),,> /dev/null 2>&1)
 
 # read out an emacs config and look for coq-prog-args; if such exists, return it
-get_coq_prog_args_helper = sed -n s'/^.*coq-prog-args:\s*(\([^)]*\)).*/\1/p' $(1)
+get_coq_prog_args_helper = sed -n s'/^.*coq-prog-args:[[:space:]]*(\([^)]*\)).*/\1/p' $(1)
 get_coq_prog_args = $(strip $(filter-out "-emacs-U" "-emacs",$(shell $(call get_coq_prog_args_helper,$(1)))))
 SINGLE_QUOTE="
 #" # double up on the quotes, in a comment, to appease the emacs syntax highlighter
@@ -63,6 +64,8 @@ ifeq (,$(bogomips))
 endif
 
 log_success = "==========> SUCCESS <=========="
+log_segfault = "==========> FAILURE <=========="
+log_anomaly = "==========> FAILURE <=========="
 log_failure = "==========> FAILURE <=========="
 log_intro = "==========> TESTING $(1) <=========="
 
@@ -79,7 +82,7 @@ VSUBSYSTEMS := prerequisite success failure $(BUGS) output \
   interactive micromega mtac2 $(COMPLEXITY) modules stm
 
 # All subsystems
-SUBSYSTEMS := $(VSUBSYSTEMS) misc bugs ide
+SUBSYSTEMS := $(VSUBSYSTEMS) misc bugs ide vio coqchk
 
 #######################################################################
 # Phony targets
@@ -96,9 +99,9 @@ bugs: $(BUGS)
 
 clean:
 	rm -f trace lia.cache
-	$(SHOW) "RM        <**/*.stamp> <**/*.vo> <**/*.log>"
+	$(SHOW) "RM        <**/*.stamp> <**/*.vo> <**/*.vio> <**/*.log>"
 	$(HIDE)find . \( \
-	  -name '*.stamp' -o -name '*.vo' -o -name '*.log' \
+	  -name '*.stamp' -o -name '*.vo' -o -name '*.vio' -o -name '*.log' \
 	\) -print0 | xargs -0 rm -f
 
 distclean: clean
@@ -138,6 +141,8 @@ summary:
 	  $(call summary_dir, "Module tests", modules); \
 	  $(call summary_dir, "STM tests", stm); \
 	  $(call summary_dir, "IDE tests", ide); \
+	  $(call summary_dir, "VI tests", vio); \
+	  $(call summary_dir, "Coqchk tests", coqchk); \
 	  nb_success=`find . -name '*.log' -exec tail -n2 '{}' \; | grep -e $(log_success) | wc -l`; \
 	  nb_failure=`find . -name '*.log' -exec tail -n2 '{}' \; | grep -e $(log_failure) | wc -l`; \
 	  nb_tests=`expr $$nb_success + $$nb_failure`; \
@@ -168,6 +173,12 @@ $(addsuffix .log,$(wildcard bugs/opened/*.v)): %.v.log: %.v
 	  $(command) "$<" $(call get_coq_prog_args,"$<") 2>&1; R=$$?; times; \
 	  if [ $$R = 0 ]; then \
 	    echo $(log_success); \
+	    echo "    $<...still active"; \
+	  elif [ $$R = 129 ]; then \
+	    echo $(log_anomaly); \
+	    echo "    $<...still active"; \
+	  elif [ $$R = 139 ]; then \
+	    echo $(log_segfault); \
 	    echo "    $<...still active"; \
 	  else \
 	    echo $(log_failure); \
@@ -229,7 +240,7 @@ $(addsuffix .log,$(wildcard stm/*.v)): %.v.log: %.v
 	$(HIDE){ \
 	  echo $(call log_intro,$<); \
 	  $(coqc) "$*" $(call get_coq_prog_args,"$<") -async-proofs on \
-	    -async-proofs-worker-flags fallback-to-lazy-if-marshal-error=no,fallback-to-lazy-if-slave-dies=no \
+	    -async-proofs-private-flags fallback-to-lazy-if-marshal-error=no,fallback-to-lazy-if-slave-dies=no \
 	    $$opts 2>&1; R=$$?; times; \
 	  if [ $$R = 0 ]; then \
 	    echo $(log_success); \
@@ -254,7 +265,7 @@ $(addsuffix .log,$(wildcard failure/*.v)): %.v.log: %.v
 	  fi; \
 	} > "$@"
 
-$(addsuffix .log,$(wildcard output/*.v)): %.v.log: %.v
+$(addsuffix .log,$(wildcard output/*.v)): %.v.log: %.v %.out
 	@echo "TEST      $< $(call get_coq_prog_args_in_parens,"$<")"
 	$(HIDE){ \
 	  echo $(call log_intro,$<); \
@@ -347,25 +358,7 @@ modules/%.vo: modules/%.v
 # Miscellaneous tests
 #######################################################################
 
-misc: misc/xml.log misc/deps-order.log misc/universes.log
-
-# Test xml compilation
-xml: misc/xml.log
-misc/xml.log:
-	@echo "TEST      misc/xml"
-	$(HIDE){ \
-	  echo $(call log_intro,xml); \
-	  rm -rf misc/xml; \
-	  COQ_XML_LIBRARY_ROOT=misc/xml \
-	  $(bincoqc) -xml misc/berardi_test 2>&1; times; \
-	  if [ ! -d misc/xml ]; then \
-	    echo $(log_failure); \
-	    echo "    misc/xml... failed"; \
-	  else \
-	    echo $(log_success); \
-	    echo "    misc/xml...apparently ok"; \
-	  fi; rm -rf misc/xml; \
-	} > "$@"
+misc: misc/deps-order.log misc/universes.log
 
 # Check that both coqdep and coqtop/coqc supports -R
 # Check that both coqdep and coqtop/coqc takes the later -R
@@ -395,7 +388,7 @@ misc/deps-order.log:
 	} > "$@"
 
 # Sort universes for the whole standard library
-EXPECTED_UNIVERSES := 4
+EXPECTED_UNIVERSES := 3
 universes: misc/universes.log
 misc/universes.log: misc/universes/all_stdlib.v
 	@echo "TEST      misc/universes"
@@ -426,7 +419,7 @@ ide : $(patsubst %.fake,%.fake.log,$(wildcard ide/*.fake))
 	@echo "TEST      $<"
 	$(HIDE){ \
 	  echo $(call log_intro,$<); \
-	  $(BIN)fake_ide $< "$(BIN)coqtop -boot -async-proofs on -async-proofs-worker-flags min-proof-length-to-delegate=0" 2>&1; \
+	  $(BIN)fake_ide $< "$(BIN)coqtop -boot -async-proofs on" 2>&1; \
 	  if [ $$? = 0 ]; then \
 	    echo $(log_success); \
 	    echo "    $<...Ok"; \
@@ -435,3 +428,37 @@ ide : $(patsubst %.fake,%.fake.log,$(wildcard ide/*.fake))
 	    echo "    $<...Error!"; \
 	  fi; \
 	} > "$@"
+
+vio: $(patsubst %.v,%.vio.log,$(wildcard vio/*.v))
+
+%.vio.log:%.v
+	@echo "TEST      $<"
+	$(HIDE){ \
+	  $(bincoqc) -quick -R vio vio $* 2>&1 && \
+	  $(coqtop) -R vio vio -vio2vo $*.vio 2>&1 && \
+	  $(bincoqchk) -R vio vio -norec $(subst /,.,$*) 2>&1; \
+	  if [ $$? = 0 ]; then \
+	    echo $(log_success); \
+	    echo "    $<...Ok"; \
+	  else \
+	    echo $(log_failure); \
+	    echo "    $<...Error!"; \
+	  fi; \
+	} > "$@"
+
+coqchk: $(patsubst %.v,%.chk.log,$(wildcard coqchk/*.v))
+
+%.chk.log:%.v
+	@echo "TEST      $<"
+	$(HIDE){ \
+	  $(bincoqc) -R coqchk coqchk $* 2>&1 && \
+	  $(bincoqchk) -R coqchk coqchk -norec $(subst /,.,$*) 2>&1; \
+	  if [ $$? = 0 ]; then \
+	    echo $(log_success); \
+	    echo "    $<...Ok"; \
+	  else \
+	    echo $(log_failure); \
+	    echo "    $<...Error!"; \
+	  fi; \
+	} > "$@"
+

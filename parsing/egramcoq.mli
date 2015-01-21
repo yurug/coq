@@ -1,6 +1,6 @@
 (************************************************************************)
 (*  v      *   The Coq Proof Assistant  /  The Coq Development Team     *)
-(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2012     *)
+(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2015     *)
 (*   \VV/  **************************************************************)
 (*    //   *      This file is distributed under the terms of the       *)
 (*         *       GNU Lesser General Public License Version 2.1        *)
@@ -47,7 +47,12 @@ val extend_constr_grammar : Notation.level -> notation_grammar -> unit
 (** Add a term notation rule to the parsing system. *)
 
 val extend_tactic_grammar : KerName.t -> tactic_grammar -> unit
-(** Add a tactic notation rule to the parsing system. *)
+(** Add a tactic notation rule to the parsing system. This produces a TacAlias
+    tactic with the provided kernel name. *)
+
+val extend_ml_tactic_grammar : Tacexpr.ml_tactic_name -> grammar_prod_item list list -> unit
+(** Add a ML tactic notation rule to the parsing system. This produces a
+    TacML tactic with the provided string as name. *)
 
 val recover_constr_grammar : notation -> Notation.level -> notation_grammar
 (** For a declared grammar, returns the rule + the ordered entry types

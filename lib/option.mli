@@ -1,6 +1,6 @@
 (************************************************************************)
 (*  v      *   The Coq Proof Assistant  /  The Coq Development Team     *)
-(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2012     *)
+(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2015     *)
 (*   \VV/  **************************************************************)
 (*    //   *      This file is distributed under the terms of the       *)
 (*         *       GNU Lesser General Public License Version 2.1        *)
@@ -46,6 +46,12 @@ val init : bool -> 'a -> 'a option
 
 (** [flatten x] is [Some y] if [x] is [Some (Some y)] and [None] otherwise. *)
 val flatten : 'a option option -> 'a option
+
+(** [append x y] is the first element of the concatenation of [x] and
+    [y] seen as lists.  In other words, [append (Some a) y] is [Some
+    a], [append None (Some b)] is [Some b], and [append None None] is
+    [None]. *)
+val append : 'a option -> 'a option -> 'a option
 
 
 (** {6 "Iterators"} ***)

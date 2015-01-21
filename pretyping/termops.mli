@@ -1,6 +1,6 @@
 (************************************************************************)
 (*  v      *   The Coq Proof Assistant  /  The Coq Development Team     *)
-(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2012     *)
+(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2015     *)
 (*   \VV/  **************************************************************)
 (*    //   *      This file is distributed under the terms of the       *)
 (*         *       GNU Lesser General Public License Version 2.1        *)
@@ -12,18 +12,6 @@ open Term
 open Context
 open Environ
 open Locus
-
-(** TODO: merge this with Term *)
-
-(** Universes *)
-val new_univ_level : unit -> Univ.universe_level
-val set_remote_new_univ_level : Univ.universe_level RemoteCounter.installer
-val new_univ : unit -> Univ.universe
-val new_sort_in_family : sorts_family -> sorts
-val new_Type : unit -> types
-val new_Type_sort : unit -> sorts
-val refresh_universes : types -> types
-val refresh_universes_strict : types -> types
 
 (** printers *)
 val print_sort : sorts -> std_ppcmds
@@ -70,8 +58,9 @@ val it_mkNamedProd_or_LetIn : types -> named_context -> types
 val it_mkNamedProd_wo_LetIn : types -> named_context -> types
 val it_mkNamedLambda_or_LetIn : constr -> named_context -> constr
 
-val it_named_context_quantifier :
-  (named_declaration -> 'a -> 'a) -> init:'a -> named_context -> 'a
+(* Ad hoc version reinserting letin, assuming the body is defined in
+   the context where the letins are expanded *)
+val it_mkLambda_or_LetIn_from_no_LetIn : constr -> rel_context -> constr
 
 (** {6 Generic iterators on constr} *)
 
@@ -120,6 +109,9 @@ val free_rels : constr -> Int.Set.t
 (** [dependent m t] tests whether [m] is a subterm of [t] *)
 val dependent : constr -> constr -> bool
 val dependent_no_evar : constr -> constr -> bool
+val dependent_univs : constr -> constr -> bool
+val dependent_univs_no_evar : constr -> constr -> bool
+val dependent_in_decl : constr -> named_declaration -> bool
 val count_occurrences : constr -> constr -> int
 val collect_metas : constr -> int list
 val collect_vars : constr -> Id.Set.t (** for visible vars only *)
@@ -156,55 +148,12 @@ val subst_term : constr -> constr -> constr
 (** [replace_term d e c] replaces [d] by [e] in [c] *)
 val replace_term : constr -> constr -> constr -> constr
 
-(** [subst_closed_term_occ_gen occl n c d] replaces occurrences of closed [c] at
-   positions [occl], counting from [n], by [Rel 1] in [d] *)
-val subst_closed_term_occ_gen :
-  occurrences -> int -> constr -> types -> int * types
-
-(** [subst_closed_term_occ_modulo] looks for subterm modulo a
-    testing function returning a substitution of type ['a] (or failing
-    with NotUnifiable); a function for merging substitution (possibly
-    failing with NotUnifiable) and an initial substitution are
-    required too *)
-
-type 'a testing_function = {
-  match_fun : constr -> 'a;
-  merge_fun : 'a -> 'a -> 'a;
-  mutable testing_state : 'a;
-  mutable last_found : ((Id.t * hyp_location_flag) option * int * constr) option
-}
-
-val make_eq_test : constr -> unit testing_function
-
-exception NotUnifiable
-
-val subst_closed_term_occ_modulo :
-  occurrences -> 'a testing_function -> (Id.t * hyp_location_flag) option
-  -> constr -> types
-
-(** [subst_closed_term_occ occl c d] replaces occurrences of closed [c] at
-   positions [occl] by [Rel 1] in [d] (see also Note OCC) *)
-val subst_closed_term_occ : occurrences -> constr -> constr -> constr
-
-(** [subst_closed_term_occ_decl occl c decl] replaces occurrences of closed [c]
-   at positions [occl] by [Rel 1] in [decl] *)
-
-val subst_closed_term_occ_decl :
-  occurrences * hyp_location_flag -> constr -> named_declaration ->
-      named_declaration
-
-val subst_closed_term_occ_decl_modulo :
-  occurrences * hyp_location_flag -> 'a testing_function ->
-  named_declaration -> named_declaration
-
-val error_invalid_occurrence : int list -> 'a
-
 (** Alternative term equalities *)
 val base_sort_cmp : Reduction.conv_pb -> sorts -> sorts -> bool
 val compare_constr_univ : (Reduction.conv_pb -> constr -> constr -> bool) ->
   Reduction.conv_pb -> constr -> constr -> bool
 val constr_cmp : Reduction.conv_pb -> constr -> constr -> bool
-val eq_constr : constr -> constr -> bool
+val eq_constr : constr -> constr -> bool (* FIXME rename: erases universes*)
 
 val eta_reduce_head : constr -> constr
 
@@ -266,6 +215,8 @@ val fold_named_context_both_sides :
   ('a -> named_declaration -> named_declaration list -> 'a) ->
     named_context -> init:'a -> 'a
 val mem_named_context : Id.t -> named_context -> bool
+val compact_named_context : named_context -> named_list_context
+val compact_named_context_reverse : named_context -> named_list_context
 
 val clear_named_body : Id.t -> env -> env
 
@@ -281,7 +232,7 @@ val is_section_variable : Id.t -> bool
 
 val isGlobalRef : constr -> bool
 
-val has_polymorphic_type : constant -> bool
+val is_template_polymorphic : env -> constr -> bool
 
 (** Combinators on judgments *)
 
@@ -290,5 +241,5 @@ val on_judgment_value : (types -> types) -> unsafe_judgment -> unsafe_judgment
 val on_judgment_type  : (types -> types) -> unsafe_judgment -> unsafe_judgment
 
 (** {6 Functions to deal with impossible cases } *)
-val set_impossible_default_clause : constr * types -> unit
-val coq_unit_judge : unit -> unsafe_judgment
+val set_impossible_default_clause : (unit -> (constr * types) Univ.in_universe_context_set) -> unit
+val coq_unit_judge : unit -> unsafe_judgment Univ.in_universe_context_set

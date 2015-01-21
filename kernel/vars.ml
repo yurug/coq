@@ -1,6 +1,6 @@
 (************************************************************************)
 (*  v      *   The Coq Proof Assistant  /  The Coq Development Team     *)
-(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2012     *)
+(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2015     *)
 (*   \VV/  **************************************************************)
 (*    //   *      This file is distributed under the terms of the       *)
 (*         *       GNU Lesser General Public License Version 2.1        *)
@@ -212,3 +212,130 @@ let substn_vars p vars c =
   in replace_vars (List.rev subst) c
 
 let subst_vars subst c = substn_vars 1 subst c
+
+(** Universe substitutions *)
+open Constr
+
+let subst_univs_fn_puniverses fn =
+  let f = Univ.Instance.subst_fn fn in
+    fun ((c, u) as x) -> let u' = f u in if u' == u then x else (c, u')
+
+let subst_univs_fn_constr f c =
+  let changed = ref false in
+  let fu = Univ.subst_univs_universe f in
+  let fi = Univ.Instance.subst_fn (Univ.level_subst_of f) in
+  let rec aux t = 
+    match kind t with
+    | Sort (Sorts.Type u) -> 
+      let u' = fu u in
+	if u' == u then t else 
+	  (changed := true; mkSort (Sorts.sort_of_univ u'))
+    | Const (c, u) -> 
+      let u' = fi u in 
+	if u' == u then t
+	else (changed := true; mkConstU (c, u'))
+    | Ind (i, u) ->
+      let u' = fi u in 
+	if u' == u then t
+	else (changed := true; mkIndU (i, u'))
+    | Construct (c, u) ->
+      let u' = fi u in 
+	if u' == u then t
+	else (changed := true; mkConstructU (c, u'))
+    | _ -> map aux t
+  in 
+  let c' = aux c in
+    if !changed then c' else c
+
+let subst_univs_constr subst c =
+  if Univ.is_empty_subst subst then c
+  else 
+    let f = Univ.make_subst subst in
+      subst_univs_fn_constr f c
+
+let subst_univs_constr = 
+  if Flags.profile then
+    let subst_univs_constr_key = Profile.declare_profile "subst_univs_constr" in
+      Profile.profile2 subst_univs_constr_key subst_univs_constr
+  else subst_univs_constr
+
+let subst_univs_level_constr subst c =
+  if Univ.is_empty_level_subst subst then c
+  else 
+    let f = Univ.Instance.subst_fn (Univ.subst_univs_level_level subst) in
+    let changed = ref false in
+    let rec aux t = 
+      match kind t with
+      | Const (c, u) -> 
+	if Univ.Instance.is_empty u then t
+	else 
+          let u' = f u in 
+	    if u' == u then t
+	    else (changed := true; mkConstU (c, u'))
+      | Ind (i, u) ->
+	if Univ.Instance.is_empty u then t
+	else 
+	  let u' = f u in 
+	    if u' == u then t
+	    else (changed := true; mkIndU (i, u'))
+      | Construct (c, u) ->
+	if Univ.Instance.is_empty u then t
+	else 
+          let u' = f u in 
+	    if u' == u then t
+	    else (changed := true; mkConstructU (c, u'))
+      | Sort (Sorts.Type u) -> 
+         let u' = Univ.subst_univs_level_universe subst u in
+	   if u' == u then t else 
+	     (changed := true; mkSort (Sorts.sort_of_univ u'))
+      | _ -> Constr.map aux t
+    in
+    let c' = aux c in
+      if !changed then c' else c
+
+let subst_univs_level_context s = 
+  map_rel_context (subst_univs_level_constr s)
+      
+let subst_instance_constr subst c =
+  if Univ.Instance.is_empty subst then c
+  else
+    let f u = Univ.subst_instance_instance subst u in
+    let changed = ref false in
+    let rec aux t = 
+      match kind t with
+      | Const (c, u) -> 
+	if Univ.Instance.is_empty u then t
+	else 
+          let u' = f u in 
+	    if u' == u then t
+	    else (changed := true; mkConstU (c, u'))
+      | Ind (i, u) ->
+	if Univ.Instance.is_empty u then t
+	else 
+	  let u' = f u in 
+	    if u' == u then t
+	    else (changed := true; mkIndU (i, u'))
+      | Construct (c, u) ->
+	if Univ.Instance.is_empty u then t
+	else 
+          let u' = f u in 
+	    if u' == u then t
+	    else (changed := true; mkConstructU (c, u'))
+      | Sort (Sorts.Type u) -> 
+         let u' = Univ.subst_instance_universe subst u in
+	   if u' == u then t else 
+	     (changed := true; mkSort (Sorts.sort_of_univ u'))
+      | _ -> Constr.map aux t
+    in
+    let c' = aux c in
+      if !changed then c' else c
+
+(* let substkey = Profile.declare_profile "subst_instance_constr";; *)
+(* let subst_instance_constr inst c = Profile.profile2 substkey subst_instance_constr inst c;; *)
+
+let subst_instance_context s ctx = 
+  if Univ.Instance.is_empty s then ctx
+  else map_rel_context (fun x -> subst_instance_constr s x) ctx
+
+type id_key = pconstant tableKey
+let eq_id_key x y = Names.eq_table_key (Univ.eq_puniverses Constant.equal) x y

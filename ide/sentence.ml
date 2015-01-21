@@ -1,6 +1,6 @@
 (************************************************************************)
 (*  v      *   The Coq Proof Assistant  /  The Coq Development Team     *)
-(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2012     *)
+(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2015     *)
 (*   \VV/  **************************************************************)
 (*    //   *      This file is distributed under the terms of the       *)
 (*         *       GNU Lesser General Public License Version 2.1        *)
@@ -91,7 +91,7 @@ let tag_on_insert buffer =
     (** The status of "{" "}" as sentence delimiters is too fragile.
         We retag up to the next "." instead. *)
     let stop = grab_ending_dot insert in
-    try split_slice_lax buffer start stop
+    try split_slice_lax buffer start#backward_char stop
     with Coq_lex.Unterminated ->
       (* This shouldn't happen frequently. Either:
          - we are at eof, with indeed an unfinished sentence.

@@ -1,6 +1,6 @@
 (************************************************************************)
 (*  v      *   The Coq Proof Assistant  /  The Coq Development Team     *)
-(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2012     *)
+(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2015     *)
 (*   \VV/  **************************************************************)
 (*    //   *      This file is distributed under the terms of the       *)
 (*         *       GNU Lesser General Public License Version 2.1        *)
@@ -255,7 +255,7 @@ Section power_div_with_rest.
   Proof.
    rewrite Pos2Nat.inj_iter, two_power_pos_nat.
    induction (Pos.to_nat p); simpl; trivial.
-   destruct (nat_rect _ _ _ n) as ((q,r),d).
+   destruct (nat_rect _ _ _ _) as ((q,r),d).
    unfold Zdiv_rest_aux. rewrite two_power_nat_S; now f_equal.
   Qed.
 

@@ -1,6 +1,6 @@
 (************************************************************************)
 (*  v      *   The Coq Proof Assistant  /  The Coq Development Team     *)
-(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2012     *)
+(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2015     *)
 (*   \VV/  **************************************************************)
 (*    //   *      This file is distributed under the terms of the       *)
 (*         *       GNU Lesser General Public License Version 2.1        *)
@@ -108,7 +108,7 @@ let constr_key c =
 let revert_reserved_type t =
   try
     let reserved = KeyMap.find (constr_key t) !reserve_revtable in
-    let t = Detyping.detype false [] [] t in
+    let t = Detyping.detype false [] (Global.env()) Evd.empty t in
     (* pedrot: if [Notation_ops.match_notation_constr] may raise [Failure _]
         then I've introduced a bug... *)
     let filter _ pat =

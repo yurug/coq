@@ -1,6 +1,6 @@
 (************************************************************************)
 (*  v      *   The Coq Proof Assistant  /  The Coq Development Team     *)
-(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2012     *)
+(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2015     *)
 (*   \VV/  **************************************************************)
 (*    //   *      This file is distributed under the terms of the       *)
 (*         *       GNU Lesser General Public License Version 2.1        *)
@@ -33,7 +33,7 @@ Module BigN_BigZ <: NType_ZType BigN.BigN BigZ.
  Qed.
 End BigN_BigZ.
 
-(** This allows to build [BigQ] out of [BigN] and [BigQ] via [QMake] *)
+(** This allows building [BigQ] out of [BigN] and [BigQ] via [QMake] *)
 
 Delimit Scope bigQ_scope with bigQ.
 
@@ -87,6 +87,8 @@ exact BigQ.mul_add_distr_r. exact BigQ.sub_add_opp.
 exact BigQ.add_opp_diag_r. exact BigQ.neq_1_0.
 exact BigQ.div_mul_inv. exact BigQ.mul_inv_diag_l.
 Qed.
+
+Declare Equivalent Keys pow_N pow_pos.
 
 Lemma BigQpowerth :
  power_theory 1 BigQ.mul BigQ.eq Z.of_N BigQ.power.

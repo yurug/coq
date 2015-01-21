@@ -1,6 +1,6 @@
 (************************************************************************)
 (*  v      *   The Coq Proof Assistant  /  The Coq Development Team     *)
-(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2012     *)
+(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2015     *)
 (*   \VV/  **************************************************************)
 (*    //   *      This file is distributed under the terms of the       *)
 (*         *       GNU Lesser General Public License Version 2.1        *)
@@ -46,8 +46,8 @@ open Egramml
 (** Declare Notations grammar rules                                   *)
 
 let constr_expr_of_name (loc,na) = match na with
-  | Anonymous -> CHole (loc,None,None)
-  | Name id -> CRef (Ident (loc,id))
+  | Anonymous -> CHole (loc,None,Misctypes.IntroAnonymous,None)
+  | Name id -> CRef (Ident (loc,id), None)
 
 let cases_pattern_expr_of_name (loc,na) = match na with
   | Anonymous -> CPatAtom (loc,None)
@@ -76,7 +76,7 @@ let make_constr_action
 	  make (v :: constrs, constrlists, binders) tl)
     | ETReference ->
         Gram.action (fun (v:reference) ->
-	  make (CRef v :: constrs, constrlists, binders) tl)
+	  make (CRef (v,None) :: constrs, constrlists, binders) tl)
     | ETName ->
         Gram.action (fun (na:Loc.t * Name.t) ->
 	  make (constr_expr_of_name na :: constrs, constrlists, binders) tl)
@@ -252,6 +252,21 @@ type tactic_grammar = {
 type all_grammar_command =
   | Notation of Notation.level * notation_grammar
   | TacticGrammar of KerName.t * tactic_grammar
+  | MLTacticGrammar of ml_tactic_name * grammar_prod_item list list
+
+(** ML Tactic grammar extensions *)
+
+let add_ml_tactic_entry name prods =
+  let entry = weaken_entry Tactic.simple_tactic in
+  let mkact i loc l : raw_tactic_expr =
+    let open Tacexpr in
+    let entry = { mltac_name = name; mltac_index = i } in
+    TacML (loc, entry, List.map snd l)
+  in
+  let rules = List.map_i (fun i p -> make_rule (mkact i) p) 0 prods in
+  synchronize_level_positions ();
+  grammar_extend entry None (None ,[(None, None, List.rev rules)]);
+  1
 
 (* Declaration of the tactic grammar rule *)
 
@@ -259,20 +274,16 @@ let head_is_ident tg = match tg.tacgram_prods with
 | GramTerminal _::_ -> true
 | _ -> false
 
+(** Tactic grammar extensions *)
+
 let add_tactic_entry kn tg =
   let entry, pos = get_tactic_entry tg.tacgram_level in
-  let rules =
-    if Int.equal tg.tacgram_level 0 then begin
-      if not (head_is_ident tg) then
-        error "Notation for simple tactic must start with an identifier.";
-      let mkact loc l =
-        (TacAlias (loc,kn,l):raw_atomic_tactic_expr) in
-      make_rule mkact tg.tacgram_prods
-    end
-    else
-      let mkact loc l =
-        (TacAtom(loc,TacAlias(loc,kn,l)):raw_tactic_expr) in
-      make_rule mkact tg.tacgram_prods in
+  let mkact loc l = (TacAlias (loc,kn,l):raw_tactic_expr) in
+  let () =
+    if Int.equal tg.tacgram_level 0 && not (head_is_ident tg) then
+      error "Notation for simple tactic must start with an identifier."
+  in
+  let rules = make_rule mkact tg.tacgram_prods in
   synchronize_level_positions ();
   grammar_extend entry None (Option.map of_coq_position pos,[(None, None, List.rev [rules])]);
   1
@@ -282,7 +293,9 @@ let (grammar_state : (int * all_grammar_command) list ref) = ref []
 let extend_grammar gram =
   let nb = match gram with
   | Notation (_,a) -> extend_constr_notation a
-  | TacticGrammar (kn, g) -> add_tactic_entry kn g in
+  | TacticGrammar (kn, g) -> add_tactic_entry kn g
+  | MLTacticGrammar (name, pr) -> add_ml_tactic_entry name pr
+  in
   grammar_state := (nb,gram) :: !grammar_state
 
 let extend_constr_grammar pr ntn =
@@ -290,6 +303,9 @@ let extend_constr_grammar pr ntn =
 
 let extend_tactic_grammar kn ntn =
   extend_grammar (TacticGrammar (kn, ntn))
+
+let extend_ml_tactic_grammar name ntn =
+  extend_grammar (MLTacticGrammar (name, ntn))
 
 let recover_constr_grammar ntn prec =
   let filter = function
@@ -343,7 +359,7 @@ let with_grammar_rule_protection f x =
   with reraise ->
     let reraise = Errors.push reraise in
     let () = unfreeze fs in
-    raise reraise
+    iraise reraise
 
 (**********************************************************************)
 (** Ltac quotations                                                   *)

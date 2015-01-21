@@ -1,12 +1,20 @@
 (************************************************************************)
 (*  v      *   The Coq Proof Assistant  /  The Coq Development Team     *)
-(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2012     *)
+(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2015     *)
 (*   \VV/  **************************************************************)
 (*    //   *      This file is distributed under the terms of the       *)
 (*         *       GNU Lesser General Public License Version 2.1        *)
 (************************************************************************)
 
 open Names
+
+(** {6 Value under universe substitution } *)
+type 'a puniverses = 'a Univ.puniverses
+
+(** {6 Simply type aliases } *)
+type pconstant = constant puniverses
+type pinductive = inductive puniverses
+type pconstructor = constructor puniverses
 
 (** {6 Existential variables } *)
 type existential_key = Evar.t
@@ -18,7 +26,8 @@ type metavariable = int
 type case_style = LetStyle | IfStyle | LetPatternStyle | MatchStyle 
   | RegularStyle (** infer printing form from number of constructor *)
 type case_printing =
-  { ind_nargs : int; (** length of the arity of the inductive type *)
+  { ind_tags : bool list; (** tell whether letin or lambda in the arity of the inductive type *)
+    cstr_tags : bool list array; (** tell whether letin or lambda in the signature of each constructor *)
     style     : case_style }
 
 (** the integer is the number of real args, needed for reduction *)
@@ -88,20 +97,26 @@ val mkLetIn : Name.t * constr * types * constr -> constr
    {% $(f~t_1~\dots~t_n)$ %}. *)
 val mkApp : constr * constr array -> constr
 
-(** Constructs a constant 
-   The array of terms correspond to the variables introduced in the section *)
+val map_puniverses : ('a -> 'b) -> 'a puniverses -> 'b puniverses
+
+(** Constructs a constant *)
 val mkConst : constant -> constr
+val mkConstU : pconstant -> constr
+
+(** Constructs a projection application *)
+val mkProj : (projection * constr) -> constr
 
 (** Inductive types *)
 
-(** Constructs the ith (co)inductive type of the block named kn 
-   The array of terms correspond to the variables introduced in the section *)
+(** Constructs the ith (co)inductive type of the block named kn *)
 val mkInd : inductive -> constr
+val mkIndU : pinductive -> constr
 
 (** Constructs the jth constructor of the ith (co)inductive type of the
-   block named kn. The array of terms correspond to the variables
-   introduced in the section *)
+   block named kn. *)
 val mkConstruct : constructor -> constr
+val mkConstructU : pconstructor -> constr
+val mkConstructUi : pinductive * int -> constr
 
 (** Constructs a destructor of inductive type.
     
@@ -170,12 +185,13 @@ type ('constr, 'types) kind_of_term =
   | Lambda    of Name.t * 'types * 'constr
   | LetIn     of Name.t * 'constr * 'types * 'constr
   | App       of 'constr * 'constr array
-  | Const     of constant
-  | Ind       of inductive
-  | Construct of constructor
+  | Const     of constant puniverses
+  | Ind       of inductive puniverses
+  | Construct of constructor puniverses
   | Case      of case_info * 'constr * 'constr * 'constr array
   | Fix       of ('constr, 'types) pfixpoint
   | CoFix     of ('constr, 'types) pcofixpoint
+  | Proj      of projection * 'constr
 
 (** User view of [constr]. For [App], it is ensured there is at
    least one argument and the function is not itself an applicative
@@ -186,6 +202,26 @@ val kind : constr -> (constr, types) kind_of_term
 (** [equal a b] is true if [a] equals [b] modulo alpha, casts,
    and application grouping *)
 val equal : constr -> constr -> bool
+
+(** [eq_constr_univs u a b] is [true] if [a] equals [b] modulo alpha, casts,
+   application grouping and the universe equalities in [u]. *)
+val eq_constr_univs : constr Univ.check_function
+
+(** [leq_constr_univs u a b] is [true] if [a] is convertible to [b] modulo 
+    alpha, casts, application grouping and the universe inequalities in [u]. *)
+val leq_constr_univs : constr Univ.check_function
+
+(** [eq_constr_univs u a b] is [true] if [a] equals [b] modulo alpha, casts,
+   application grouping and the universe equalities in [u]. *)
+val eq_constr_univs_infer : Univ.universes -> constr -> constr -> bool Univ.constrained
+
+(** [leq_constr_univs u a b] is [true] if [a] is convertible to [b] modulo 
+    alpha, casts, application grouping and the universe inequalities in [u]. *)
+val leq_constr_univs_infer : Univ.universes -> constr -> constr -> bool Univ.constrained
+
+(** [eq_constr_univs a b] [true, c] if [a] equals [b] modulo alpha, casts,
+   application grouping and ignoring universe instances. *)
+val eq_constr_nounivs : constr -> constr -> bool
 
 (** Total ordering compatible with [equal] *)
 val compare : constr -> constr -> int
@@ -238,6 +274,31 @@ val iter_with_binders :
 
 val compare_head : (constr -> constr -> bool) -> constr -> constr -> bool
 
+(** [compare_head_gen u s f c1 c2] compare [c1] and [c2] using [f] to compare
+   the immediate subterms of [c1] of [c2] if needed, [u] to compare universe
+   instances (the first boolean tells if they belong to a constant), [s] to 
+   compare sorts; Cast's, binders name and Cases annotations are not taken 
+    into account *)
+
+val compare_head_gen : (bool -> Univ.Instance.t -> Univ.Instance.t -> bool) ->
+  (Sorts.t -> Sorts.t -> bool) ->
+  (constr -> constr -> bool) ->
+  constr -> constr -> bool
+
+(** [compare_head_gen_leq u s sle f fle c1 c2] compare [c1] and [c2]
+    using [f] to compare the immediate subterms of [c1] of [c2] for
+    conversion, [fle] for cumulativity, [u] to compare universe
+    instances (the first boolean tells if they belong to a constant),
+    [s] to compare sorts for equality and [sle] for subtyping; Cast's,
+    binders name and Cases annotations are not taken into account *)
+
+val compare_head_gen_leq : (bool -> Univ.Instance.t -> Univ.Instance.t -> bool) ->
+  (Sorts.t -> Sorts.t -> bool) ->
+  (Sorts.t -> Sorts.t -> bool) ->
+  (constr -> constr -> bool) ->
+  (constr -> constr -> bool) ->
+  constr -> constr -> bool
+  
 (** {6 Hashconsing} *)
 
 val hash : constr -> int

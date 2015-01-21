@@ -59,7 +59,7 @@ CURDEPS:=$(addsuffix .d, $(CURFILES))
 VERBOSE=
 NO_RECOMPILE_ML4=
 NO_RECALC_DEPS=
-READABLE_ML4=	# non-empty means .ml of .ml4 will be ascii instead of binary
+READABLE_ML4=true	# non-empty means .ml of .ml4 will be ascii instead of binary
 VALIDATE=
 COQ_XML=	# is "-xml" when building XML library
 VM=		# is "-no-vm" to not use the vm"
@@ -97,13 +97,23 @@ MLINCLUDES=$(LOCALINCLUDES) -I $(MYCAMLP4LIB)
 OCAMLC := $(OCAMLC) $(CAMLFLAGS)
 OCAMLOPT := $(OCAMLOPT) $(CAMLFLAGS)
 
-BYTEFLAGS=$(CAMLDEBUG) $(USERFLAGS)
-OPTFLAGS=$(CAMLDEBUGOPT) $(CAMLTIMEPROF) $(USERFLAGS)
+BYTEFLAGS=-thread $(CAMLDEBUG) $(USERFLAGS)
+OPTFLAGS=-thread $(CAMLDEBUGOPT) $(CAMLTIMEPROF) $(USERFLAGS)
 DEPFLAGS= $(LOCALINCLUDES) -I ide -I ide/utils
+
+ifeq ($(ARCH),Darwin)
+LINKMETADATA=-ccopt "-sectcreate __TEXT __info_plist config/Info-$(notdir $@).plist"
+CODESIGN=codesign -s -
+else
+LINKMETADATA=
+CODESIGN=true
+endif
 
 define bestocaml
 $(if $(OPT),\
-$(OCAMLOPT) $(MLINCLUDES) $(OPTFLAGS) -o $@ $(1) $(addsuffix .cmxa,$(2)) $^ && $(STRIP) $@,\
+$(if $(findstring $@,$(PRIVATEBINARIES)),\
+  $(OCAMLOPT) $(MLINCLUDES) $(OPTFLAGS) -o $@ $(1) $(addsuffix .cmxa,$(2)) $^ && $(STRIP) $@,\
+  $(OCAMLOPT) $(MLINCLUDES) $(OPTFLAGS) $(LINKMETADATA) -o $@ $(1) $(addsuffix .cmxa,$(2)) $^ && $(STRIP) $@ && $(CODESIGN) $@),\
 $(OCAMLC) $(MLINCLUDES) $(BYTEFLAGS) $(CUSTOM) -o $@ $(1) $(addsuffix .cma,$(2)) $^)
 endef
 
@@ -114,11 +124,13 @@ else
 CAMLP4USE=-D$(CAMLVERSION)
 endif
 
+CAMLP4FLAGS=-I $(CAMLLIB) -I $(CAMLLIB)/threads -I $(MYCAMLP4LIB) unix.cma threads.cma
+
 PR_O := $(if $(READABLE_ML4),pr_o.cmo,pr_dump.cmo) # works also with new camlp4
 
-SYSMOD:=str unix dynlink
-SYSCMA:=$(addsuffix .cma,$(SYSMOD) threads)
-SYSCMXA:=$(addsuffix .cmxa,$(SYSMOD) threads)
+SYSMOD:=str unix dynlink threads
+SYSCMA:=$(addsuffix .cma,$(SYSMOD))
+SYSCMXA:=$(addsuffix .cmxa,$(SYSMOD))
 
 ifeq ($(CAMLP4),camlp5)
 P4CMA:=gramlib.cma
@@ -210,16 +222,17 @@ miniopt: $(COQTOPEXE) pluginsopt
 minibyte: $(COQTOPBYTE) pluginsbyte
 
 ifeq ($(BEST),opt)
-$(COQTOPEXE): $(COQMKTOP) $(LINKCMX) $(LIBCOQRUN)
+$(COQTOPEXE): $(COQMKTOP) $(LINKCMX) $(LIBCOQRUN) $(TOPLOOPCMA:.cma=.cmxs)
 	$(SHOW)'COQMKTOP -o $@'	
-	$(HIDE)$(COQMKTOP) -boot -opt $(OPTFLAGS) -thread -o $@
+	$(HIDE)$(COQMKTOP) -boot -opt $(OPTFLAGS) $(LINKMETADATA) -thread -o $@
 	$(STRIP) $@
+	$(CODESIGN) $@
 else
 $(COQTOPEXE): $(COQTOPBYTE)
 	cp $< $@
 endif
 
-$(COQTOPBYTE): $(COQMKTOP) $(LINKCMO) $(LIBCOQRUN)
+$(COQTOPBYTE): $(COQMKTOP) $(LINKCMO) $(LIBCOQRUN) $(TOPLOOPCMA)
 	$(SHOW)'COQMKTOP -o $@'	
 	$(HIDE)$(COQMKTOP) -boot -top $(BYTEFLAGS) -thread -o $@
 
@@ -229,8 +242,9 @@ CHKLIBS:=$(LOCALCHKLIBS) -I $(MYCAMLP4LIB)
 ifeq ($(BEST),opt)
 $(CHICKEN): checker/check.cmxa checker/main.ml
 	$(SHOW)'OCAMLOPT -o $@'
-	$(HIDE)$(OCAMLOPT) $(CHKLIBS) $(OPTFLAGS) -thread -o $@ $(SYSCMXA) $^
+	$(HIDE)$(OCAMLOPT) $(CHKLIBS) $(OPTFLAGS) $(LINKMETADATA) -thread -o $@ $(SYSCMXA) $^
 	$(STRIP) $@
+	$(CODESIGN) $@
 else
 $(CHICKEN): $(CHICKENBYTE)
 	cp $< $@
@@ -297,18 +311,23 @@ COQIDEFLAGS=$(addprefix -I , $(IDESRCDIRS)) $(COQIDEINCLUDES)
 
 .SUFFIXES:.vo
 
-IDEFILES=$(wildcard ide/coq*.lang) ide/coq_style.xml ide/coq.png ide/mac_default_accel_map
+IDEFILES=$(wildcard ide/*.lang) ide/coq_style.xml ide/coq.png ide/MacOS/default_accel_map
 
-coqide-binaries: coqide-$(HASCOQIDE)
+coqide-binaries: coqide-$(HASCOQIDE) ide-toploop
 coqide-no:
 coqide-byte: $(COQIDEBYTE) $(COQIDE)
 coqide-opt:  $(COQIDEBYTE) $(COQIDE)
 coqide-files: $(IDEFILES)
+ifeq ($(BEST),opt)
+ide-toploop: $(IDETOPLOOPCMA) $(IDETOPLOOPCMA:.cma=.cmxs)
+else
+ide-toploop: $(IDETOPLOOPCMA)
+endif
 
 ifeq ($(HASCOQIDE),opt)
 $(COQIDE): $(LINKIDEOPT)
 	$(SHOW)'OCAMLOPT -o $@'
-	$(HIDE)$(OCAMLOPT) $(COQIDEFLAGS) $(OPTFLAGS) -o $@ unix.cmxa lablgtk.cmxa \
+	$(HIDE)$(OCAMLOPT) $(COQIDEFLAGS) $(OPTFLAGS) -o $@ unix.cmxa threads.cmxa lablgtk.cmxa \
 		lablgtksourceview2.cmxa str.cmxa $(IDEFLAGS:.cma=.cmxa) $^
 	$(STRIP) $@
 else
@@ -318,22 +337,29 @@ endif
 
 $(COQIDEBYTE): $(LINKIDE)
 	$(SHOW)'OCAMLC -o $@'
-	$(HIDE)$(OCAMLC) $(COQIDEFLAGS) $(BYTEFLAGS) -o $@ unix.cma lablgtk.cma \
-	        lablgtksourceview2.cma str.cma $(IDEFLAGS) $^
+	$(HIDE)$(OCAMLC) $(COQIDEFLAGS) $(BYTEFLAGS) -o $@ unix.cma threads.cma lablgtk.cma \
+	        lablgtksourceview2.cma str.cma $(IDEFLAGS) $(IDECDEPSFLAGS) $^
 
 # install targets
 
-.PHONY: install-coqide install-ide-bin install-ide-files install-ide-info install-ide-devfiles
+.PHONY: install-coqide install-ide-bin install-ide-toploop install-ide-files install-ide-info install-ide-devfiles
 
 ifeq ($(HASCOQIDE),no)
-install-coqide:
+install-coqide: install-ide-toploop
 else
-install-coqide: install-ide-bin install-ide-files install-ide-info install-ide-devfiles
+install-coqide: install-ide-bin install-ide-toploop install-ide-files install-ide-info install-ide-devfiles
 endif
 
 install-ide-bin:
 	$(MKDIR) $(FULLBINDIR)
 	$(INSTALLBIN) $(COQIDE) $(FULLBINDIR)
+
+install-ide-toploop:
+	$(MKDIR) $(FULLCOQLIB)/toploop
+	$(INSTALLBIN) $(IDETOPLOOPCMA) $(FULLCOQLIB)/toploop/
+ifeq ($(BEST),opt)
+	$(INSTALLBIN) $(IDETOPLOOPCMA:.cma=.cmxs) $(FULLCOQLIB)/toploop/
+endif
 
 install-ide-devfiles:
 	$(MKDIR) $(FULLCOQLIB)
@@ -343,15 +369,102 @@ ifeq ($(BEST),opt)
 	$(INSTALLSH) $(FULLCOQLIB) $(IDECMA:.cma=.cmxa) $(IDECMA:.cma=.a)
 endif
 
-install-ide-files:
+install-ide-files: #Please update $(COQIDEAPP)/Contents/Resources/ at the same time
 	$(MKDIR) $(FULLDATADIR)
-	$(INSTALLLIB) ide/coq.png ide/coq.lang ide/coq_style.xml $(FULLDATADIR)
+	$(INSTALLLIB) ide/coq.png ide/*.lang ide/coq_style.xml $(FULLDATADIR)
 	$(MKDIR) $(FULLCONFIGDIR)
 	if [ $(IDEINT) = QUARTZ ] ; then $(INSTALLLIB) ide/mac_default_accel_map $(FULLCONFIGDIR)/coqide.keys ; fi
 
 install-ide-info:
 	$(MKDIR) $(FULLDOCDIR)
 	$(INSTALLLIB) ide/FAQ $(FULLDOCDIR)/FAQ-CoqIde
+
+###########################################################################
+# CoqIde MacOS special targets
+###########################################################################
+
+.PHONY: $(COQIDEAPP)/Contents
+
+$(COQIDEAPP)/Contents:
+	rm -rdf $@
+	$(MKDIR) $@
+	sed -e "s/VERSION/$(VERSION)/g" ide/MacOS/Info.plist.template > $@/Info.plist
+	$(MKDIR) "$@/MacOS"
+
+$(COQIDEINAPP): ide/macos_prehook.cmx $(LINKIDEOPT) | $(COQIDEAPP)/Contents
+	$(SHOW)'OCAMLOPT -o $@'
+	$(HIDE)$(OCAMLOPT) $(COQIDEFLAGS) $(OPTFLAGS) -o $@ \
+		unix.cmxa lablgtk.cmxa lablgtksourceview2.cmxa str.cmxa \
+		threads.cmxa $(IDEFLAGS:.cma=.cmxa) $^
+	$(STRIP) $@
+
+$(COQIDEAPP)/Contents/Resources/share: $(COQIDEAPP)/Contents
+	$(MKDIR) $@/coq/
+	$(INSTALLLIB) ide/coq.png ide/*.lang ide/coq_style.xml $@/coq/
+	$(MKDIR) $@/gtksourceview-2.0/{language-specs,styles}
+	$(INSTALLLIB) "$(GTKSHARE)/"gtksourceview-2.0/language-specs/{def.lang,language2.rng} $@/gtksourceview-2.0/language-specs/
+	$(INSTALLLIB) "$(GTKSHARE)/"gtksourceview-2.0/styles/{styles.rng,classic.xml} $@/gtksourceview-2.0/styles/
+	cp -R "$(GTKSHARE)/"locale $@
+	cp -R "$(GTKSHARE)/"icons $@
+	cp -R "$(GTKSHARE)/"themes $@
+
+$(COQIDEAPP)/Contents/Resources/loaders: $(COQIDEAPP)/Contents
+	$(MKDIR) $@
+	$(INSTALLLIB) $$("$(GTKBIN)/gdk-pixbuf-query-loaders" | sed -n -e '5 s!.*= \(.*\)$$!\1!p')/libpixbufloader-png.so $@
+
+$(COQIDEAPP)/Contents/Resources/immodules: $(COQIDEAPP)/Contents
+	$(MKDIR) $@
+	$(INSTALLLIB) "$(GTKLIBS)/gtk-2.0/2.10.0/immodules/"*.so $@
+
+
+$(COQIDEAPP)/Contents/Resources/etc: $(COQIDEAPP)/Contents/Resources/lib
+	$(MKDIR) $@/xdg/coq
+	$(INSTALLLIB) ide/MacOS/default_accel_map $@/xdg/coq/coqide.keys
+	$(MKDIR) $@/gtk-2.0
+	{ "$(GTKBIN)/gdk-pixbuf-query-loaders" $@/../loaders/*.so |\
+	 sed -e "s!/.*\(/loaders/.*.so\)!@executable_path/../Resources/\1!"; } \
+	> $@/gtk-2.0/gdk-pixbuf.loaders
+	{ "$(GTKBIN)/gtk-query-immodules-2.0" $@/../immodules/*.so |\
+	 sed -e "s!/.*\(/immodules/.*.so\)!@executable_path/../Resources/\1!" |\
+	 sed -e "s!/.*\(/share/locale\)!@executable_path/../Resources/\1!"; } \
+	> $@/gtk-2.0/gtk-immodules.loaders
+	$(MKDIR) $@/pango
+	echo "[Pango]" > $@/pango/pangorc
+
+$(COQIDEAPP)/Contents/Resources/lib: $(COQIDEAPP)/Contents/Resources/immodules $(COQIDEAPP)/Contents/Resources/loaders $(COQIDEAPP)/Contents $(COQIDEINAPP)
+	$(MKDIR) $@
+	$(INSTALLLIB) $(GTKLIBS)/charset.alias $@/
+	$(MKDIR) $@/pango/1.8.0/modules
+	$(INSTALLLIB) "$(GTKLIBS)/pango/1.8.0/modules/"*.so $@/pango/1.8.0/modules/
+	{ "$(GTKBIN)/pango-querymodules" $@/pango/1.8.0/modules/*.so |\
+	 sed -e "s!/.*\(/pango/1.8.0/modules/.*.so\)!@executable_path/../Resources/lib\1!"; } \
+	> $@/pango/1.8.0/modules.cache
+
+	for i in $$(otool -L $(COQIDEINAPP) |sed -n -e "\@$(GTKLIBS)@ s/[^/]*\(\/[^ ]*\) .*$$/\1/p"); \
+	    do cp $$i $@/; \
+	    ide/MacOS/relatify_with-respect-to_.sh $@/$$(basename $$i) $(GTKLIBS) $@; \
+	done
+	for i in $@/../loaders/*.so $@/../immodules/*.so $@/pango/1.8.0/modules/*.so; \
+	    do \
+		for j in $$(otool -L $$i | sed -n -e "\@$(GTKLIBS)@ s/[^/]*\(\/[^ ]*\) .*$$/\1/p"); \
+		do cp $$j $@/; ide/MacOS/relatify_with-respect-to_.sh $@/$$(basename $$j) $(GTKLIBS) $@; done; \
+		ide/MacOS/relatify_with-respect-to_.sh $$i $(GTKLIBS) $@; \
+	    done
+	EXTRAWORK=1; \
+	while [ $${EXTRAWORK} -eq 1 ]; \
+	do EXTRAWORK=0; \
+	    for i in $@/*.dylib; \
+	    do for j in $$(otool -L $$i | sed -n -e "\@$(GTKLIBS)@ s/[^/]*\(\/[^ ]*\) .*$$/\1/p"); \
+		do EXTRAWORK=1; cp $$j $@/; ide/MacOS/relatify_with-respect-to_.sh $@/$$(basename $$j) $(GTKLIBS) $@; done; \
+	    done; \
+	done
+	ide/MacOS/relatify_with-respect-to_.sh $(COQIDEINAPP) $(GTKLIBS) $@
+
+$(COQIDEAPP)/Contents/Resources:$(COQIDEAPP)/Contents/Resources/etc $(COQIDEAPP)/Contents/Resources/share
+	$(INSTALLLIB) ide/MacOS/*.icns $@
+
+$(COQIDEAPP):$(COQIDEAPP)/Contents/Resources
+	$(CODESIGN) $@
 
 ###########################################################################
 # tests
@@ -446,7 +559,7 @@ noreal: unicode logic arith bool zarith qarith lists sets fsets \
 # 3) plugins
 ###########################################################################
 
-.PHONY: plugins omega micromega setoid_ring nsatz xml extraction
+.PHONY: plugins omega micromega setoid_ring nsatz extraction
 .PHONY: fourier funind cc rtauto btauto pluginsopt pluginsbyte
 
 plugins: $(PLUGINSVO)
@@ -454,7 +567,6 @@ omega: $(OMEGAVO) $(OMEGACMA) $(ROMEGAVO) $(ROMEGACMA)
 micromega: $(MICROMEGAVO) $(MICROMEGACMA) $(CSDPCERT)
 setoid_ring: $(RINGVO) $(RINGCMA)
 nsatz: $(NSATZVO) $(NSATZCMA)
-xml: $(XMLVO) $(XMLCMA)
 extraction: $(EXTRACTIONCMA)
 fourier: $(FOURIERVO) $(FOURIERCMA)
 funind: $(FUNINDCMA) $(FUNINDVO)
@@ -514,7 +626,7 @@ $(GALLINA): $(addsuffix $(BESTOBJ), tools/gallina_lexer tools/gallina)
 
 $(COQMAKEFILE):  $(patsubst %.cma,%$(BESTLIB),$(COQMAKEFILECMO:.cmo=$(BESTOBJ)))
 	$(SHOW)'OCAMLBEST -o $@'
-	$(HIDE)$(call bestocaml,,str unix)
+	$(HIDE)$(call bestocaml,,str unix threads)
 
 $(COQTEX): tools/coq_tex$(BESTOBJ)
 	$(SHOW)'OCAMLBEST -o $@'
@@ -528,12 +640,17 @@ $(COQDOC): $(patsubst %.cma,%$(BESTLIB),$(COQDOCCMO:.cmo=$(BESTOBJ)))
 	$(SHOW)'OCAMLBEST -o $@'
 	$(HIDE)$(call bestocaml,,str unix)
 
+$(COQWORKMGR): $(addsuffix $(BESTOBJ), stm/coqworkmgrApi tools/coqworkmgr) \
+		$(addsuffix $(BESTLIB), lib/clib)
+	$(SHOW)'OCAMLBEST -o $@'
+	$(HIDE)$(call bestocaml,, $(SYSMOD) clib)
+
 # fake_ide : for debugging or test-suite purpose, a fake ide simulating
 # a connection to coqtop -ideslave
 
-$(FAKEIDE): lib/clib$(BESTLIB) lib/xml_lexer$(BESTOBJ) lib/xml_parser$(BESTOBJ) lib/xml_printer$(BESTOBJ) lib/errors$(BESTOBJ) lib/spawn$(BESTOBJ) ide/document$(BESTOBJ) tools/fake_ide$(BESTOBJ)
+$(FAKEIDE): lib/clib$(BESTLIB) lib/xml_lexer$(BESTOBJ) lib/xml_parser$(BESTOBJ) lib/xml_printer$(BESTOBJ) lib/errors$(BESTOBJ) lib/spawn$(BESTOBJ) ide/document$(BESTOBJ) ide/xmlprotocol$(BESTOBJ) tools/fake_ide$(BESTOBJ) | $(IDETOPLOOPCMA:.cma=$(BESTDYN))
 	$(SHOW)'OCAMLBEST -o $@'
-	$(HIDE)$(call bestocaml,-I ide,str unix)
+	$(HIDE)$(call bestocaml,-I ide,str unix threads)
 
 # votour: a small vo explorer (based on the checker)
 
@@ -545,9 +662,9 @@ bin/votour: lib/cObj$(BESTOBJ) checker/values$(BESTOBJ) checker/votour.ml
 
 ifeq ($(CAMLP4),camlp4)
 tools/compat5.cmo: tools/compat5.mlp
-	$(OCAMLC) -c -I $(MYCAMLP4LIB) -pp '$(CAMLP4O) -impl' -impl $<
+	$(OCAMLC) -c -I $(MYCAMLP4LIB) -pp '$(CAMLP4O) $(CAMLP4FLAGS) -impl' -impl $<
 tools/compat5b.cmo: tools/compat5b.mlp
-	$(OCAMLC) -c -I $(MYCAMLP4LIB) -pp '$(CAMLP4O) -impl' -impl $<
+	$(OCAMLC) -c -I $(MYCAMLP4LIB) -pp '$(CAMLP4O) $(CAMLP4FLAGS) -impl' -impl $<
 else
 tools/compat5.cmo: tools/compat5.ml
 	$(OCAMLC) -c $<
@@ -618,6 +735,12 @@ install-coqlight: install-binaries install-library-light
 install-binaries: install-tools
 	$(MKDIR) $(FULLBINDIR)
 	$(INSTALLBIN) $(COQC) $(COQTOPBYTE) $(COQTOPEXE) $(CHICKEN) $(FULLBINDIR)
+	$(MKDIR) $(FULLCOQLIB)/toploop
+	$(INSTALLBIN) $(TOPLOOPCMA) $(FULLCOQLIB)/toploop/
+ifeq ($(BEST),opt)
+	$(INSTALLBIN) $(TOPLOOPCMA:.cma=.cmxs) $(FULLCOQLIB)/toploop/
+endif
+
 
 install-tools:
 	$(MKDIR) $(FULLBINDIR)
@@ -707,13 +830,13 @@ $(OCAMLDOCDIR)/coq.tex: $(DOCMLIS:.mli=.cmi)
 	-intro $(OCAMLDOCDIR)/docintro -o $@
 
 mli-doc: $(DOCMLIS:.mli=.cmi)
-	$(OCAMLDOC) -html -rectypes -I +threads -I $(MYCAMLP4LIB) $(MLINCLUDES) $(COQIDEFLAGS)\
+	$(OCAMLDOC) -html -rectypes -I +threads -I $(MYCAMLP4LIB) $(MLINCLUDES) \
 	$(DOCMLIS) -d $(OCAMLDOCDIR)/html -colorize-code \
 	-t "Coq mlis documentation" -intro $(OCAMLDOCDIR)/docintro \
 	-css-style style.css
 
 ml-dot: $(MLFILES)
-	$(OCAMLDOC) -dot -dot-reduce -rectypes -I +threads -I $(CAMLLIB) -I $(MYCAMLP4LIB) $(MLINCLUDES) $(COQIDEFLAGS)\
+	$(OCAMLDOC) -dot -dot-reduce -rectypes -I +threads -I $(CAMLLIB) -I $(MYCAMLP4LIB) $(MLINCLUDES) \
 	$(filter $(addsuffix /%.ml,$(CORESRCDIRS)),$(MLFILES)) -o $(OCAMLDOCDIR)/coq.dot
 
 %_dep.png: %.dot
@@ -760,7 +883,7 @@ dev/printers.cma: | dev/printers.mllib.d
 grammar/grammar.cma: | grammar/grammar.mllib.d
 	$(SHOW)'Testing $@'
 	@touch test.ml4
-	$(HIDE)$(CAMLP4O) -I $(CAMLLIB) $^ -impl test.ml4 -o test.ml
+	$(HIDE)$(CAMLP4O) $(CAMLP4FLAGS) $^ -impl test.ml4 -o test.ml
 	$(HIDE)$(OCAMLC) $(MLINCLUDES) $(BYTEFLAGS) test.ml -o test-grammar
 	@rm -f test-grammar test.*
 	$(SHOW)'OCAMLC -a $@'   
@@ -768,7 +891,7 @@ grammar/grammar.cma: | grammar/grammar.mllib.d
 
 ide/coqide_main.ml: ide/coqide_main.ml4 config/Makefile # no camlp4deps here
 	$(SHOW)'CAMLP4O   $<'
-	$(HIDE)$(CAMLP4O) $(PR_O) $(CAMLP4USE) -D$(IDEINT) -impl $< -o $@
+	$(HIDE)$(CAMLP4O) $(CAMLP4FLAGS) $(PR_O) $(CAMLP4USE) -D$(IDEINT) -impl $< -o $@
 
 # pretty printing of the revision number when compiling a checked out
 # source tree
@@ -837,6 +960,10 @@ COND_OPTFLAGS= \
 	$(SHOW)'OCAMLC    $<'
 	$(HIDE)cd $(dir $<) && $(OCAMLC) -ccopt "$(CFLAGS)" -c $(notdir $<)
 
+%.o: %.rc
+	$(SHOW)'WINDRES    $<'
+	$(HIDE)i686-w64-mingw32-windres -i $< -o $@
+
 %.cmi: %.mli | %.mli.d
 	$(SHOW)'OCAMLC    $<'
 	$(HIDE)$(OCAMLC) $(COND_BYTEFLAGS) -c $<
@@ -902,7 +1029,7 @@ plugins/%_mod.ml: plugins/%.mllib
 
 %.ml: %.ml4 | %.ml4.d tools/compat5.cmo tools/compat5b.cmo
 	$(SHOW)'CAMLP4O   $<'
-	$(HIDE)$(CAMLP4O) $(PR_O) -I $(CAMLLIB) tools/compat5.cmo \
+	$(HIDE)$(CAMLP4O) $(CAMLP4FLAGS) $(PR_O) tools/compat5.cmo \
 	  $(call CAMLP4DEPS,$<) $(CAMLP4USE) $(CAMLP4COMPAT) -impl $< -o $@
 
 %.vo %.glob: %.v theories/Init/Prelude.vo $(VO_TOOLS_DEP) | %.v.d

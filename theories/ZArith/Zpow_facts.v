@@ -1,6 +1,6 @@
 (************************************************************************)
 (*  v      *   The Coq Proof Assistant  /  The Coq Development Team     *)
-(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2012     *)
+(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2015     *)
 (*   \VV/  **************************************************************)
 (*    //   *      This file is distributed under the terms of the       *)
 (*         *       GNU Lesser General Public License Version 2.1        *)
@@ -152,10 +152,8 @@ Qed.
 Theorem Zpow_mod_correct a m n :
  n <> 0 -> Zpow_mod a m n = (a ^ m) mod n.
 Proof.
-  intros Hn. destruct m; simpl.
-  - trivial.
+  intros Hn. destruct m; simpl; trivial.
   - apply Zpow_mod_pos_correct; auto with zarith.
-  - rewrite Z.mod_0_l; auto with zarith.
 Qed.
 
 (* Complements about power and number theory. *)

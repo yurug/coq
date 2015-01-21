@@ -1,16 +1,16 @@
 (************************************************************************)
 (*  v      *   The Coq Proof Assistant  /  The Coq Development Team     *)
-(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2012     *)
+(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2015     *)
 (*   \VV/  **************************************************************)
 (*    //   *      This file is distributed under the terms of the       *)
 (*         *       GNU Lesser General Public License Version 2.1        *)
 (************************************************************************)
 
 open Names
-open Univ
 open Term
 open Context
 open Declarations
+open Univ
 
 (** The type of environments. *)
 
@@ -33,7 +33,8 @@ type globals = {
 
 type stratification = {
   env_universes : universes;
-  env_engagement : engagement option
+  env_engagement : engagement option;
+  env_type_in_type : bool
 }
 
 type lazy_val
@@ -53,7 +54,9 @@ type env = {
     env_nb_rel        : int;
     env_stratification : stratification;
     env_conv_oracle   : Conv_oracle.oracle;
-    retroknowledge : Retroknowledge.retroknowledge }
+    retroknowledge : Retroknowledge.retroknowledge;
+    indirect_pterms : Opaqueproof.opaquetab;
+}
 
 type named_context_val = named_context * named_vals
 

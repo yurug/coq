@@ -1,6 +1,6 @@
 (************************************************************************)
 (*  v      *   The Coq Proof Assistant  /  The Coq Development Team     *)
-(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2012     *)
+(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2015     *)
 (*   \VV/  **************************************************************)
 (*    //   *      This file is distributed under the terms of the       *)
 (*         *       GNU Lesser General Public License Version 2.1        *)
@@ -101,7 +101,7 @@ let rec fold_local_binders g f n acc b = function
       f n acc b
 
 let fold_constr_expr_with_binders g f n acc = function
-  | CAppExpl (loc,(_,_),l) -> List.fold_left (f n) acc l
+  | CAppExpl (loc,(_,_,_),l) -> List.fold_left (f n) acc l
   | CApp (loc,(_,t),l) -> List.fold_left (f n) (f n acc t) (List.map fst l)
   | CProdN (_,l,b) | CLambdaN (_,l,b) -> fold_constr_expr_binders g f n acc b l
   | CLetIn (_,na,a,b) -> fold_constr_expr_binders g f n acc b [[na],default_binder_kind,a]
@@ -111,7 +111,7 @@ let fold_constr_expr_with_binders g f n acc = function
       (* The following is an approximation: we don't know exactly if
          an ident is binding nor to which subterms bindings apply *)
       let acc = List.fold_left (f n) acc (l@List.flatten ll) in
-      List.fold_left (fun acc bl -> fold_local_binders g f n acc (CHole (Loc.ghost,None,None)) bl) acc bll
+      List.fold_left (fun acc bl -> fold_local_binders g f n acc (CHole (Loc.ghost,None,IntroAnonymous,None)) bl) acc bll
   | CGeneralization (_,_,_,c) -> f n acc c
   | CDelimiters (loc,_,a) -> f n acc a
   | CHole _ | CEvar _ | CPatVar _ | CSort _ | CPrim _ | CRef _ ->
@@ -141,7 +141,7 @@ let fold_constr_expr_with_binders g f n acc = function
 
 let free_vars_of_constr_expr c =
   let rec aux bdvars l = function
-  | CRef (Ident (_,id)) -> if Id.List.mem id bdvars then l else Id.Set.add id l
+  | CRef (Ident (_,id),_) -> if Id.List.mem id bdvars then l else Id.Set.add id l
   | c -> fold_constr_expr_with_binders (fun a l -> a::l) aux bdvars l c
   in aux [] Id.Set.empty c
 
@@ -250,8 +250,8 @@ let map_constr_expr_with_binders g f e = function
 
 (* Used in constrintern *)
 let rec replace_vars_constr_expr l = function
-  | CRef (Ident (loc,id)) as x ->
-      (try CRef (Ident (loc,Id.Map.find id l)) with Not_found -> x)
+  | CRef (Ident (loc,id),us) as x ->
+      (try CRef (Ident (loc,Id.Map.find id l),us) with Not_found -> x)
   | c -> map_constr_expr_with_binders Id.Map.remove
            replace_vars_constr_expr l c
 
@@ -262,8 +262,8 @@ let locs_of_notation loc locs ntn =
   let (bl, el) = Loc.unloc loc in
   let locs =  List.map Loc.unloc locs in
   let rec aux pos = function
-    | [] -> if Int.equal pos el then [] else [(pos,el-1)]
-    | (ba,ea)::l ->if Int.equal pos ba then aux ea l else (pos,ba-1)::aux ea l
+    | [] -> if Int.equal pos el then [] else [(pos,el)]
+    | (ba,ea)::l -> if Int.equal pos ba then aux ea l else (pos,ba)::aux ea l
   in aux bl (List.sort (fun l1 l2 -> fst l1 - fst l2) locs)
 
 let ntn_loc loc (args,argslist,binderslist) =

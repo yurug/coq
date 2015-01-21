@@ -1,6 +1,6 @@
 (************************************************************************)
 (*  v      *   The Coq Proof Assistant  /  The Coq Development Team     *)
-(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2012     *)
+(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2015     *)
 (*   \VV/  **************************************************************)
 (*    //   *      This file is distributed under the terms of the       *)
 (*         *       GNU Lesser General Public License Version 2.1        *)
@@ -32,6 +32,14 @@ open Constrexpr
 open Constrintern
 open Impargs
 
+type 'a declaration_hook = Decl_kinds.locality -> Globnames.global_reference -> 'a
+let mk_hook hook = hook
+let call_hook fix_exn hook l c =
+  try hook l c
+  with e when Errors.noncritical e ->
+    let e = Errors.push e in
+    iraise (fix_exn e)
+
 (* Support for mutually proved theorems *)
 
 let retrieve_first_recthm = function
@@ -39,7 +47,7 @@ let retrieve_first_recthm = function
       (pi2 (Global.lookup_named id),variable_opacity id)
   | ConstRef cst ->
       let cb = Global.lookup_constant cst in
-      (body_of_constant cb, is_opaque cb)
+      (Global.body_of_constant_body cb, is_opaque cb)
   | _ -> assert false
 
 let adjust_guardness_conditions const = function
@@ -49,7 +57,7 @@ let adjust_guardness_conditions const = function
      let env = Global.env() in
      { const with const_entry_body =
         Future.chain ~greedy:true ~pure:true const.const_entry_body
-        (fun (body, eff) ->
+        (fun ((body, ctx), eff) ->
           match kind_of_term body with
           | Fix ((nv,0),(_,_,fixdefs as fixdecls)) ->
 (*      let possible_indexes =
@@ -57,11 +65,21 @@ let adjust_guardness_conditions const = function
 	  List.interval 0 (List.length ((lam_assum c))))
 	  lemma_guard (Array.to_list fixdefs) in
 *)
+              let add c cb e =
+                let exists c e =
+                  try ignore(Environ.lookup_constant c e); true
+                  with Not_found -> false in 
+                if exists c e then e else Environ.add_constant c cb e in
+              let env = Declareops.fold_side_effects (fun env -> function
+                | SEsubproof (c, cb,_) -> add c cb env
+                | SEscheme (l,_) ->
+                    List.fold_left (fun e (_,c,cb,_) -> add c cb e) env l)
+                env (Declareops.uniquize_side_effects eff) in
               let indexes =
 	        search_guard Loc.ghost env
                   possible_indexes fixdecls in
-              mkFix ((indexes,0),fixdecls),  eff
-          | _ -> body, eff) }
+		(mkFix ((indexes,0),fixdecls), ctx), eff
+          | _ -> (body, ctx), eff) }
 
 let find_mutually_recursive_statements thms =
     let n = List.length thms in
@@ -73,9 +91,9 @@ let find_mutually_recursive_statements thms =
       | Some (Some (_,id),CStructRec) ->
           let i,b,typ = lookup_rel_id id hyps in
           (match kind_of_term t with
-          | Ind (kn,_ as ind) when
+          | Ind ((kn,_ as ind), u) when
               let mind = Global.lookup_mind kn in
-              mind.mind_finite && Option.is_empty b ->
+              mind.mind_finite == Decl_kinds.Finite && Option.is_empty b ->
               [ind,x,i],[]
           | _ ->
               error "Decreasing argument is not an inductive assumption.")
@@ -90,9 +108,9 @@ let find_mutually_recursive_statements thms =
       let ind_hyps =
         List.flatten (List.map_i (fun i (_,b,t) ->
           match kind_of_term t with
-          | Ind (kn,_ as ind) when
+          | Ind ((kn,_ as ind),u) when
                 let mind = Global.lookup_mind kn in
-                mind.mind_finite && Option.is_empty b ->
+                mind.mind_finite <> Decl_kinds.CoFinite && Option.is_empty b ->
               [ind,x,i]
           | _ ->
               []) 0 (List.rev whnf_hyp_hds)) in
@@ -100,9 +118,9 @@ let find_mutually_recursive_statements thms =
         let cclenv = push_rel_context hyps (Global.env()) in
         let whnf_ccl,_ = whd_betadeltaiota_stack cclenv Evd.empty ccl in
         match kind_of_term whnf_ccl with
-        | Ind (kn,_ as ind) when
+        | Ind ((kn,_ as ind),u) when
               let mind = Global.lookup_mind kn in
-              Int.equal mind.mind_ntypes n && not mind.mind_finite ->
+              Int.equal mind.mind_ntypes n && mind.mind_finite == Decl_kinds.CoFinite ->
             [ind,x,0]
         | _ ->
             [] in
@@ -167,23 +185,28 @@ let look_for_possibly_mutual_statements = function
 
 (* Saving a goal *)
 
-let save id const do_guard (locality,kind) hook =
-  let const = adjust_guardness_conditions const do_guard in
-  let k = Kindops.logical_kind_of_goal_kind kind in
-  let l,r = match locality with
-    | Discharge when Lib.sections_are_opened () ->
-	let c = SectionLocalDef const in
-	let _ = declare_variable id (Lib.cwd(), c, k) in
-	(Local, VarRef id)
-    | Local | Global | Discharge ->
-        let local = match locality with
-        | Local | Discharge -> true
-        | Global -> false
-        in
-        let kn = declare_constant id ~local (DefinitionEntry const, k) in
-	(locality, ConstRef kn) in
-  definition_message id;
-  hook l r
+let save id const cstrs do_guard (locality,poly,kind) hook =
+  let fix_exn = Future.fix_exn_of const.Entries.const_entry_body in
+  try
+    let const = adjust_guardness_conditions const do_guard in
+    let k = Kindops.logical_kind_of_goal_kind kind in
+    let l,r = match locality with
+      | Discharge when Lib.sections_are_opened () ->
+          let c = SectionLocalDef const in
+          let _ = declare_variable id (Lib.cwd(), c, k) in
+          (Local, VarRef id)
+      | Local | Global | Discharge ->
+          let local = match locality with
+          | Local | Discharge -> true
+          | Global -> false
+          in
+          let kn = declare_constant id ~local (DefinitionEntry const, k) in
+          (locality, ConstRef kn) in
+    definition_message id;
+    call_hook (fun exn -> exn) hook l r
+  with e when Errors.noncritical e ->
+    let e = Errors.push e in
+    iraise (fix_exn e)
 
 let default_thm_id = Id.of_string "Unnamed_thm"
 
@@ -198,14 +221,15 @@ let compute_proof_name locality = function
   | None ->
       next_global_ident_away default_thm_id (Pfedit.get_all_proof_names ()) 
 
-let save_remaining_recthms (locality,kind) body opaq i (id,(t_i,(_,imps))) =
+let save_remaining_recthms (locality,p,kind) norm ctx body opaq i (id,(t_i,(_,imps))) =
+  let t_i = norm t_i in
   match body with
   | None ->
       (match locality with
       | Discharge ->
           let impl = false in (* copy values from Vernacentries *)
           let k = IsAssumption Conjectural in
-          let c = SectionLocalAssum (t_i,impl) in
+          let c = SectionLocalAssum ((t_i,ctx),p,impl) in
 	  let _ = declare_variable id (Lib.cwd(),c,k) in
           (Discharge, VarRef id,imps)
       | Local | Global ->
@@ -215,42 +239,34 @@ let save_remaining_recthms (locality,kind) body opaq i (id,(t_i,(_,imps))) =
           | Global -> false
           | Discharge -> assert false
           in
-          let decl = (ParameterEntry (None,t_i,None), k) in
+          let ctx = Univ.ContextSet.to_context ctx in
+          let decl = (ParameterEntry (None,p,(t_i,ctx),None), k) in
           let kn = declare_constant id ~local decl in
           (locality,ConstRef kn,imps))
   | Some body ->
+      let body = norm body in
       let k = Kindops.logical_kind_of_goal_kind kind in
       let body_i = match kind_of_term body with
         | Fix ((nv,0),decls) -> mkFix ((nv,i),decls)
         | CoFix (0,decls) -> mkCoFix (i,decls)
-        | _ -> anomaly (Pp.str "Not a proof by induction") in
+        | _ -> anomaly Pp.(str "Not a proof by induction: " ++ Printer.pr_constr body) in
       match locality with
       | Discharge ->
-          let const = { const_entry_body =
-                Future.from_val (body_i,Declareops.no_seff);
-              const_entry_secctx = None;
-              const_entry_type = Some t_i;
-              const_entry_opaque = opaq;
-              const_entry_inline_code = false;
-              const_entry_feedback = None;
-          } in
+          let const = definition_entry ~types:t_i ~opaque:opaq ~poly:p 
+	    ~univs:(Univ.ContextSet.to_context ctx) body_i in
 	  let c = SectionLocalDef const in
 	  let _ = declare_variable id (Lib.cwd(), c, k) in
           (Discharge,VarRef id,imps)
       | Local | Global ->
+        let ctx = Univ.ContextSet.to_context ctx in
         let local = match locality with
         | Local -> true
         | Global -> false
         | Discharge -> assert false
         in
-        let const = { const_entry_body =
-              Future.from_val (body_i,Declareops.no_seff);
-            const_entry_secctx = None;
-            const_entry_type = Some t_i;
-            const_entry_opaque = opaq;
-            const_entry_inline_code = false;
-            const_entry_feedback = None;
-        } in
+        let const =
+	  Declare.definition_entry ~types:t_i ~poly:p ~univs:ctx ~opaque:opaq body_i
+	in
         let kn = declare_constant id ~local (DefinitionEntry const, k) in
         (locality,ConstRef kn,imps)
 
@@ -258,8 +274,8 @@ let save_hook = ref ignore
 let set_save_hook f = save_hook := f
 
 let save_named proof =
-  let id,const,do_guard,persistence,hook = proof in
-  save id const do_guard persistence hook
+  let id,const,cstrs,do_guard,persistence,hook = proof in
+  save id const cstrs do_guard persistence hook
 
 let check_anonymity id save_ident =
   if not (String.equal (atompart_of_id id) (Id.to_string (default_thm_id))) then
@@ -267,30 +283,34 @@ let check_anonymity id save_ident =
 
 
 let save_anonymous proof save_ident =
-  let id,const,do_guard,persistence,hook = proof in
+  let id,const,cstrs,do_guard,persistence,hook = proof in
   check_anonymity id save_ident;
-  save save_ident const do_guard persistence hook
+  save save_ident const cstrs do_guard persistence hook
 
 let save_anonymous_with_strength proof kind save_ident =
-  let id,const,do_guard,_,hook = proof in
+  let id,const,cstrs,do_guard,_,hook = proof in
   check_anonymity id save_ident;
   (* we consider that non opaque behaves as local for discharge *)
-  save save_ident const do_guard (Global, Proof kind) hook
+  save save_ident const cstrs do_guard (Global, const.const_entry_polymorphic, Proof kind) hook
 
 (* Admitted *)
 
 let admit hook () =
   let (id,k,typ) = Pfedit.current_proof_statement () in
-  let e = Pfedit.get_used_variables(), typ, None in
-  let kn = declare_constant id (ParameterEntry e,IsAssumption Conjectural) in
-  let () = match fst k with
-  | Global -> ()
-  | Local | Discharge ->
+  let ctx =
+    let evd = fst (Pfedit.get_current_goal_context ()) in
+      Evd.universe_context evd
+  in
+  let e = Pfedit.get_used_variables(), pi2 k, (typ, ctx), None in
+  let kn = declare_constant id (ParameterEntry e, IsAssumption Conjectural) in
+  let () = match k with
+  | Global, _, _ -> ()
+  | Local, _, _ | Discharge, _, _ ->
     msg_warning (str "Let definition" ++ spc () ++ pr_id id ++ spc () ++
       str "declared as an axiom.")
   in
   let () = assumption_message id in
-  hook Global (ConstRef kn)
+  call_hook (fun exn -> exn) hook Global (ConstRef kn)
 
 (* Starting a goal *)
 
@@ -299,16 +319,17 @@ let set_start_hook = (:=) start_hook
 
 
 let get_proof proof do_guard hook opacity =
-  let (id,(const,persistence)) =
+  let (id,(const,cstrs,persistence)) =
     Pfedit.cook_this_proof proof
   in
-  id,{const with const_entry_opaque = opacity},do_guard,persistence,hook
+  (** FIXME *)
+  id,{const with const_entry_opaque = opacity},cstrs,do_guard,persistence,hook
 
 let standard_proof_terminator compute_guard hook =
   let open Proof_global in function
   | Admitted ->
       admit hook ();
-      Pp.feedback Interface.AddedAxiom
+      Pp.feedback Feedback.AddedAxiom
   | Proved (is_opaque,idopt,proof) ->
       let proof = get_proof proof compute_guard hook is_opaque in
       begin match idopt with
@@ -318,7 +339,22 @@ let standard_proof_terminator compute_guard hook =
           save_anonymous_with_strength proof kind id
       end
 
-let start_proof id kind ?sign c ?init_tac ?(compute_guard=[]) hook =
+let universe_proof_terminator compute_guard hook =
+  let open Proof_global in function
+  | Admitted ->
+      admit (hook None) ();
+      Pp.feedback Feedback.AddedAxiom
+  | Proved (is_opaque,idopt,proof) ->
+      let proof = get_proof proof compute_guard 
+	(hook (Some proof.Proof_global.universes)) is_opaque in
+      begin match idopt with
+      | None -> save_named proof
+      | Some ((_,id),None) -> save_anonymous proof id
+      | Some ((_,id),Some kind) -> 
+          save_anonymous_with_strength proof kind id
+      end
+
+let start_proof id kind sigma ?sign c ?init_tac ?(compute_guard=[]) hook =
   let terminator = standard_proof_terminator compute_guard hook in
   let sign = 
     match sign with
@@ -326,8 +362,17 @@ let start_proof id kind ?sign c ?init_tac ?(compute_guard=[]) hook =
     | None -> initialize_named_context_for_proof ()
   in
   !start_hook c;
-  Pfedit.start_proof id kind sign c ?init_tac terminator
+  Pfedit.start_proof id kind sigma sign c ?init_tac terminator
 
+let start_proof_univs id kind sigma ?sign c ?init_tac ?(compute_guard=[]) hook =
+  let terminator = universe_proof_terminator compute_guard hook in
+  let sign = 
+    match sign with
+    | Some sign -> sign
+    | None -> initialize_named_context_for_proof ()
+  in
+  !start_hook c;
+  Pfedit.start_proof id kind sigma sign c ?init_tac terminator
 
 let rec_tac_initializer finite guard thms snl =
   if finite then
@@ -343,7 +388,7 @@ let rec_tac_initializer finite guard thms snl =
        | (id,n,_)::l -> Tactics.mutual_fix id n l 0
        | _ -> assert false
 
-let start_proof_with_initialization kind recguard thms snl hook =
+let start_proof_with_initialization kind ctx recguard thms snl hook =
   let intro_tac (_, (_, (ids, _))) =
     Tacticals.New.tclMAP (function
     | Name id -> Tactics.intro_mustbe_force id
@@ -369,33 +414,44 @@ let start_proof_with_initialization kind recguard thms snl hook =
   match thms with
   | [] -> anomaly (Pp.str "No proof to start")
   | (id,(t,(_,imps)))::other_thms ->
-      let hook strength ref =
+      let hook ctx strength ref =
+        let ctx = match ctx with
+        | None -> Evd.empty_evar_universe_context
+        | Some ctx -> ctx
+        in
         let other_thms_data =
           if List.is_empty other_thms then [] else
             (* there are several theorems defined mutually *)
             let body,opaq = retrieve_first_recthm ref in
-            List.map_i (save_remaining_recthms kind body opaq) 1 other_thms in
+            let subst = Evd.evar_universe_context_subst ctx in
+            let norm c = Universes.subst_opt_univs_constr subst c in
+	    let ctx = Evd.evar_universe_context_set ctx in
+	    let body = Option.map norm body in
+            List.map_i (save_remaining_recthms kind norm ctx body opaq) 1 other_thms in
         let thms_data = (strength,ref,imps)::other_thms_data in
         List.iter (fun (strength,ref,imps) ->
 	  maybe_declare_manual_implicits false ref imps;
-	  hook strength ref) thms_data in
-      start_proof id kind t ?init_tac hook ~compute_guard:guard
+	  call_hook (fun exn -> exn) hook strength ref) thms_data in
+      start_proof_univs id kind ctx t ?init_tac (fun ctx -> mk_hook (hook ctx)) ~compute_guard:guard
 
 let start_proof_com kind thms hook =
-  let evdref = ref Evd.empty in
   let env0 = Global.env () in
+  let evdref = ref (Evd.from_env env0) in
   let thms = List.map (fun (sopt,(bl,t,guard)) ->
-    let impls, ((env, ctx), imps) = interp_context_evars evdref env0 bl in
-    let t', imps' = interp_type_evars_impls ~impls evdref env t in
-    check_evars_are_solved env Evd.empty !evdref;
+    let impls, ((env, ctx), imps) = interp_context_evars env0 evdref bl in
+    let t', imps' = interp_type_evars_impls ~impls env evdref t in
+    check_evars_are_solved env !evdref (Evd.empty,!evdref);
     let ids = List.map pi1 ctx in
-      (compute_proof_name (fst kind) sopt,
+      (compute_proof_name (pi1 kind) sopt,
       (nf_evar !evdref (it_mkProd_or_LetIn t' ctx),
        (ids, imps @ lift_implicits (List.length ids) imps'),
        guard)))
     thms in
   let recguard,thms,snl = look_for_possibly_mutual_statements thms in
-  start_proof_with_initialization kind recguard thms snl hook
+  let evd, nf = Evarutil.nf_evars_and_universes !evdref in
+  let thms = List.map (fun (n, (t, info)) -> (n, (nf t, info))) thms in
+  start_proof_with_initialization kind evd
+    recguard thms snl hook
 
 
 (* Saving a proof *)
@@ -406,7 +462,8 @@ let save_proof ?proof = function
   | Vernacexpr.Proved (is_opaque,idopt) ->
       let (proof_obj,terminator) =
         match proof with
-        | None -> Proof_global.close_proof (fun x -> x)
+        | None ->
+            Proof_global.close_proof ~keep_body_ucst_sepatate:false (fun x -> x)
         | Some proof -> proof
       in
       (* if the proof is given explicitly, nothing has to be deleted *)
@@ -419,13 +476,3 @@ let get_current_context () =
   try Pfedit.get_current_goal_context ()
   with e when Logic.catchable_exception e ->
     (Evd.empty, Global.env())
-
-
-
-
-
-
-
-
-
-

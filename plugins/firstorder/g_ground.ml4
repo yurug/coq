@@ -1,6 +1,6 @@
 (************************************************************************)
 (*  v      *   The Coq Proof Assistant  /  The Coq Development Team     *)
-(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2012     *)
+(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2015     *)
 (*   \VV/  **************************************************************)
 (*    //   *      This file is distributed under the terms of the       *)
 (*         *       GNU Lesser General Public License Version 2.1        *)
@@ -15,6 +15,8 @@ open Goptions
 open Tacticals
 open Tacinterp
 open Libnames
+
+DECLARE PLUGIN "ground_plugin"
 
 (* declaring search depth as a global option *)
 
@@ -78,7 +80,8 @@ let gen_ground_tac flag taco ids bases gl=
 	  | None-> snd (default_solver ()) in
       let startseq gl=
 	let seq=empty_seq !ground_depth in
-	extend_with_auto_hints bases (extend_with_ref_list ids seq gl) gl in
+        let seq,gl = extend_with_ref_list ids seq gl in
+        extend_with_auto_hints bases seq gl in
       let result=ground_tac (Proofview.V82.of_tactic solver) startseq gl in
 	qflag:=backup;result
     with reraise -> qflag:=backup;raise reraise
@@ -103,9 +106,9 @@ open Pp
 open Genarg
 open Ppconstr
 open Printer
-let pr_firstorder_using_raw _ _ _ = prlist_with_sep pr_comma pr_reference
-let pr_firstorder_using_glob _ _ _ = prlist_with_sep pr_comma (pr_or_var (fun x -> (pr_global (snd x))))
-let pr_firstorder_using_typed _ _ _ = prlist_with_sep pr_comma pr_global
+let pr_firstorder_using_raw _ _ _ l = str "using " ++ prlist_with_sep pr_comma pr_reference l
+let pr_firstorder_using_glob _ _ _ l = str "using " ++ prlist_with_sep pr_comma (pr_or_var (fun x -> (pr_global (snd x)))) l
+let pr_firstorder_using_typed _ _ _ l = str "using " ++ prlist_with_sep pr_comma pr_global l
 
 ARGUMENT EXTEND firstorder_using
   PRINTED BY pr_firstorder_using_typed

@@ -1,6 +1,6 @@
 (************************************************************************)
 (*  v      *   The Coq Proof Assistant  /  The Coq Development Team     *)
-(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2012     *)
+(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2015     *)
 (*   \VV/  **************************************************************)
 (*    //   *      This file is distributed under the terms of the       *)
 (*         *       GNU Lesser General Public License Version 2.1        *)
@@ -11,13 +11,12 @@ open Util
 (* Type of regular trees:
    - Param denotes tree variables (like de Bruijn indices)
      the first int is the depth of the occurrence, and the second int
-     is the index in the array of trees introduced at that depth
+     is the index in the array of trees introduced at that depth.
+     Warning: Param's indices both start at 0!
    - Node denotes the usual tree node, labelled with 'a
    - Rec(j,v1..vn) introduces infinite tree. It denotes
      v(j+1) with parameters 0..n-1 replaced by
      Rec(0,v1..vn)..Rec(n-1,v1..vn) respectively.
-     Parameters n and higher denote parameters global to the
-     current Rec node (as usual in de Bruijn binding system)
  *)
 type 'a t =
     Param of int * int
@@ -145,8 +144,40 @@ let equal cmp t t' =
 (** Deprecated alias *)
 let eq_rtree = equal
 
-(** Tests if a given tree is infinite, i.e. has an branch of infinite length.
-   This correspond to a cycle when visiting the expanded tree.
+(** Intersection of rtrees of same arity *)
+let rec inter cmp interlbl def n histo t t' =
+  try
+    let (i,j) = List.assoc_f (raw_eq2 cmp) (t,t') histo in
+    Param (n-i-1,j)
+  with Not_found ->
+  match t, t' with
+  | Param (i,j), Param (i',j') ->
+      assert (Int.equal i i' && Int.equal j j'); t
+  | Node (x, a), Node (x', a') ->
+      (match interlbl x x' with
+      | None -> mk_node def [||]
+      | Some x'' -> Node (x'', Array.map2 (inter cmp interlbl def n histo) a a'))
+  | Rec (i,v), Rec (i',v') ->
+     (* If possible, we preserve the shape of input trees *)
+     if Int.equal i i' && Int.equal (Array.length v) (Array.length v') then
+       let histo = ((t,t'),(n,i))::histo in
+       Rec(i, Array.map2 (inter cmp interlbl def (n+1) histo) v v')
+     else
+     (* Otherwise, mutually recursive trees are transformed into nested trees *)
+       let histo = ((t,t'),(n,0))::histo in
+       Rec(0, [|inter cmp interlbl def (n+1) histo (expand t) (expand t')|])
+  | Rec _, _ -> inter cmp interlbl def n histo (expand t) t'
+  | _ , Rec _ -> inter cmp interlbl def n histo t (expand t')
+  | _ -> assert false
+
+let inter cmp interlbl def t t' = inter cmp interlbl def 0 [] t t'
+
+(** Inclusion of rtrees. We may want a more efficient implementation. *)
+let incl cmp interlbl def t t' =
+  equal cmp t (inter cmp interlbl def t t')
+
+(** Tests if a given tree is infinite, i.e. has a branch of infinite length.
+   This corresponds to a cycle when visiting the expanded tree.
    We use a specific comparison to detect already seen trees. *)
 
 let is_infinite cmp t =

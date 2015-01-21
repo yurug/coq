@@ -1,6 +1,6 @@
 (************************************************************************)
 (*  v      *   The Coq Proof Assistant  /  The Coq Development Team     *)
-(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2012     *)
+(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2015     *)
 (*   \VV/  **************************************************************)
 (*    //   *      This file is distributed under the terms of the       *)
 (*         *       GNU Lesser General Public License Version 2.1        *)
@@ -218,17 +218,17 @@ Section DoubleMul.
   Notation wwB := (base (ww_digits w_digits)).
   Notation "[| x |]" := (w_to_Z x)  (at level 0, x at level 99).
   Notation "[+| c |]" :=
-   (interp_carry 1 wB w_to_Z c) (at level 0, x at level 99).
+   (interp_carry 1 wB w_to_Z c) (at level 0, c at level 99).
   Notation "[-| c |]" :=
-   (interp_carry (-1) wB w_to_Z c) (at level 0, x at level 99).
+   (interp_carry (-1) wB w_to_Z c) (at level 0, c at level 99).
 
   Notation "[[ x ]]" := (ww_to_Z w_digits w_to_Z x)(at level 0, x at level 99).
   Notation "[+[ c ]]" :=
    (interp_carry 1 wwB (ww_to_Z w_digits w_to_Z) c)
-   (at level 0, x at level 99).
+   (at level 0, c at level 99).
   Notation "[-[ c ]]" :=
    (interp_carry (-1) wwB (ww_to_Z w_digits w_to_Z) c)
-   (at level 0, x at level 99).
+   (at level 0, c at level 99).
 
   Notation "[|| x ||]" :=
     (zn2z_to_Z wwB (ww_to_Z w_digits w_to_Z) x)  (at level 0, x at level 99).
@@ -328,7 +328,7 @@ Section DoubleMul.
    rewrite <- (Z.add_0_r ([|wc|]*wB));rewrite H;apply mult_add_ineq3;zarith.
    simpl ww_to_Z in H1. assert (U:=spec_to_Z cch).
    assert ([|wc|]*wB + [|cch|] <= 2*wB - 3).
-    destruct (Z_le_gt_dec ([|wc|]*wB + [|cch|]) (2*wB - 3));trivial.
+    destruct (Z_le_gt_dec ([|wc|]*wB + [|cch|]) (2*wB - 3)) as [Hle|Hgt];trivial.
     assert ([|xh|] * [|yl|] + [|xl|] * [|yh|] <= (2*wB - 4)*wB + 2).
      ring_simplify ((2*wB - 4)*wB + 2).
      assert (H4 := Zmult_lt_b _ _ _ (spec_to_Z xh) (spec_to_Z yl)).

@@ -1,6 +1,6 @@
 (************************************************************************)
 (*  v      *   The Coq Proof Assistant  /  The Coq Development Team     *)
-(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2012     *)
+(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2015     *)
 (*   \VV/  **************************************************************)
 (*    //   *      This file is distributed under the terms of the       *)
 (*         *       GNU Lesser General Public License Version 2.1        *)
@@ -61,7 +61,7 @@ let transl_with_decl env = function
   | CWith_Module ((_,fqid),qid) ->
       WithMod (fqid,lookup_module qid)
   | CWith_Definition ((_,fqid),c) ->
-      WithDef (fqid,interp_constr Evd.empty env c)
+      WithDef (fqid,fst (interp_constr env Evd.empty c)) (*FIXME*)
 
 let loc_of_module = function
   | CMident (loc,_) | CMapply (loc,_,_) | CMwith (loc,_,_) -> loc

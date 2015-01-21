@@ -1,6 +1,6 @@
 (************************************************************************)
 (*  v      *   The Coq Proof Assistant  /  The Coq Development Team     *)
-(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2012     *)
+(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2015     *)
 (*   \VV/  **************************************************************)
 (*    //   *      This file is distributed under the terms of the       *)
 (*         *       GNU Lesser General Public License Version 2.1        *)
@@ -182,6 +182,8 @@ and ml_module =
 type ml_structure = (module_path * ml_module_structure) list
 
 type ml_signature = (module_path * ml_module_sig) list
+
+type ml_flat_structure = ml_structure_elem list
 
 type unsafe_needs = {
   mldummy : bool;

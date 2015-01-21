@@ -1,6 +1,6 @@
 (************************************************************************)
 (*  v      *   The Coq Proof Assistant  /  The Coq Development Team     *)
-(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2012     *)
+(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2015     *)
 (*   \VV/  **************************************************************)
 (*    //   *      This file is distributed under the terms of the       *)
 (*         *       GNU Lesser General Public License Version 2.1        *)
@@ -81,8 +81,9 @@ open Declarations
       These fields could be deduced from [revstruct], but they allow faster
       name freshness checks.
  - [univ] and [future_cst] : current and future universe constraints
- - [engagement] : are we Set-impredicative ?
- - [imports] : names and digests of Require'd libraries since big-bang.
+ - [engagement] : are we Set-impredicative?
+ - [type_in_type] : does the universe hierarchy collapse?
+ - [required] : names and digests of Require'd libraries since big-bang.
       This field will only grow
  - [loads] : list of libraries Require'd inside the current module.
       They will be propagated to the upper module level when
@@ -107,6 +108,8 @@ type library_info = DirPath.t * vodigest
 (** Functor and funsig parameters, most recent first *)
 type module_parameters = (MBId.t * module_type_body) list
 
+module DPMap = Map.Make(DirPath)
+
 type safe_environment =
   { env : Environ.env;
     modpath : module_path;
@@ -119,15 +122,22 @@ type safe_environment =
     univ : Univ.constraints;
     future_cst : Univ.constraints Future.computation list;
     engagement : engagement option;
-    imports : library_info list;
+    type_in_type : bool;
+    required : vodigest DPMap.t;
     loads : (module_path * module_body) list;
-    local_retroknowledge : Retroknowledge.action list}
+    local_retroknowledge : Retroknowledge.action list }
 
 and modvariant =
   | NONE
   | LIBRARY
   | SIG of module_parameters * safe_environment (** saved env *)
   | STRUCT of module_parameters * safe_environment (** saved env *)
+
+let rec library_dp_of_senv senv =
+  match senv.modvariant with
+  | NONE | LIBRARY -> ModPath.dp senv.modpath
+  | SIG(_,senv) -> library_dp_of_senv senv
+  | STRUCT(_,senv) -> library_dp_of_senv senv
 
 let empty_environment =
   { env = Environ.empty_env;
@@ -139,9 +149,10 @@ let empty_environment =
     modlabels = Label.Set.empty;
     objlabels = Label.Set.empty;
     future_cst = [];
-    univ = Univ.empty_constraint;
+    univ = Univ.Constraint.empty;
     engagement = None;
-    imports = [];
+    type_in_type = false;
+    required = DPMap.empty;
     loads = [];
     local_retroknowledge = [] }
 
@@ -177,13 +188,31 @@ let check_engagement env c =
     Errors.error "Needs option -impredicative-set."
   | _ -> ()
 
+let set_type_in_type senv = 
+  { senv with
+    env = Environ.set_type_in_type senv.env;
+    type_in_type = true }
 
 (** {6 Stm machinery } *)
 
-let sideff_of_con env c = SEsubproof (c, Environ.lookup_constant c env.env)
+let get_opaque_body env cbo =
+  match cbo.const_body with
+  | Undef _ -> assert false
+  | Def _ -> `Nothing
+  | OpaqueDef opaque ->
+      `Opaque
+        (Opaqueproof.force_proof (Environ.opaque_tables env) opaque,
+         Opaqueproof.force_constraints (Environ.opaque_tables env) opaque)
+
+let sideff_of_con env c =
+  let cbo = Environ.lookup_constant c env.env in
+  SEsubproof (c, cbo, get_opaque_body env.env cbo)
 let sideff_of_scheme kind env cl =
   SEscheme(
-    List.map (fun (i,c) -> i, c, Environ.lookup_constant c env.env) cl,kind)
+    List.map (fun (i,c) ->
+      let cbo = Environ.lookup_constant c env.env in
+      i, c, cbo, get_opaque_body env.env cbo) cl,
+    kind)
 
 let env_of_safe_env senv = senv.env
 let env_of_senv = env_of_safe_env
@@ -193,19 +222,28 @@ type constraints_addition =
 
 let add_constraints cst senv =
   match cst with
-  | Later fc -> {senv with future_cst = fc :: senv.future_cst}
+  | Later fc -> 
+    {senv with future_cst = fc :: senv.future_cst}
   | Now cst ->
   { senv with
     env = Environ.add_constraints cst senv.env;
-    univ = Univ.union_constraints cst senv.univ }
+    univ = Univ.Constraint.union cst senv.univ }
+
+let add_constraints_list cst senv =
+  List.fold_right add_constraints cst senv
+
+let push_context_set ctx = add_constraints (Now (Univ.ContextSet.constraints ctx))
+let push_context ctx = add_constraints (Now (Univ.UContext.constraints ctx))
 
 let is_curmod_library senv =
   match senv.modvariant with LIBRARY -> true | _ -> false
 
-let join_safe_environment e =
-  Modops.join_structure e.revstruct;
+let join_safe_environment ?(except=Future.UUIDSet.empty) e =
+  Modops.join_structure except (Environ.opaque_tables e.env) e.revstruct;
   List.fold_left
-    (fun e fc -> add_constraints (Now (Future.join fc)) e)
+    (fun e fc ->
+       if Future.UUIDSet.mem (Future.uuid fc) except then e
+       else add_constraints (Now (Future.join fc)) e)
     {e with future_cst = []} e.future_cst
 
 (** {6 Various checks } *)
@@ -262,10 +300,10 @@ let check_initial senv = assert (is_initial senv)
 (** When loading a library, its dependencies should be already there,
     with the correct digests. *)
 
-let check_imports current_libs needed =
+let check_required current_libs needed =
   let check (id,required) =
     try
-      let actual = List.assoc_f DirPath.equal id current_libs in
+      let actual = DPMap.find id current_libs in
       if not(digest_match ~actual ~required) then
         Errors.error
           ("Inconsistent assumptions over module "^(DirPath.to_string id)^".")
@@ -291,22 +329,26 @@ let safe_push_named (id,_,_ as d) env =
     with Not_found -> () in
   Environ.push_named d env
 
-let push_named_def (id,de) senv =
-  let (c,typ,cst) = Term_typing.translate_local_def senv.env id de in
-  let c,cst' = match c with
-    | Def c -> Mod_subst.force_constr c, Univ.empty_constraint
-    | OpaqueDef o -> Opaqueproof.force_proof o, Opaqueproof.force_constraints o
-    | _ -> assert false in
-  let senv = add_constraints (Now cst') senv in
-  let senv' = add_constraints (Now cst) senv in
-  let env'' = safe_push_named (id,Some c,typ) senv'.env in
-  (Univ.union_constraints cst cst', {senv' with env=env''})
 
-let push_named_assum (id,t) senv =
-  let (t,cst) = Term_typing.translate_local_assum senv.env t in
-  let senv' = add_constraints (Now cst) senv in
+let push_named_def (id,de) senv =
+  let c,typ,univs = Term_typing.translate_local_def senv.env id de in
+  let senv' = push_context univs senv in
+  let c, senv' = match c with
+    | Def c -> Mod_subst.force_constr c, senv'
+    | OpaqueDef o ->
+        Opaqueproof.force_proof (Environ.opaque_tables senv'.env) o,
+        push_context_set
+          (Opaqueproof.force_constraints (Environ.opaque_tables senv'.env) o)
+          senv'
+    | _ -> assert false in
+  let env'' = safe_push_named (id,Some c,typ) senv'.env in
+    {senv' with env=env''}
+
+let push_named_assum ((id,t),ctx) senv =
+  let senv' = push_context_set ctx senv in
+  let t = Term_typing.translate_local_assum senv'.env t in
   let env'' = safe_push_named (id,None,t) senv'.env in
-  (cst, {senv' with env=env''})
+    {senv' with env=env''}
 
 
 (** {6 Insertion of new declarations to current environment } *)
@@ -324,20 +366,34 @@ let labels_of_mib mib =
   Array.iter visit_mip mib.mind_packets;
   get ()
 
-let constraints_of_sfb = function
-  | SFBmind mib -> [Now mib.mind_constraints]
-  | SFBmodtype mtb -> [Now mtb.typ_constraints]
+let globalize_constant_universes env cb =
+  if cb.const_polymorphic then
+    [Now Univ.Constraint.empty]
+  else
+    let cstrs = Univ.UContext.constraints cb.const_universes in
+      Now cstrs ::  
+	(match cb.const_body with
+	| (Undef _ | Def _) -> []
+	| OpaqueDef lc ->
+	  match Opaqueproof.get_constraints (Environ.opaque_tables env) lc with
+	  | None -> []
+	  | Some fc ->
+            match Future.peek_val fc with
+            | None -> [Later (Future.chain ~pure:true fc Univ.ContextSet.constraints)]
+            | Some c -> [Now (Univ.ContextSet.constraints c)])
+      
+let globalize_mind_universes mb =
+  if mb.mind_polymorphic then
+    [Now Univ.Constraint.empty]
+  else
+    [Now (Univ.UContext.constraints mb.mind_universes)]
+
+let constraints_of_sfb env sfb = 
+  match sfb with
+  | SFBconst cb -> globalize_constant_universes env cb
+  | SFBmind mib -> globalize_mind_universes mib
+  | SFBmodtype mtb -> [Now mtb.mod_constraints]
   | SFBmodule mb -> [Now mb.mod_constraints]
-  | SFBconst cb -> [Now cb.const_constraints] @
-      match cb.const_body with
-      | (Undef _ | Def _) -> []
-      | OpaqueDef lc ->
-          match Opaqueproof.get_constraints lc with
-          | None -> []
-          | Some fc ->
-              match Future.peek_val fc with
-              | None -> [Later fc]
-              | Some c -> [Now c]
 
 (** A generic function for adding a new field in a same environment.
     It also performs the corresponding [add_constraints]. *)
@@ -346,7 +402,7 @@ type generic_name =
   | C of constant
   | I of mutual_inductive
   | M (** name already known, cf the mod_mp field *)
-  | MT (** name already known, cf the typ_mp field *)
+  | MT (** name already known, cf the mod_mp field *)
 
 let add_field ((l,sfb) as field) gn senv =
   let mlabs,olabs = match sfb with
@@ -358,7 +414,8 @@ let add_field ((l,sfb) as field) gn senv =
     | SFBmodule _ | SFBmodtype _ ->
       check_modlabel l senv; (Label.Set.singleton l, Label.Set.empty)
   in
-  let senv = List.fold_right add_constraints (constraints_of_sfb sfb) senv in
+  let cst = constraints_of_sfb senv.env sfb in
+  let senv = add_constraints_list cst senv in
   let env' = match sfb, gn with
     | SFBconst cb, C con -> Environ.add_constant con cb senv.env
     | SFBmind mib, I mind -> Environ.add_mind mind mib senv.env
@@ -377,7 +434,6 @@ let add_field ((l,sfb) as field) gn senv =
 let update_resolver f senv = { senv with modresolver = f senv.modresolver }
 
 (** Insertion of constants and parameters in environment *)
-
 type global_declaration =
   | ConstantEntry of Entries.constant_entry
   | GlobalRecipe of Cooking.recipe
@@ -390,13 +446,17 @@ let add_constant dir l decl senv =
       let cb = Term_typing.translate_recipe senv.env kn r in
       if DirPath.is_empty dir then Declareops.hcons_const_body cb else cb
   in
-  let cb = match cb.const_body with
+  let cb, otab = match cb.const_body with
     | OpaqueDef lc when DirPath.is_empty dir ->
       (* In coqc, opaque constants outside sections will be stored
          indirectly in a specific table *)
-      { cb with const_body = OpaqueDef (Opaqueproof.turn_indirect lc) }
-    | _ -> cb
+      let od, otab =
+        Opaqueproof.turn_indirect
+          (library_dp_of_senv senv) lc (Environ.opaque_tables senv.env) in
+      { cb with const_body = OpaqueDef od }, otab
+    | _ -> cb, (Environ.opaque_tables senv.env)
   in
+  let senv = { senv with env = Environ.set_opaque_tables senv.env otab } in
   let senv' = add_field (l,SFBconst cb) (C kn) senv in
   let senv'' = match cb.const_body with
     | Undef (Some lev) ->
@@ -437,10 +497,12 @@ let add_modtype l params_mte inl senv =
 
 let full_add_module mb senv =
   let senv = add_constraints (Now mb.mod_constraints) senv in
-  { senv with env = Modops.add_module mb senv.env }
+  let dp = ModPath.dp mb.mod_mp in
+  let linkinfo = Nativecode.link_info_of_dirpath dp in
+  { senv with env = Modops.add_linked_module mb linkinfo senv.env }
 
 let full_add_module_type mp mt senv =
-  let senv = add_constraints (Now mt.typ_constraints) senv in
+  let senv = add_constraints (Now mt.mod_constraints) senv in
   { senv with env = Modops.add_module_type mp mt senv.env }
 
 (** Insertion of modules *)
@@ -467,7 +529,7 @@ let start_module l senv =
     env = senv.env;
     modpath = mp;
     modvariant = STRUCT ([],senv);
-    imports = senv.imports }
+    required = senv.required }
 
 let start_modtype l senv =
   let () = check_modlabel l senv in
@@ -478,7 +540,7 @@ let start_modtype l senv =
     env = senv.env;
     modpath = mp;
     modvariant = SIG ([], senv);
-    imports = senv.imports }
+    required = senv.required }
 
 (** Adding parameters to the current module or module type.
     This module should have been freshly started. *)
@@ -494,10 +556,10 @@ let add_module_parameter mbid mte inl senv =
     | _ -> assert false
   in
   let new_paramresolver =
-    if Modops.is_functor mtb.typ_expr then senv.paramresolver
-    else Mod_subst.add_delta_resolver mtb.typ_delta senv.paramresolver
+    if Modops.is_functor mtb.mod_type then senv.paramresolver
+    else Mod_subst.add_delta_resolver mtb.mod_delta senv.paramresolver
   in
-  mtb.typ_delta,
+  mtb.mod_delta,
   { senv with
     modvariant = new_variant;
     paramresolver = new_paramresolver }
@@ -533,7 +595,7 @@ let build_module_body params restype senv =
 
 (** Returning back to the old pre-interactive-module environment,
     with one extra component and some updated fields
-    (constraints, imports, etc) *)
+    (constraints, required, etc) *)
 
 let propagate_senv newdef newenv newresolver senv oldsenv =
   let now_cst, later_cst = List.partition Future.is_val senv.future_cst in
@@ -548,16 +610,16 @@ let propagate_senv newdef newenv newresolver senv oldsenv =
     modlabels = Label.Set.add (fst newdef) oldsenv.modlabels;
     univ =
       List.fold_left (fun acc cst ->
-        Univ.union_constraints acc (Future.force cst))
-      (Univ.union_constraints senv.univ oldsenv.univ)
+        Univ.Constraint.union acc (Future.force cst))
+      (Univ.Constraint.union senv.univ oldsenv.univ)
       now_cst;
     future_cst = later_cst @ oldsenv.future_cst;
     (* engagement is propagated to the upper level *)
     engagement = senv.engagement;
-    imports = senv.imports;
+    required = senv.required;
     loads = senv.loads@oldsenv.loads;
     local_retroknowledge =
-      senv.local_retroknowledge@oldsenv.local_retroknowledge }
+            senv.local_retroknowledge@oldsenv.local_retroknowledge }
 
 let end_module l restype senv =
   let mp = senv.modpath in
@@ -566,12 +628,12 @@ let end_module l restype senv =
   let () = check_empty_context senv in
   let mbids = List.rev_map fst params in
   let mb = build_module_body params restype senv in
-  let newenv = oldsenv.env in
+  let newenv = Environ.set_opaque_tables oldsenv.env (Environ.opaque_tables senv.env) in
   let newenv = set_engagement_opt newenv senv.engagement in
   let senv'=
     propagate_loads { senv with
       env = newenv;
-      univ = Univ.union_constraints senv.univ mb.mod_constraints} in
+      univ = Univ.Constraint.union senv.univ mb.mod_constraints} in
   let newenv = Environ.add_constraints mb.mod_constraints senv'.env in
   let newenv = Modops.add_module mb newenv in
   let newresolver =
@@ -581,24 +643,27 @@ let end_module l restype senv =
   (mp,mbids,mb.mod_delta),
   propagate_senv (l,SFBmodule mb) newenv newresolver senv' oldsenv
 
+let build_mtb mp sign cst delta =
+  { mod_mp = mp;
+    mod_expr = Abstract;
+    mod_type = sign;
+    mod_type_alg = None;
+    mod_constraints = cst;
+    mod_delta = delta;
+    mod_retroknowledge = [] }
+
 let end_modtype l senv =
   let mp = senv.modpath in
   let params, oldsenv = check_sig senv.modvariant in
   let () = check_current_label l mp in
   let () = check_empty_context senv in
   let mbids = List.rev_map fst params in
-  let auto_tb = NoFunctor (List.rev senv.revstruct) in
-  let newenv = oldsenv.env in
+  let newenv = Environ.set_opaque_tables oldsenv.env (Environ.opaque_tables senv.env) in
   let newenv = Environ.add_constraints senv.univ newenv in
   let newenv = set_engagement_opt newenv senv.engagement in
   let senv' = propagate_loads {senv with env=newenv} in
-  let mtb =
-    { typ_mp = mp;
-      typ_expr = functorize params auto_tb;
-      typ_expr_alg = None;
-      typ_constraints = senv'.univ;
-      typ_delta = senv.modresolver }
-  in
+  let auto_tb = functorize params (NoFunctor (List.rev senv.revstruct)) in
+  let mtb = build_mtb mp auto_tb senv'.univ senv.modresolver in
   let newenv = Environ.add_modtype mtb senv'.env in
   let newresolver = oldsenv.modresolver in
   (mp,mbids),
@@ -615,7 +680,7 @@ let add_include me is_module inl senv =
       sign,cst,reso
     else
       let mtb = translate_modtype senv.env mp_sup inl ([],me) in
-      mtb.typ_expr,mtb.typ_constraints,mtb.typ_delta
+      mtb.mod_type,mtb.mod_constraints,mtb.mod_delta
   in
   let senv = add_constraints (Now cst) senv in
   (* Include Self support  *)
@@ -625,7 +690,7 @@ let add_include me is_module inl senv =
       let cst_sub = Subtyping.check_subtypes senv.env mb mtb in
       let senv = add_constraints (Now cst_sub) senv in
       let mpsup_delta =
-	Modops.inline_delta_resolver senv.env inl mp_sup mbid mtb mb.typ_delta
+	Modops.inline_delta_resolver senv.env inl mp_sup mbid mtb mb.mod_delta
       in
       let subst = Mod_subst.map_mbid mbid mp_sup mpsup_delta in
       let resolver = Mod_subst.subst_codom_delta_resolver subst resolver in
@@ -633,12 +698,8 @@ let add_include me is_module inl senv =
     | str -> resolver,str,senv
   in
   let resolver,sign,senv =
-    let mtb =
-      { typ_mp = mp_sup;
-	typ_expr = NoFunctor (List.rev senv.revstruct);
-	typ_expr_alg = None;
-	typ_constraints = Univ.empty_constraint;
-	typ_delta = senv.modresolver } in
+    let struc = NoFunctor (List.rev senv.revstruct) in
+    let mtb = build_mtb mp_sup struc Univ.Constraint.empty senv.modresolver in
     compute_sign sign mtb resolver senv
   in
   let str = match sign with
@@ -672,6 +733,10 @@ type compiled_library = {
 
 type native_library = Nativecode.global list
 
+(** FIXME: MS: remove?*)
+let current_modpath senv = senv.modpath
+let current_dirpath senv = Names.ModPath.dp (current_modpath senv)
+
 let start_library dir senv =
   check_initial senv;
   assert (not (DirPath.is_empty dir));
@@ -681,16 +746,14 @@ let start_library dir senv =
     env = senv.env;
     modpath = mp;
     modvariant = LIBRARY;
-    imports = senv.imports }
+    required = senv.required }
 
-let export compilation_mode senv dir =
+let export ?except senv dir =
   let senv =
-    try
-      if compilation_mode = Flags.BuildVi then { senv with future_cst = [] }
-      else join_safe_environment senv
+    try join_safe_environment ?except senv
     with e ->
       let e = Errors.push e in
-      Errors.errorlabstrm "export" (Errors.print e)
+      Errors.errorlabstrm "export" (Errors.iprint e)
   in
   assert(senv.future_cst = []);
   let () = check_current_library dir senv in
@@ -714,7 +777,7 @@ let export compilation_mode senv dir =
   let lib = {
     comp_name = dir;
     comp_mod = mb;
-    comp_deps = Array.of_list senv.imports;
+    comp_deps = Array.of_list (DPMap.bindings senv.required);
     comp_enga = Environ.engagement senv.env;
     comp_natsymbs = values }
   in
@@ -723,12 +786,12 @@ let export compilation_mode senv dir =
 (* cst are the constraints that were computed by the vi2vo step and hence are
  * not part of the mb.mod_constraints field (but morally should be) *)
 let import lib cst vodigest senv =
-  check_imports senv.imports lib.comp_deps;
+  check_required senv.required lib.comp_deps;
   check_engagement senv.env lib.comp_enga;
   let mp = MPfile lib.comp_name in
   let mb = lib.comp_mod in
   let env = Environ.add_constraints mb.mod_constraints senv.env in
-  let env = Environ.add_constraints cst env in
+  let env = Environ.push_context_set cst env in
   (mp, lib.comp_natsymbs),
   { senv with
     env =
@@ -737,7 +800,7 @@ let import lib cst vodigest senv =
        in
        Modops.add_linked_module mb linkinfo env);
     modresolver = Mod_subst.add_delta_resolver mb.mod_delta senv.modresolver;
-    imports = (lib.comp_name,vodigest)::senv.imports;
+    required = DPMap.add lib.comp_name vodigest senv.required;
     loads = (mp,mb)::senv.loads }
 
 (** {6 Safe typing } *)
@@ -747,10 +810,7 @@ type judgment = Environ.unsafe_judgment
 let j_val j = j.Environ.uj_val
 let j_type j = j.Environ.uj_type
 
-let safe_infer senv = Typeops.infer (env_of_senv senv)
-
-let typing senv = Typeops.typing (env_of_senv senv)
-
+let typing senv = Typeops.infer (env_of_senv senv)
 
 (** {6 Retroknowledge / native compiler } *)
 
@@ -767,12 +827,6 @@ let register field value by_clause senv =
     local_retroknowledge =
       Retroknowledge.RKRegister (field,value)::senv.local_retroknowledge
   }
-
-(* spiwack : currently unused *)
-let unregister field senv =
-  (*spiwack: todo: do things properly or delete *)
-  { senv with env = Environ.unregister senv.env field}
-(* /spiwack *)
 
 (* This function serves only for inlining constants in native compiler for now,
 but it is meant to become a replacement for environ.register *)

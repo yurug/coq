@@ -1,6 +1,6 @@
 (************************************************************************)
 (*  v      *   The Coq Proof Assistant  /  The Coq Development Team     *)
-(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2012     *)
+(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2015     *)
 (*   \VV/  **************************************************************)
 (*    //   *      This file is distributed under the terms of the       *)
 (*         *       GNU Lesser General Public License Version 2.1        *)
@@ -408,10 +408,10 @@ Section Z_2nZ.
  Notation "[| x |]" := (to_Z x)  (at level 0, x at level 99).
 
  Notation "[+| c |]" :=
-   (interp_carry 1 wwB to_Z c)  (at level 0, x at level 99).
+   (interp_carry 1 wwB to_Z c)  (at level 0, c at level 99).
 
  Notation "[-| c |]" :=
-   (interp_carry (-1) wwB to_Z c)  (at level 0, x at level 99).
+   (interp_carry (-1) wwB to_Z c)  (at level 0, c at level 99).
 
  Notation "[[ x ]]" := (zn2z_to_Z wwB to_Z x)  (at level 0, x at level 99).
 
@@ -594,7 +594,7 @@ Section Z_2nZ.
       0 <= [|r|] < [|b|].
  Proof.
   refine (spec_ww_div21 w_0 w_0W div32 ww_1 compare sub w_digits w_to_Z
-   _ _ _ _ _ _ _);wwauto.
+   _ _ _ _ _ _ _);wwauto. 
  Qed.
 
  Let spec_add2: forall x y,
@@ -809,7 +809,7 @@ refine
  refine (@spec_ww_sqrt t w_is_even w_0 w_1 w_Bm1
            w_sub w_add_mul_div w_digits w_zdigits _ww_zdigits
                w_sqrt2 pred add_mul_div head0 compare
-            _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _); wwauto.
+            _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _); wwauto.
  exact ZnZ.spec_zdigits.
  exact ZnZ.spec_more_than_1_digit.
  exact ZnZ.spec_is_even.
@@ -846,7 +846,7 @@ refine
   intros (Hn,Hn').
   assert (E : ZnZ.to_Z y = [|WW x y|] mod wB).
   { simpl; symmetry.
-    rewrite Z.add_comm, Z.mod_add; auto with zarith.
+    rewrite Z.add_comm, Z.mod_add; auto with zarith nocore.
     apply Z.mod_small; eauto with ZnZ zarith. }
   rewrite E.
   unfold wB, base. symmetry. apply Z.mod_pow2_bits_low; auto.
@@ -922,6 +922,7 @@ refine
  Qed.
 
 End Z_2nZ.
+
 
 Section MulAdd.
 

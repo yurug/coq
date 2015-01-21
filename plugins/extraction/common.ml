@@ -1,6 +1,6 @@
 (************************************************************************)
 (*  v      *   The Coq Proof Assistant  /  The Coq Development Team     *)
-(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2012     *)
+(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2015     *)
 (*   \VV/  **************************************************************)
 (*    //   *      This file is distributed under the terms of the       *)
 (*         *       GNU Lesser General Public License Version 2.1        *)
@@ -642,11 +642,13 @@ let is_native_char = function
     MutInd.equal kn ind_ascii && check_extract_ascii () && is_list_cons l
   | _ -> false
 
-let pp_native_char c =
+let get_native_char c =
   let rec cumul = function
     | [] -> 0
     | MLcons(_,ConstructRef(_,j),[])::l -> (2-j) + 2 * (cumul l)
     | _ -> assert false
   in
   let l = match c with MLcons(_,_,l) -> l | _ -> assert false in
-  str ("'"^Char.escaped (Char.chr (cumul l))^"'")
+  Char.chr (cumul l)
+
+let pp_native_char c = str ("'"^Char.escaped (get_native_char c)^"'")

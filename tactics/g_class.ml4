@@ -1,6 +1,6 @@
 (************************************************************************)
 (*  v      *   The Coq Proof Assistant  /  The Coq Development Team     *)
-(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2012     *)
+(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2015     *)
 (*   \VV/  **************************************************************)
 (*    //   *      This file is distributed under the terms of the       *)
 (*         *       GNU Lesser General Public License Version 2.1        *)
@@ -10,6 +10,8 @@
 
 open Misctypes
 open Class_tactics
+
+DECLARE PLUGIN "g_class"
 
 TACTIC EXTEND progress_evars
   [ "progress_evars" tactic(t) ] -> [ progress_evars (Tacinterp.eval_tactic t) ]
@@ -62,7 +64,7 @@ END
 
 TACTIC EXTEND typeclasses_eauto
 | [ "typeclasses" "eauto" "with" ne_preident_list(l) ] -> [ Proofview.V82.tactic (typeclasses_eauto l) ]
-| [ "typeclasses" "eauto" ] -> [ Proofview.V82.tactic (typeclasses_eauto ~only_classes:true [Auto.typeclasses_db]) ]
+| [ "typeclasses" "eauto" ] -> [ Proofview.V82.tactic (typeclasses_eauto ~only_classes:true [Hints.typeclasses_db]) ]
 END
 
 TACTIC EXTEND head_of_constr

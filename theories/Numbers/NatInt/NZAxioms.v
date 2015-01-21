@@ -1,6 +1,6 @@
 (************************************************************************)
 (*  v      *   The Coq Proof Assistant  /  The Coq Development Team     *)
-(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2012     *)
+(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2015     *)
 (*   \VV/  **************************************************************)
 (*    //   *      This file is distributed under the terms of the       *)
 (*         *       GNU Lesser General Public License Version 2.1        *)
@@ -19,7 +19,8 @@ Require Export Equalities Orders NumPrelude GenericMinMax.
 
 Module Type ZeroSuccPred (Import T:Typ).
  Parameter Inline(20) zero : t.
- Parameters Inline succ pred : t -> t.
+ Parameter Inline(50) succ : t -> t.
+ Parameter Inline pred : t -> t.
 End ZeroSuccPred.
 
 Module Type ZeroSuccPredNotation (T:Typ)(Import NZ:ZeroSuccPred T).

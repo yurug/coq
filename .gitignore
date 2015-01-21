@@ -1,6 +1,7 @@
 *.glob
 *.d
 *.d.raw
+*.vio
 *.vo
 *.cm*
 *.annot
@@ -47,6 +48,7 @@ plugins/*/*_mod.ml
 myocamlbuild_config.ml
 config/Makefile
 config/coq_config.ml
+config/Info-*.plist
 dev/ocamldebug-coq
 plugins/micromega/csdpcert
 kernel/byterun/dllcoqrun.so
@@ -121,11 +123,6 @@ grammar/vernacextend.ml
 grammar/argextend.ml
 parsing/pcoq.ml
 parsing/lexer.ml
-plugins/xml/proofTree2Xml.ml
-plugins/xml/acic2Xml.ml
-plugins/xml/xml.ml
-plugins/xml/dumptree.ml
-plugins/xml/xmlentries.ml
 plugins/setoid_ring/newring.ml
 plugins/field/field.ml
 plugins/nsatz/nsatz.ml
@@ -133,6 +130,7 @@ tactics/tauto.ml
 tactics/eauto.ml
 tactics/hipattern.ml
 tactics/class_tactics.ml
+tactics/coretactics.ml
 tactics/rewrite.ml
 tactics/eqdecide.ml
 tactics/extratactics.ml
@@ -147,9 +145,18 @@ kernel/copcodes.ml
 tools/tolink.ml
 theories/Numbers/Natural/BigN/NMake_gen.v
 ide/index_urls.txt
+lia.cache
 
 # mlis documentation
 
 dev/ocamldoc/html/
 dev/ocamldoc/coq.*
 dev/ocamldoc/ocamldoc.sty
+dev/myinclude
+
+# emacs save files
+*~
+\#*\#
+
+# coqide generated files (when testing)
+*.crashcoqide

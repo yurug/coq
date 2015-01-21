@@ -1,6 +1,6 @@
 (************************************************************************)
 (*  v      *   The Coq Proof Assistant  /  The Coq Development Team     *)
-(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2012     *)
+(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2015     *)
 (*   \VV/  **************************************************************)
 (*    //   *      This file is distributed under the terms of the       *)
 (*         *       GNU Lesser General Public License Version 2.1        *)
@@ -41,6 +41,7 @@ try destruct (Qmult_integral _ _ H0); auto.
 Qed.
 
 Lemma Qpower_pos_positive : forall p n, 0 <= p -> 0 <= Qpower_positive p n.
+Proof.
 intros p n Hp.
 induction n; simpl; repeat apply Qmult_le_0_compat;assumption.
 Qed.

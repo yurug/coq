@@ -1,6 +1,6 @@
 (************************************************************************)
 (*  v      *   The Coq Proof Assistant  /  The Coq Development Team     *)
-(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2012     *)
+(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2015     *)
 (*   \VV/  **************************************************************)
 (*    //   *      This file is distributed under the terms of the       *)
 (*         *       GNU Lesser General Public License Version 2.1        *)
@@ -96,60 +96,6 @@ let in_gen t o = (t,Obj.repr o)
 let out_gen t (t',o) = if argument_type_eq t t' then Obj.magic o else failwith "out_gen"
 let genarg_tag (s,_) = s
 
-let fold_list f = function
-  | (ListArgType t, l) ->
-      List.fold_right (fun x -> f (in_gen t x)) (Obj.magic l)
-  | _ -> failwith "Genarg: not a list"
-
-let fold_opt f a = function
-  | (OptArgType t, l) ->
-      (match Obj.magic l with
-	| None -> a
-	| Some x -> f (in_gen t x))
-  | _ -> failwith "Genarg: not a opt"
-
-let fold_pair f = function
-  | (PairArgType (t1,t2), l) ->
-      let (x1,x2) = Obj.magic l in
-      f (in_gen t1 x1) (in_gen t2 x2)
-  | _ -> failwith "Genarg: not a pair"
-
-let app_list f = function
-  | (ListArgType t as u, l) ->
-      let o = Obj.magic l in
-      (u, Obj.repr (List.map (fun x -> out_gen t (f (in_gen t x))) o))
-  | _ -> failwith "Genarg: not a list0"
-
-let app_opt f = function
-  | (OptArgType t as u, l) ->
-      let o = Obj.magic l in
-      (u, Obj.repr (Option.map (fun x -> out_gen t (f (in_gen t x))) o))
-  | _ -> failwith "Genarg: not an opt"
-
-let app_pair f1 f2 = function
-  | (PairArgType (t1,t2) as u, l) ->
-      let (o1,o2) = Obj.magic l in
-      let o1 = out_gen t1 (f1 (in_gen t1 o1)) in
-      let o2 = out_gen t2 (f2 (in_gen t2 o2)) in
-      (u, Obj.repr (o1,o2))
-  | _ -> failwith "Genarg: not a pair"
-
-module Monadic (M:Monad.S) = struct
-
-  let app_list f = function
-  | (ListArgType t as u, l) ->
-      let o = Obj.magic l in
-      let open M in
-      let apply x =
-        f (in_gen t x) >>= fun y ->
-        return (out_gen t y)
-      in
-      M.List.map apply o >>= fun r ->
-      return (u, Obj.repr r)
-  | _ -> failwith "Genarg: not a list0"
-
-end
-
 let has_type (t, v) u = argument_type_eq t u
 
 let unquote x = x
@@ -159,18 +105,43 @@ type 'a raw_abstract_argument_type = ('a,rlevel) abstract_argument_type
 type 'a glob_abstract_argument_type = ('a,glevel) abstract_argument_type
 type 'a typed_abstract_argument_type = ('a,tlevel) abstract_argument_type
 
-type 'r raw_unpack =
-  { raw_unpack : 'a 'b 'c. ('a, 'b, 'c) genarg_type -> 'a -> 'r }
+type ('a, 'b, 'c, 'l) cast = Obj.t
 
-type 'r glb_unpack =
-  { glb_unpack : 'a 'b 'c. ('a, 'b, 'c) genarg_type -> 'b -> 'r }
+let raw = Obj.obj
+let glb = Obj.obj
+let top = Obj.obj
 
-type 'r top_unpack =
-  { top_unpack : 'a 'b 'c. ('a, 'b, 'c) genarg_type -> 'c -> 'r }
+type ('r, 'l) unpacker =
+  { unpacker : 'a 'b 'c. ('a, 'b, 'c) genarg_type -> ('a, 'b, 'c, 'l) cast -> 'r }
 
-let raw_unpack pack (t, obj) = pack.raw_unpack t (Obj.obj obj)
-let glb_unpack pack (t, obj) = pack.glb_unpack t (Obj.obj obj)
-let top_unpack pack (t, obj) = pack.top_unpack t (Obj.obj obj)
+let unpack pack (t, obj) = pack.unpacker t (Obj.obj obj)
+
+(** Type transformers *)
+
+type ('r, 'l) list_unpacker =
+  { list_unpacker : 'a 'b 'c. ('a, 'b, 'c) genarg_type ->
+    ('a list, 'b list, 'c list, 'l) cast -> 'r }
+
+let list_unpack pack (t, obj) = match t with
+| ListArgType t -> pack.list_unpacker t (Obj.obj obj)
+| _ -> failwith "out_gen"
+
+type ('r, 'l) opt_unpacker =
+  { opt_unpacker : 'a 'b 'c. ('a, 'b, 'c) genarg_type ->
+    ('a option, 'b option, 'c option, 'l) cast -> 'r }
+
+let opt_unpack pack (t, obj) = match t with
+| OptArgType t -> pack.opt_unpacker t (Obj.obj obj)
+| _ -> failwith "out_gen"
+
+type ('r, 'l) pair_unpacker =
+  { pair_unpacker : 'a1 'a2 'b1 'b2 'c1 'c2.
+    ('a1, 'b1, 'c1) genarg_type -> ('a2, 'b2, 'c2) genarg_type ->
+    (('a1 * 'a2), ('b1 * 'b2), ('c1 * 'c2), 'l) cast -> 'r }
+
+let pair_unpack pack (t, obj) = match t with
+| PairArgType (t1, t2) -> pack.pair_unpacker t1 t2 (Obj.obj obj)
+| _ -> failwith "out_gen"
 
 (** Creating args *)
 

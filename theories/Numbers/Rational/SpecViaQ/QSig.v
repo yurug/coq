@@ -1,6 +1,6 @@
 (************************************************************************)
 (*  v      *   The Coq Proof Assistant  /  The Coq Development Team     *)
-(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2012     *)
+(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2015     *)
 (*   \VV/  **************************************************************)
 (*    //   *      This file is distributed under the terms of the       *)
 (*         *       GNU Lesser General Public License Version 2.1        *)
@@ -104,7 +104,7 @@ Ltac qify := unfold eq, lt, le in *; autorewrite with qsimpl;
  try rewrite spec_0 in *; try rewrite spec_1 in *; try rewrite spec_m1 in *.
 
 (** NB: do not add [spec_0] in the autorewrite database. Otherwise,
-    after instanciation in BigQ, this lemma become convertible to 0=0,
+    after instantiation in BigQ, this lemma become convertible to 0=0,
     and autorewrite loops. Idem for [spec_1] and [spec_m1] *)
 
 (** Morphisms *)

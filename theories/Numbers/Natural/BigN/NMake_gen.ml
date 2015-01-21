@@ -1,6 +1,6 @@
 (************************************************************************)
 (*  v      *   The Coq Proof Assistant  /  The Coq Development Team     *)
-(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2012     *)
+(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2015     *)
 (*   \VV/  **************************************************************)
 (*    //   *      This file is distributed under the terms of the       *)
 (*         *       GNU Lesser General Public License Version 2.1        *)
@@ -324,8 +324,13 @@ pr "
 
  Lemma spec_zeron : forall n, ZnZ.to_Z (zeron n) = 0%%Z.
  Proof.
-  do_size (destruct n; [exact ZnZ.spec_0|]).
-  destruct n; auto. simpl. rewrite make_op_S. exact ZnZ.spec_0.
+   do_size (destruct n;
+            [match goal with
+             |- @eq Z (_ (zeron ?n)) _ => 
+               apply (ZnZ.spec_0 (Specs:=dom_spec n))
+             end|]).
+  destruct n; auto. simpl. rewrite make_op_S. fold word. 
+  apply (ZnZ.spec_0 (Specs:=wn_spec (SizePlus 0))).
  Qed.
 
  (** * Digits *)
@@ -956,6 +961,11 @@ pr "  end.";
 pr "";
 
 pr " Ltac unfold_red := unfold reduce, %s." (iter_name 1 size "reduce_" ",");
+pr "";
+for i = 0 to size do
+pr " Declare Equivalent Keys reduce reduce_%i." i;
+done;
+pr " Declare Equivalent Keys reduce_n reduce_%i." (size + 1);
 
 pr "
  Ltac solve_red :=

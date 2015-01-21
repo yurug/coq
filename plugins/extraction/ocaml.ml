@@ -1,6 +1,6 @@
 (************************************************************************)
 (*  v      *   The Coq Proof Assistant  /  The Coq Development Team     *)
-(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2012     *)
+(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2015     *)
 (*   \VV/  **************************************************************)
 (*    //   *      This file is distributed under the terms of the       *)
 (*         *       GNU Lesser General Public License Version 2.1        *)
@@ -23,11 +23,7 @@ open Common
 
 (*s Some utility functions. *)
 
-let pp_tvar id =
-  let s = Id.to_string id in
-  if String.length s < 2 || s.[1] != '\''
-  then str ("'"^s)
-  else str ("' "^s)
+let pp_tvar id = str ("'" ^ Id.to_string id)
 
 let pp_abst = function
   | [] -> mt ()

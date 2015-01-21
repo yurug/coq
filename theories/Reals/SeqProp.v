@@ -1,6 +1,6 @@
 (************************************************************************)
 (*  v      *   The Coq Proof Assistant  /  The Coq Development Team     *)
-(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2012     *)
+(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2015     *)
 (*   \VV/  **************************************************************)
 (*    //   *      This file is distributed under the terms of the       *)
 (*         *       GNU Lesser General Public License Version 2.1        *)
@@ -10,6 +10,7 @@ Require Import Rbase.
 Require Import Rfunctions.
 Require Import Rseries.
 Require Import Max.
+Require Import Omega.
 Local Open Scope R_scope.
 
 (*****************************************************************)
@@ -52,8 +53,7 @@ Proof.
   apply growing_cv.
   apply decreasing_growing; assumption.
   exact H0.
-  intro X.
-  elim X; intros.
+  intros (x,p).
   exists (- x).
   unfold Un_cv in p.
   unfold R_dist in p.
@@ -150,7 +150,7 @@ Definition sequence_lb (Un:nat -> R) (pr:has_lb Un)
 (* Compatibility *)
 Notation sequence_majorant := sequence_ub (only parsing).
 Notation sequence_minorant := sequence_lb (only parsing).
-
+Unset Standard Proposition Elimination Names.
 Lemma Wn_decreasing :
   forall (Un:nat -> R) (pr:has_ub Un), Un_decreasing (sequence_ub Un pr).
 Proof.
@@ -158,21 +158,15 @@ Proof.
   unfold Un_decreasing.
   intro.
   unfold sequence_ub.
-  assert (H := ub_to_lub (fun k:nat => Un (S n + k)%nat) (maj_ss Un (S n) pr)).
-  assert (H0 := ub_to_lub (fun k:nat => Un (n + k)%nat) (maj_ss Un n pr)).
-  elim H; intros.
-  elim H0; intros.
+  pose proof (ub_to_lub (fun k:nat => Un (S n + k)%nat) (maj_ss Un (S n) pr)) as (x,(H1,H2)).
+  pose proof (ub_to_lub (fun k:nat => Un (n + k)%nat) (maj_ss Un n pr)) as (x0,(H3,H4)).
   cut (lub (fun k:nat => Un (S n + k)%nat) (maj_ss Un (S n) pr) = x);
     [ intro Maj1; rewrite Maj1 | idtac ].
   cut (lub (fun k:nat => Un (n + k)%nat) (maj_ss Un n pr) = x0);
     [ intro Maj2; rewrite Maj2 | idtac ].
-  unfold is_lub in p.
-  unfold is_lub in p0.
-  elim p; intros.
   apply H2.
-  elim p0; intros.
   unfold is_upper_bound.
-  intros.
+  intros x1 H5.
   unfold is_upper_bound in H3.
   apply H3.
   elim H5; intros.
@@ -183,12 +177,10 @@ Proof.
   cut
     (is_lub (EUn (fun k:nat => Un (n + k)%nat))
       (lub (fun k:nat => Un (n + k)%nat) (maj_ss Un n pr))).
-  intro.
-  unfold is_lub in p0; unfold is_lub in H1.
-  elim p0; intros; elim H1; intros.
-  assert (H6 := H5 x0 H2).
+  intros (H5,H6).
+  assert (H7 := H6 x0 H3).
   assert
-    (H7 := H3 (lub (fun k:nat => Un (n + k)%nat) (maj_ss Un n pr)) H4).
+    (H8 := H4 (lub (fun k:nat => Un (n + k)%nat) (maj_ss Un n pr)) H5).
   apply Rle_antisym; assumption.
   unfold lub.
   case (ub_to_lub (fun k:nat => Un (n + k)%nat) (maj_ss Un n pr)).
@@ -196,13 +188,11 @@ Proof.
   cut
     (is_lub (EUn (fun k:nat => Un (S n + k)%nat))
       (lub (fun k:nat => Un (S n + k)%nat) (maj_ss Un (S n) pr))).
-  intro.
-  unfold is_lub in p; unfold is_lub in H1.
-  elim p; intros; elim H1; intros.
-  assert (H6 := H5 x H2).
+  intros (H5,H6).
+  assert (H7 := H6 x H1).
   assert
-    (H7 :=
-      H3 (lub (fun k:nat => Un (S n + k)%nat) (maj_ss Un (S n) pr)) H4).
+    (H8 :=
+      H2 (lub (fun k:nat => Un (S n + k)%nat) (maj_ss Un (S n) pr)) H5).
   apply Rle_antisym; assumption.
   unfold lub.
   case (ub_to_lub (fun k:nat => Un (S n + k)%nat) (maj_ss Un (S n) pr)).
@@ -460,8 +450,7 @@ Lemma cond_eq :
   forall x y:R, (forall eps:R, 0 < eps -> Rabs (x - y) < eps) -> x = y.
 Proof.
   intros.
-  case (total_order_T x y); intro.
-  elim s; intro.
+  destruct (total_order_T x y) as [[Hlt|Heq]|Hgt].
   cut (0 < y - x).
   intro.
   assert (H1 := H (y - x) H0).
@@ -896,8 +885,7 @@ Lemma growing_ineq :
   forall (Un:nat -> R) (l:R),
     Un_growing Un -> Un_cv Un l -> forall n:nat, Un n <= l.
 Proof.
-  intros; case (total_order_T (Un n) l); intro.
-  elim s; intro.
+  intros; destruct (total_order_T (Un n) l) as [[Hlt|Heq]|Hgt].
   left; assumption.
   right; assumption.
   cut (0 < Un n - l).
@@ -1102,11 +1090,11 @@ Proof.
   apply (cv_infty_cv_R0 (fun n:nat => INR (S n))).
   intro; apply not_O_INR; discriminate.
   assumption.
-  unfold cv_infty; intro; case (total_order_T M0 0); intro.
-  elim s; intro.
+  unfold cv_infty; intro;
+    destruct (total_order_T M0 0) as [[Hlt|Heq]|Hgt].
   exists 0%nat; intros.
   apply Rlt_trans with 0; [ assumption | apply lt_INR_0; apply lt_O_Sn ].
-  exists 0%nat; intros; rewrite b; apply lt_INR_0; apply lt_O_Sn.
+  exists 0%nat; intros; rewrite Heq; apply lt_INR_0; apply lt_O_Sn.
   set (M0_z := up M0).
   assert (H10 := archimed M0).
   cut (0 <= M0_z)%Z.

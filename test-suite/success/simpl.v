@@ -45,3 +45,55 @@ Goal forall A B (a:A) l f (i:B), fold_right f i ((a :: l))=i.
 simpl.
 admit.
 Qed. (* Qed will fail if simplification is incorrect (de Bruijn!) *)
+
+(* Check that maximally inserted arguments do not break interpretation
+   of references in simpl, vm_compute etc. *)
+
+Arguments fst {A} {B} p.
+
+Goal fst (0,0) = 0.
+simpl fst.
+Fail set (fst _).
+Abort.
+
+Goal fst (0,0) = 0.
+vm_compute fst.
+Fail set (fst _).
+Abort.
+
+Goal let f x := x + 0 in f 0 = 0.
+intro.
+vm_compute f.
+Fail set (f _).
+Abort.
+
+(* This is a change wrt 8.4 (waiting to know if it breaks script a lot or not)*)
+
+Goal 0+0=0.
+Fail simpl @eq.
+Abort.
+
+(* Check reference by notation in simpl *)
+
+Goal 0+0 = 0.
+simpl "+".
+Fail set (_ + _).
+Abort.
+
+(* Check occurrences *)
+
+Record box A := Box { unbox : A }.
+
+Goal unbox _ (unbox _ (unbox _ (Box _ (Box _ (Box _ True))))) =
+     unbox _ (unbox _ (unbox _ (Box _ (Box _ (Box _ True))))).
+simpl (unbox _ (unbox _ _)) at 1.
+match goal with |- True = unbox _ (unbox _ (unbox _ (Box _ (Box _ (Box _ True))))) => idtac end.
+Undo 2.
+Fail simpl (unbox _ (unbox _ _)) at 5.
+simpl (unbox _ (unbox _ _)) at 1 4.
+match goal with |- True = unbox _ (Box _ True) => idtac end.
+Undo 2.
+Fail simpl (unbox _ (unbox _ _)) at 3 4. (* Nested and even overlapping *)
+simpl (unbox _ (unbox _ _)) at 2 4.
+match goal with |- unbox _ (Box _ True) = unbox _ (Box _ True) => idtac end.
+Abort.

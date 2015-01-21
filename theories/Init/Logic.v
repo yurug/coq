@@ -1,6 +1,6 @@
 (************************************************************************)
 (*  v      *   The Coq Proof Assistant  /  The Coq Development Team     *)
-(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2012     *)
+(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2015     *)
 (*   \VV/  **************************************************************)
 (*    //   *      This file is distributed under the terms of the       *)
 (*         *       GNU Lesser General Public License Version 2.1        *)
@@ -15,6 +15,7 @@ Notation "A -> B" := (forall (_ : A), B) : type_scope.
 (** * Propositional connectives *)
 
 (** [True] is the always true proposition *)
+
 Inductive True : Prop :=
   I : True.
 
@@ -228,11 +229,6 @@ Notation "'IF' c1 'then' c2 'else' c3" := (IF_then_else c1 c2 c3)
     is provided too.
 *)
 
-(** Remark: [exists x, Q] denotes [ex (fun x => Q)] so that [exists x,
-   P x] is in fact equivalent to [ex (fun x => P x)] which may be not
-   convertible to [ex P] if [P] is not itself an abstraction *)
-
-
 Inductive ex (A:Type) (P:A -> Prop) : Prop :=
   ex_intro : forall x:A, P x -> ex (A:=A) P.
 
@@ -301,7 +297,8 @@ Arguments eq_ind [A] x P _ y _.
 Arguments eq_rec [A] x P _ y _.
 Arguments eq_rect [A] x P _ y _.
 
-Hint Resolve I conj or_introl or_intror eq_refl: core.
+Hint Resolve I conj or_introl or_intror : core. 
+Hint Resolve eq_refl: core. 
 Hint Resolve ex_intro ex_intro2: core.
 
 Section Logic_lemmas.
@@ -341,7 +338,7 @@ Section Logic_lemmas.
 
   Definition eq_ind_r :
     forall (A:Type) (x:A) (P:A -> Prop), P x -> forall y:A, y = x -> P y.
-    intros A x P H y H0; elim eq_sym with (1 := H0); assumption.
+    intros A x P H y H0. elim eq_sym with (1 := H0); assumption.
   Defined.
 
   Definition eq_rec_r :
@@ -461,6 +458,52 @@ Theorem eq_trans_assoc : forall A (x y z t:A) (e:x=y) (e':y=z) (e'':z=t),
   eq_trans e (eq_trans e' e'') = eq_trans (eq_trans e e') e''.
 Proof.
   destruct e''; reflexivity.
+Defined.
+
+(** Extra properties of equality *)
+
+Theorem eq_id_comm_l : forall A (f:A->A) (Hf:forall a, a = f a), forall a, f_equal f (Hf a) = Hf (f a).
+Proof.
+  intros.
+  unfold f_equal.
+  rewrite <- (eq_trans_sym_inv_l (Hf a)).
+  destruct (Hf a) at 1 2.
+  destruct (Hf a).
+  reflexivity.
+Defined.
+
+Theorem eq_id_comm_r : forall A (f:A->A) (Hf:forall a, f a = a), forall a, f_equal f (Hf a) = Hf (f a).
+Proof.
+  intros.
+  unfold f_equal.
+  rewrite <- (eq_trans_sym_inv_l (Hf (f (f a)))).
+  set (Hfsymf := fun a => eq_sym (Hf a)).
+  change (eq_sym (Hf (f (f a)))) with (Hfsymf (f (f a))).
+  pattern (Hfsymf (f (f a))).
+  destruct (eq_id_comm_l f Hfsymf (f a)).
+  destruct (eq_id_comm_l f Hfsymf a).
+  unfold Hfsymf.
+  destruct (Hf a). simpl.
+  rewrite eq_trans_refl_l.
+  reflexivity.
+Defined.
+
+Lemma eq_trans_map_distr : forall A B x y z (f:A->B) (e:x=y) (e':y=z), f_equal f (eq_trans e e') = eq_trans (f_equal f e) (f_equal f e').
+Proof.
+destruct e'.
+reflexivity.
+Defined.
+
+Lemma eq_sym_map_distr : forall A B (x y:A) (f:A->B) (e:x=y), eq_sym (f_equal f e) = f_equal f (eq_sym e).
+Proof.
+destruct e.
+reflexivity.
+Defined.
+
+Lemma eq_trans_sym_distr : forall A (x y z:A) (e:x=y) (e':y=z), eq_sym (eq_trans e e') = eq_trans (eq_sym e') (eq_sym e).
+Proof.
+destruct e, e'.
+reflexivity.
 Defined.
 
 (* Aliases *)

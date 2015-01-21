@@ -1,6 +1,6 @@
 (************************************************************************)
 (*  v      *   The Coq Proof Assistant  /  The Coq Development Team     *)
-(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2012     *)
+(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2015     *)
 (*   \VV/  **************************************************************)
 (*    //   *      This file is distributed under the terms of the       *)
 (*         *       GNU Lesser General Public License Version 2.1        *)
@@ -17,7 +17,7 @@ open Environ
 
 exception Elimconst
 
-(** Machinery to custom the behavior of the reduction *)
+(** Machinery to customize the behavior of the reduction *)
 module ReductionBehaviour : sig
   type flag = [ `ReductionDontExposeCase | `ReductionNeverUnfold ]
 
@@ -29,15 +29,39 @@ module ReductionBehaviour : sig
   val print : Globnames.global_reference -> Pp.std_ppcmds
 end
 
+(** {6 Machinery about a stack of unfolded constant }
+
+    cst applied to params must convertible to term of the state applied to args
+*)
+module Cst_stack : sig
+  type t
+  val empty : t
+  val add_param : constr -> t -> t
+  val add_args : constr array -> t -> t
+  val add_cst : constr -> t -> t
+  val best_cst : t -> (constr * constr list) option
+  val best_replace : constr -> t -> constr -> constr
+  val reference : t -> Constant.t option
+  val pr : t -> Pp.std_ppcmds
+end
+
+
 module Stack : sig
   type 'a app_node
 
   val pr_app_node : ('a -> Pp.std_ppcmds) -> 'a app_node -> Pp.std_ppcmds
 
+  type cst_member =
+    | Cst_const of pconstant
+    | Cst_proj of projection
+
   type 'a member =
   | App of 'a app_node
-  | Case of case_info * 'a * 'a array * ('a * 'a list) option
-  | Fix of fixpoint * 'a t * ('a * 'a list) option
+  | Case of case_info * 'a * 'a array * Cst_stack.t
+  | Proj of int * int * projection * Cst_stack.t
+  | Fix of fixpoint * 'a t * Cst_stack.t
+  | Cst of cst_member * int (** current foccussed arg *) * int list (** remaining args *)
+    * 'a t * Cst_stack.t
   | Shift of int
   | Update of 'a
   and 'a t = 'a member list
@@ -45,6 +69,7 @@ module Stack : sig
   val pr : ('a -> Pp.std_ppcmds) -> 'a t -> Pp.std_ppcmds
 
   val empty : 'a t
+  val is_empty : 'a t -> bool
   val append_app : 'a array -> 'a t -> 'a t
   val decomp : 'a t -> ('a * 'a t) option
 
@@ -55,6 +80,7 @@ module Stack : sig
       @return the result and the lifts to apply on the terms *)
   val fold2 : ('a -> Term.constr -> Term.constr -> 'a) -> 'a ->
     Term.constr t -> Term.constr t -> 'a * int * int
+  val map : (Term.constr -> Term.constr) -> Term.constr t -> Term.constr t
   val append_app_list : 'a list -> 'a t -> 'a t
 
   (** if [strip_app s] = [(a,b)], then [s = a @ b] and [b] does not
@@ -71,6 +97,7 @@ module Stack : sig
   val tail : int -> 'a t -> 'a t
   val nth : 'a t -> int -> 'a
 
+  val best_state : constr * constr t -> Cst_stack.t -> constr * constr t
   val zip : ?refold:bool -> constr * constr t -> constr
 end
 
@@ -81,6 +108,8 @@ type state = constr * constr Stack.t
 type contextual_reduction_function = env -> evar_map -> constr -> constr
 type reduction_function = contextual_reduction_function
 type local_reduction_function = evar_map -> constr -> constr
+
+type e_reduction_function = env -> evar_map -> constr -> evar_map * constr
 
 type contextual_stack_reduction_function =
     env -> evar_map -> constr -> constr * constr list
@@ -95,19 +124,6 @@ type local_state_reduction_function = evar_map -> state -> state
 
 val pr_state : state -> Pp.std_ppcmds
 
-(** {6 Machinery about a stack of unfolded constant }
-
-    cst applied to params must convertible to term of the state applied to args
-*)
-module Cst_stack : sig
-  type t
-  val empty : t
-  val add_param : constr -> t -> t
-  val add_args : constr array -> t -> t
-  val add_cst : constr -> t -> t
-  val best_cst : t -> (constr * constr list) option
-end
-
 (** {6 Reduction Function Operators } *)
 
 val strong : reduction_function -> reduction_function
@@ -121,6 +137,9 @@ val stacklam : (state -> 'a) -> constr list -> constr -> constr Stack.t -> 'a
 
 val whd_state_gen : ?csts:Cst_stack.t -> bool -> Closure.RedFlags.reds ->
   Environ.env -> Evd.evar_map -> state -> state * Cst_stack.t
+
+val iterate_whd_gen : bool -> Closure.RedFlags.reds ->
+  Environ.env -> Evd.evar_map -> Term.constr -> Term.constr
 
 (** {6 Generic Optimized Reduction Function using Closures } *)
 
@@ -203,6 +222,7 @@ val splay_prod_n : env ->  evar_map -> int -> constr -> rel_context * constr
 val splay_lam_n : env ->  evar_map -> int -> constr -> rel_context * constr
 val splay_prod_assum :
   env ->  evar_map -> constr -> rel_context * constr
+val is_sort : env -> evar_map -> types -> bool
 
 type 'a miota_args = {
   mP      : constr;     (** the result type *)
@@ -218,12 +238,11 @@ val find_conclusion : env -> evar_map -> constr -> (constr,constr) kind_of_term
 val is_arity : env ->  evar_map -> constr -> bool
 val is_sort : env -> evar_map -> types -> bool
 
-val contract_fix : ?env:Environ.env -> fixpoint ->
-  (constr * constr list) option -> constr
+val contract_fix : ?env:Environ.env -> ?reference:Constant.t -> fixpoint -> constr
 val fix_recarg : fixpoint -> constr Stack.t -> (int * constr) option
 
 (** {6 Querying the kernel conversion oracle: opaque/transparent constants } *)
-val is_transparent : Environ.env -> 'a tableKey -> bool
+val is_transparent : Environ.env -> constant tableKey -> bool
 
 (** {6 Conversion Functions (uses closures, lazy strategy) } *)
 
@@ -232,7 +251,7 @@ type conversion_test = constraints -> constraints
 val pb_is_equal : conv_pb -> bool
 val pb_equal : conv_pb -> conv_pb
 
-val sort_cmp : conv_pb -> sorts -> sorts -> conversion_test
+val sort_cmp : env -> conv_pb -> sorts -> sorts -> universes -> unit
 
 val is_conv : env ->  evar_map -> constr -> constr -> bool
 val is_conv_leq : env ->  evar_map -> constr -> constr -> bool
@@ -241,6 +260,17 @@ val is_fconv : conv_pb -> env ->  evar_map -> constr -> constr -> bool
 val is_trans_conv : transparent_state -> env -> evar_map -> constr -> constr -> bool
 val is_trans_conv_leq : transparent_state -> env ->  evar_map -> constr -> constr -> bool
 val is_trans_fconv : conv_pb -> transparent_state -> env ->  evar_map -> constr -> constr -> bool
+
+(** [check_conv] Checks universe constraints only.
+    pb defaults to CUMUL and ts to a full transparent state.
+ *)
+val check_conv : ?pb:conv_pb -> ?ts:transparent_state -> env ->  evar_map -> constr -> constr -> bool
+
+(** [infer_fconv] Adds necessary universe constraints to the evar map.
+    pb defaults to CUMUL and ts to a full transparent state.
+ *)
+val infer_conv : ?pb:conv_pb -> ?ts:transparent_state -> env ->  evar_map -> constr -> constr -> 
+  evar_map * bool
 
 (** {6 Special-Purpose Reduction Functions } *)
 

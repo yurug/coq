@@ -1,7 +1,7 @@
 (* -*- coding: utf-8 -*- *)
 (************************************************************************)
 (*  v      *   The Coq Proof Assistant  /  The Coq Development Team     *)
-(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2012     *)
+(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2015     *)
 (*   \VV/  **************************************************************)
 (*    //   *      This file is distributed under the terms of the       *)
 (*         *       GNU Lesser General Public License Version 2.1        *)
@@ -10,7 +10,7 @@
 (** Contributed by Laurent Théry (INRIA);
     Adapted to Coq V8 by the Coq Development Team *)
 
-Require Import Bool BinPos BinNat Nnat.
+Require Import Bool BinPos BinNat PeanoNat Nnat.
 Declare ML Module "ascii_syntax_plugin".
 
 (** * Definition of ascii characters *)
@@ -34,6 +34,7 @@ Definition shift (c : bool) (a : ascii) :=
 (** Definition of a decidable function that is effective *)
 
 Definition ascii_dec : forall a b : ascii, {a = b} + {a <> b}.
+Proof.
   decide equality; apply bool_dec.
 Defined.
 
@@ -115,7 +116,7 @@ Proof.
  unfold N.lt.
  change 256%N with (N.of_nat 256).
  rewrite <- Nat2N.inj_compare.
- rewrite <- Compare_dec.nat_compare_lt. auto.
+ now apply Nat.compare_lt_iff.
 Qed.
 
 

@@ -1,6 +1,6 @@
 (************************************************************************)
 (*  v      *   The Coq Proof Assistant  /  The Coq Development Team     *)
-(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2012     *)
+(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2015     *)
 (*   \VV/  **************************************************************)
 (*    //   *      This file is distributed under the terms of the       *)
 (*         *       GNU Lesser General Public License Version 2.1        *)
@@ -35,3 +35,12 @@ val is_nowhere : 'a clause_expr -> bool
 
 val simple_clause_of : (unit -> Id.t list) -> clause -> simple_clause
 val concrete_clause_of : (unit -> Id.t list) -> clause -> concrete_clause
+
+(** Miscellaneous functions *)
+
+val occurrences_of_hyp : Id.t -> clause -> (occurrences * hyp_location_flag)
+val occurrences_of_goal : clause -> occurrences
+val in_every_hyp : clause -> bool
+
+val clause_with_generic_occurrences : 'a clause_expr -> bool
+val clause_with_generic_context_selection : 'a clause_expr -> bool

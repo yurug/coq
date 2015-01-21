@@ -114,7 +114,7 @@ let const_of_id id =
 let def_of_const t =
    match (Term.kind_of_term t) with
     Term.Const sp ->
-      (try (match Declareops.body_of_constant (Global.lookup_constant sp) with
+      (try (match Environ.constant_opt_value_in (Global.env()) sp with
              | Some c -> c
 	     | _ -> assert false)
        with Not_found -> assert false)
@@ -146,7 +146,8 @@ let get_locality = function
 | Local -> true
 | Global -> false
 
-let save with_clean id const (locality,kind) hook =
+let save with_clean id const (locality,_,kind) hook =
+  let fix_exn = Future.fix_exn_of const.Entries.const_entry_body in
   let l,r = match locality with
     | Discharge when Lib.sections_are_opened () ->
         let k = Kindops.logical_kind_of_goal_kind kind in
@@ -160,13 +161,13 @@ let save with_clean id const (locality,kind) hook =
 	(locality, ConstRef kn)
   in
   if with_clean then  Pfedit.delete_current_proof ();
-  Ephemeron.iter_opt hook (fun f -> f l r);
+  Ephemeron.iter_opt hook (fun f -> Lemmas.call_hook fix_exn f l r);
   definition_message id
 
 
 
 let cook_proof _ =
-  let (id,(entry,strength)) = Pfedit.cook_proof () in
+  let (id,(entry,_,strength)) = Pfedit.cook_proof () in
   (id,(entry,strength))
 
 let get_proof_clean do_reduce =
@@ -177,7 +178,8 @@ let get_proof_clean do_reduce =
 let with_full_print f a =
   let old_implicit_args = Impargs.is_implicit_args ()
   and old_strict_implicit_args =  Impargs.is_strict_implicit_args ()
-  and old_contextual_implicit_args = Impargs.is_contextual_implicit_args () in
+  and old_contextual_implicit_args = Impargs.is_contextual_implicit_args () 
+  in
   let old_rawprint = !Flags.raw_print in
   Flags.raw_print := true;
   Impargs.make_implicit_args false;
@@ -228,7 +230,7 @@ type function_info =
 (* let function_table = ref ([] : function_db) *)
 
 
-let from_function = Summary.ref Cmap.empty ~name:"functions_db_fn"
+let from_function = Summary.ref Cmap_env.empty ~name:"functions_db_fn"
 let from_graph = Summary.ref Indmap.empty ~name:"functions_db_gr"
 
 (*
@@ -253,14 +255,14 @@ let cache_Function (_,(finfos)) =
 *)
 
 let cache_Function (_,finfos) =
-  from_function := Cmap.add finfos.function_constant finfos !from_function;
+  from_function := Cmap_env.add finfos.function_constant finfos !from_function;
   from_graph := Indmap.add finfos.graph_ind finfos !from_graph
 
 
 let load_Function _  = cache_Function
 let subst_Function (subst,finfos) =
-  let do_subst_con c = fst (Mod_subst.subst_con subst c)
-  and do_subst_ind (kn,i) = (Mod_subst.subst_ind subst kn,i)
+  let do_subst_con c = Mod_subst.subst_constant subst c
+  and do_subst_ind i = Mod_subst.subst_ind subst i
   in
   let function_constant' = do_subst_con finfos.function_constant in
   let graph_ind' = do_subst_ind finfos.graph_ind in
@@ -336,7 +338,7 @@ let pr_info f_info =
   str "function_constant_type := " ++
   (try
      Printer.pr_lconstr
-       (Global.type_of_global (ConstRef f_info.function_constant))
+       (Global.type_of_global_unsafe (ConstRef f_info.function_constant))
    with e when Errors.noncritical e -> mt ()) ++ fnl () ++
   str "equation_lemma := " ++ pr_ocst f_info.equation_lemma ++ fnl () ++
   str "completeness_lemma :=" ++ pr_ocst f_info.completeness_lemma ++ fnl () ++
@@ -347,7 +349,7 @@ let pr_info f_info =
   str "graph_ind := " ++ Printer.pr_lconstr (mkInd f_info.graph_ind) ++ fnl ()
 
 let pr_table tb =
-  let l = Cmap.fold (fun k v acc -> v::acc) tb [] in
+  let l = Cmap_env.fold (fun k v acc -> v::acc) tb [] in
   Pp.prlist_with_sep fnl pr_info l
 
 let in_Function : function_info -> Libobject.obj =
@@ -371,7 +373,7 @@ let find_or_none id =
 
 
 let find_Function_infos f =
-  Cmap.find f !from_function
+  Cmap_env.find f !from_function
 
 
 let find_Function_of_graph ind =

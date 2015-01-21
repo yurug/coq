@@ -1,6 +1,6 @@
 (************************************************************************)
 (*  v      *   The Coq Proof Assistant  /  The Coq Development Team     *)
-(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2012     *)
+(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2015     *)
 (*   \VV/  **************************************************************)
 (*    //   *      This file is distributed under the terms of the       *)
 (*         *       GNU Lesser General Public License Version 2.1        *)
@@ -155,12 +155,16 @@ Proof.
 Qed.
 
 Definition psub  := psub Z0  Z.add Z.sub Z.opp Zeq_bool.
+Declare Equivalent Keys psub RingMicromega.psub.
 
 Definition padd  := padd Z0  Z.add Zeq_bool.
+Declare Equivalent Keys padd RingMicromega.padd.
 
 Definition norm  := norm 0 1 Z.add Z.mul Z.sub Z.opp Zeq_bool.
+Declare Equivalent Keys norm RingMicromega.norm.
 
 Definition eval_pol := eval_pol Z.add Z.mul (fun x => x).
+Declare Equivalent Keys eval_pol RingMicromega.eval_pol.
 
 Lemma eval_pol_sub : forall env lhs rhs, eval_pol env (psub  lhs rhs) = eval_pol env lhs - eval_pol env rhs.
 Proof.
@@ -202,11 +206,10 @@ Definition normalise (t:Formula Z) : cnf (NFormula Z) :=
 
 Lemma normalise_correct : forall env t, eval_cnf eval_nformula env (normalise t) <-> Zeval_formula env t.
 Proof.
-  Opaque padd.
-  unfold normalise, xnormalise  ; simpl; intros env t.
+  unfold normalise, xnormalise; cbn -[padd]; intros env t.
   rewrite Zeval_formula_compat.
   unfold eval_cnf, eval_clause.
-  destruct t as [lhs o rhs]; case_eq o; simpl;
+  destruct t as [lhs o rhs]; case_eq o; cbn -[padd];
     repeat rewrite eval_pol_sub;
       repeat rewrite eval_pol_add;
       repeat rewrite <- eval_pol_norm ; simpl in *;
@@ -216,7 +219,6 @@ Proof.
   generalize (eval_pexpr  Z.add Z.mul Z.sub Z.opp (fun x : Z => x)
     (fun x : N => x) (pow_N 1 Z.mul) env rhs) ; intros z1 z2 ; intros ; subst;
     intuition (auto with zarith).
-  Transparent padd.
 Qed.
 
 Definition xnegate (t:RingMicromega.Formula Z) : list (NFormula Z)  :=
@@ -317,7 +319,7 @@ Qed.
 
 Require Import QArith.
 
-Inductive ZArithProof : Type :=
+Inductive ZArithProof :=
 | DoneProof
 | RatProof : ZWitness -> ZArithProof -> ZArithProof
 | CutProof : ZWitness -> ZArithProof -> ZArithProof

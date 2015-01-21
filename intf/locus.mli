@@ -1,6 +1,6 @@
 (************************************************************************)
 (*  v      *   The Coq Proof Assistant  /  The Coq Development Team     *)
-(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2012     *)
+(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2015     *)
 (*   \VV/  **************************************************************)
 (*    //   *      This file is distributed under the terms of the       *)
 (*         *       GNU Lesser General Public License Version 2.1        *)
@@ -86,3 +86,9 @@ type goal_location = hyp_location option
    the conclusion (conclusion is represented by None) *)
 
 type simple_clause = Id.t option list
+
+(** {6 A notion of occurrences allowing to express "all occurrences
+       convertible to the first which matches"} *)
+
+type 'a or_like_first = AtOccs of 'a | LikeFirst
+

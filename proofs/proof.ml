@@ -1,6 +1,6 @@
 (************************************************************************)
 (*  v      *   The Coq Proof Assistant  /  The Coq Development Team     *)
-(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2012     *)
+(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2015     *)
 (*   \VV/  **************************************************************)
 (*    //   *      This file is distributed under the terms of the       *)
 (*         *       GNU Lesser General Public License Version 2.1        *)
@@ -57,9 +57,23 @@ let new_focus_kind () =
     of just one, if anyone needs it *)
 
 exception CannotUnfocusThisWay
+
+(* Cannot focus on non-existing subgoals *)
+exception NoSuchGoals of int * int
+
+
+exception FullyUnfocused
+
 let _ = Errors.register_handler begin function
   | CannotUnfocusThisWay ->
     Errors.error "This proof is focused, but cannot be unfocused this way"
+  | NoSuchGoals (i,j) when Int.equal i j ->
+      Errors.errorlabstrm "Focus" Pp.(str"No such goal (" ++ int i ++ str").")
+  | NoSuchGoals (i,j) ->
+      Errors.errorlabstrm "Focus" Pp.(
+        str"Not every goal in range ["++ int i ++ str","++int j++str"] exist."
+      )
+  | FullyUnfocused -> Errors.error "The proof is not focused"
   | _ -> raise Errors.Unhandled
 end
 
@@ -117,10 +131,36 @@ let proof p =
   let given_up = p.given_up in
   (goals,stack,shelf,given_up,sigma)
 
+type 'a pre_goals = {
+    fg_goals : 'a list;
+  (** List of the focussed goals *)
+  bg_goals : ('a list * 'a list) list;
+  (** Zipper representing the unfocussed background goals *)
+  shelved_goals : 'a list;
+  (** List of the goals on the shelf. *)
+  given_up_goals : 'a list;
+  (** List of the goals that have been given up *)
+}
+
+let map_structured_proof pfts process_goal: 'a pre_goals =
+  let (goals, zipper, shelf, given_up, sigma) = proof pfts in
+  let fg = List.map (process_goal sigma) goals in
+  let map_zip (lg, rg) =
+    let lg = List.map (process_goal sigma) lg in
+    let rg = List.map (process_goal sigma) rg in
+    (lg, rg)
+  in
+  let bg = List.map map_zip zipper in
+  let shelf = List.map (process_goal sigma) shelf in
+  let given_up = List.map (process_goal sigma) given_up in
+    { fg_goals = fg;
+      bg_goals = bg;
+      shelved_goals = shelf;
+      given_up_goals = given_up; }
+
 let rec unroll_focus pv = function
   | (_,_,ctx)::stk -> unroll_focus (Proofview.unfocus ctx pv) stk
   | [] -> pv
-
 (* spiwack: a proof is considered completed even if its still focused, if the focus
    doesn't hide any goal.
    Unfocusing is handled in {!return}. *)
@@ -142,11 +182,6 @@ let partial_proof p = Proofview.partial_proof p.entry p.proofview
 let push_focus cond inf context pr =
   { pr with focus_stack = (cond,inf,context)::pr.focus_stack }
 
-exception FullyUnfocused
-let _ = Errors.register_handler begin function
-  | FullyUnfocused -> Errors.error "The proof is not focused"
-  | _ -> raise Errors.Unhandled
-end
 (* An auxiliary function to read the kind of the next focusing step *)
 let cond_of_focus pr =
   match pr.focus_stack with
@@ -179,7 +214,8 @@ let _unfocus pr =
 (* spiwack: there could also, easily be a focus-on-a-range tactic, is there 
    a need for it? *)
 let focus cond inf i pr =
-  _focus cond (Obj.repr inf) i i pr
+  try _focus cond (Obj.repr inf) i i pr
+  with CList.IndexOutOfRange -> raise (NoSuchGoals (i,i))
 
 let rec unfocus kind pr () =
   let cond = cond_of_focus pr in
@@ -237,8 +273,8 @@ let start sigma goals =
     shelf = [] ;
     given_up = [] } in
   _focus end_of_stack (Obj.repr ()) 1 (List.length goals) pr
-let dependent_start sigma goals =
-  let entry, proofview = Proofview.dependent_init sigma goals in
+let dependent_start goals =
+  let entry, proofview = Proofview.dependent_init goals in
   let pr = {
     proofview;
     entry;
@@ -276,32 +312,38 @@ let return p =
 
 let initial_goals p = Proofview.initial_goals p.entry
 
+let compact p =
+  let entry, proofview = Proofview.compact p.entry p.proofview in
+  { p with proofview; entry }
+
 (*** Function manipulation proof extra informations ***)
 
 (*** Tactics ***)
 
 let run_tactic env tac pr =
   let sp = pr.proofview in
-  let (_,tacticced_proofview,(status,(to_shelve,give_up))) = Proofview.apply env tac sp in
-  let shelf =
-    let pre_shelf = pr.shelf@to_shelve in
-    (* Compacting immediately: if someone shelves a goal, he probably
-       expects to solve it soon. *)
-    Proofview.in_proofview tacticced_proofview begin fun sigma ->
-      Option.List.flatten begin
-        List.map (fun g -> Goal.advance sigma g) pre_shelf
-      end
-    end
+  let (_,tacticced_proofview,(status,to_shelve,give_up),info_trace) =
+    Proofview.apply env tac sp
+  in
+  let sigma = Proofview.return tacticced_proofview in
+  (* Already solved goals are not to be counted as shelved. Nor are
+     they to be marked as unresolvable. *)
+  let undef l = List.filter (fun g -> Evd.is_undefined sigma g) l in
+  let retrieved = undef (List.rev (Evd.future_goals sigma)) in
+  let shelf = (undef pr.shelf)@retrieved@(undef to_shelve) in
+  let proofview =
+    List.fold_left
+      Proofview.Unsafe.mark_as_goal
+      tacticced_proofview
+      retrieved
   in
   let given_up = pr.given_up@give_up in
-  { pr with proofview = tacticced_proofview ; shelf ; given_up },status
-
-let emit_side_effects eff pr =
-  {pr with proofview = Proofview.emit_side_effects eff pr.proofview}
+  let proofview = Proofview.Unsafe.reset_future_goals proofview in
+  { pr with proofview ; shelf ; given_up },(status,info_trace)
 
 (*** Commands ***)
 
-let in_proof p k = Proofview.in_proofview p.proofview k
+let in_proof p k = k (Proofview.return p.proofview)
 
 (* Remove all the goals from the shelf and adds them at the end of the
    focused goals. *)
@@ -334,7 +376,12 @@ module V82 = struct
 
   let instantiate_evar n com pr =
     let sp = pr.proofview in
-    let new_proofview = Proofview.V82.instantiate_evar n com sp in
-    { pr with proofview = new_proofview }
+    let proofview = Proofview.V82.instantiate_evar n com sp in
+    let shelf =
+      List.filter begin fun g ->
+        Evd.is_undefined (Proofview.return proofview) g
+      end pr.shelf
+    in
+    { pr with proofview ; shelf }
 
 end

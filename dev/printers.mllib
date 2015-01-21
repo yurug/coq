@@ -1,5 +1,6 @@
 Coq_config
 
+Terminal
 Hook
 Canary
 Hashset
@@ -17,6 +18,11 @@ Pp_control
 Loc
 Compat
 Flags
+Control
+Loc
+Serialize
+Stateid
+Feedback
 Pp
 Segmenttree
 Unicodetable
@@ -39,7 +45,6 @@ Explore
 Predicate
 Rtree
 Heap
-Dnet
 Genarg
 Stateid
 Ephemeron
@@ -82,6 +87,7 @@ Type_errors
 Modops
 Inductive
 Typeops
+Fast_typeops
 Indtypes
 Cooking
 Term_typing
@@ -89,6 +95,7 @@ Subtyping
 Mod_typing
 Nativelibrary
 Safe_typing
+Unionfind
 
 Summary
 Nameops
@@ -103,8 +110,10 @@ Goptions
 Decls
 Heads
 Assumptions
+Keys
 Locusops
 Miscops
+Universes
 Termops
 Namegen
 Evd
@@ -112,19 +121,19 @@ Glob_ops
 Redops
 Reductionops
 Inductiveops
+Arguments_renaming
 Nativenorm
 Retyping
 Cbv
 Pretype_errors
 Evarutil
 Evarsolve
-Term_dnet
 Recordops
 Evarconv
-Arguments_renaming
 Typing
 Patternops
-ConstrMatching
+Constr_matching
+Find_subterm
 Tacred
 Classops
 Typeclasses_errors
@@ -133,9 +142,9 @@ Detyping
 Indrec
 Program
 Coercion
-Unification
 Cases
 Pretyping
+Unification
 Declaremods
 Library
 States
@@ -145,6 +154,8 @@ Tok
 Lexer
 Ppextend
 Pputils
+Ppstyle
+Ppannotation
 Stdarg
 Constrarg
 Constrexpr_ops
@@ -169,7 +180,7 @@ Refiner
 Clenv
 Evar_refiner
 Proof_errors
-Proofview_gen
+Logic_monad
 Proofview_monad
 Proofview
 Proof
@@ -184,8 +195,18 @@ Pptactic
 Ppdecl_proof
 Egramml
 Egramcoq
+Tacsubst
+Tacenv
+Trie
+Dn
+Btermdn
+Hints
 Himsg
 Cerrors
 Locality
 Vernacinterp
+Dischargedhypsmap
+Discharge
+Declare
+Ind_tables
 Top_printers

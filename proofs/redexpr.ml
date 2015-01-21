@@ -1,6 +1,6 @@
 (************************************************************************)
 (*  v      *   The Coq Proof Assistant  /  The Coq Development Team     *)
-(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2012     *)
+(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2015     *)
 (*   \VV/  **************************************************************)
 (*    //   *      This file is distributed under the terms of the       *)
 (*         *       GNU Lesser General Public License Version 2.1        *)
@@ -33,6 +33,24 @@ let cbv_native env sigma c =
   let ctyp = Retyping.get_type_of env sigma c in
   let evars = Nativenorm.evars_of_evar_map sigma in
   Nativenorm.native_norm env evars c ctyp
+
+let whd_cbn flags env sigma t =
+  let (state,_) =
+    (whd_state_gen true flags env sigma (t,Reductionops.Stack.empty))
+  in Reductionops.Stack.zip ~refold:true state
+
+let strong_cbn flags =
+  strong (whd_cbn flags)
+
+let simplIsCbn = ref (false)
+let _ = Goptions.declare_bool_option {
+  Goptions.optsync = true; Goptions.optdepr = false;
+  Goptions.optname =
+    "Plug the simpl tactic to the new cbn mechanism";
+  Goptions.optkey = ["SimplIsCbn"];
+  Goptions.optread = (fun () -> !simplIsCbn);
+  Goptions.optwrite = (fun a -> simplIsCbn:=a);
+}
 
 let set_strategy_one ref l  =
   let k =
@@ -173,75 +191,58 @@ let out_arg = function
 let out_with_occurrences (occs,c) =
   (Locusops.occurrences_map (List.map out_arg) occs, c)
 
+let e_red f env evm c = evm, f env evm c
+
+let head_style = false (* Turn to true to have a semantics where simpl
+   only reduce at the head when an evaluable reference is given, e.g.
+   2+n would just reduce to S(1+n) instead of S(S(n)) *)
+
+let contextualize f g = function
+  | Some (occs,c) ->
+      let l = Locusops.occurrences_map (List.map out_arg) occs in
+      let b,c,h = match c with
+        | Inl r -> true,PRef (global_of_evaluable_reference r),f
+        | Inr c -> false,c,f in
+      e_red (contextually b (l,c) (fun _ -> h))
+  | None -> e_red g
+
 let reduction_of_red_expr env =
   let make_flag = make_flag env in
   let rec reduction_of_red_expr = function
   | Red internal ->
-      if internal then (try_red_product,DEFAULTcast)
-      else (red_product,DEFAULTcast)
-  | Hnf -> (hnf_constr,DEFAULTcast)
-  | Simpl (Some (_,c as lp)) ->
-    (contextually (is_reference c) (out_with_occurrences lp)
-      (fun _ -> simpl),DEFAULTcast)
-  | Simpl None -> (simpl,DEFAULTcast)
-  | Cbv f -> (cbv_norm_flags (make_flag f),DEFAULTcast)
+      if internal then (e_red try_red_product,DEFAULTcast)
+      else (e_red red_product,DEFAULTcast)
+  | Hnf -> (e_red hnf_constr,DEFAULTcast)
+  | Simpl (f,o) ->
+     let whd_am = if !simplIsCbn then whd_cbn (make_flag f) else whd_simpl in
+     let am = if !simplIsCbn then strong_cbn (make_flag f) else simpl in
+     let () =
+       if not (!simplIsCbn || List.is_empty f.rConst) then
+	 Pp.msg_warning (Pp.strbrk "The legacy simpl does not deal with delta flags.") in
+     (contextualize (if head_style then whd_am else am) am o,DEFAULTcast)
+  | Cbv f -> (e_red (cbv_norm_flags (make_flag f)),DEFAULTcast)
   | Cbn f ->
-    (strong (fun env evd x -> Stack.zip ~refold:true
-      (fst (whd_state_gen true (make_flag f) env evd (x, Stack.empty)))),DEFAULTcast)
-  | Lazy f -> (clos_norm_flags (make_flag f),DEFAULTcast)
-  | Unfold ubinds -> (unfoldn (List.map out_with_occurrences ubinds),DEFAULTcast)
-  | Fold cl -> (fold_commands cl,DEFAULTcast)
+     (e_red (strong_cbn (make_flag f)), DEFAULTcast)
+  | Lazy f -> (e_red (clos_norm_flags (make_flag f)),DEFAULTcast)
+  | Unfold ubinds -> (e_red (unfoldn (List.map out_with_occurrences ubinds)),DEFAULTcast)
+  | Fold cl -> (e_red (fold_commands cl),DEFAULTcast)
   | Pattern lp -> (pattern_occs (List.map out_with_occurrences lp),DEFAULTcast)
   | ExtraRedExpr s ->
-      (try (String.Map.find s !reduction_tab,DEFAULTcast)
+      (try (e_red (String.Map.find s !reduction_tab),DEFAULTcast)
       with Not_found ->
 	(try reduction_of_red_expr (String.Map.find s !red_expr_tab)
 	 with Not_found ->
 	   error("unknown user-defined reduction \""^s^"\"")))
-  | CbvVm (Some lp) ->
-    let b = is_reference (snd lp) in
-    let lp = out_with_occurrences lp in
-    let vmfun _ env map c =
-      let tpe = Retyping.get_type_of env map c in
-      Vnorm.cbv_vm env c tpe
-    in
-    let redfun = contextually b lp vmfun in
-    (redfun, VMcast)
-  | CbvVm None -> (cbv_vm, VMcast)
-  | CbvNative (Some lp) ->
-    let b = is_reference (snd lp) in
-    let lp = out_with_occurrences lp in
-    let nativefun _ env map c =
-      let tpe = Retyping.get_type_of env map c in
-      let evars = Nativenorm.evars_of_evar_map map in
-      Nativenorm.native_norm env evars c tpe
-    in
-    let redfun = contextually b lp nativefun in
-    (redfun, NATIVEcast)
-  | CbvNative None -> (cbv_native, NATIVEcast)
+  | CbvVm o -> (contextualize cbv_vm cbv_vm o, VMcast)
+  | CbvNative o -> (contextualize cbv_native cbv_native o, VMcast)
   in
     reduction_of_red_expr
 
-let subst_flags subs flags =
-  { flags with rConst = List.map subs flags.rConst }
-
-let subst_occs subs (occ,e) = (occ,subs e)
-
-let subst_gen_red_expr subs_a subs_b subs_c = function
-  | Fold l -> Fold (List.map subs_a l)
-  | Pattern occs_l -> Pattern (List.map (subst_occs subs_a) occs_l)
-  | Simpl occs_o -> Simpl (Option.map (subst_occs subs_c) occs_o)
-  | Unfold occs_l -> Unfold (List.map (subst_occs subs_b) occs_l)
-  | Cbv flags -> Cbv (subst_flags subs_b flags)
-  | Lazy flags -> Lazy (subst_flags subs_b flags)
-  | e -> e
-
-let subst_red_expr subs e =
-  subst_gen_red_expr
+let subst_red_expr subs =
+  Miscops.map_red_expr_gen
     (Mod_subst.subst_mps subs)
     (Mod_subst.subst_evaluable_reference subs)
     (Patternops.subst_pattern subs)
-    e
 
 let inReduction : bool * string * red_expr -> obj =
   declare_object

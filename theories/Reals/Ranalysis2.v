@@ -1,6 +1,6 @@
 (************************************************************************)
 (*  v      *   The Coq Proof Assistant  /  The Coq Development Team     *)
-(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2012     *)
+(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2015     *)
 (*   \VV/  **************************************************************)
 (*    //   *      This file is distributed under the terms of the       *)
 (*         *       GNU Lesser General Public License Version 2.1        *)
@@ -9,6 +9,7 @@
 Require Import Rbase.
 Require Import Rfunctions.
 Require Import Ranalysis1.
+Require Import Omega.
 Local Open Scope R_scope.
 
 (**********)
@@ -432,17 +433,17 @@ Proof.
   unfold IZR; unfold INR, Pos.to_nat; simpl; intro;
     elim (Rlt_irrefl 1 (Rlt_trans _ _ _ H13 H12)).
   apply IZR_lt; omega.
-  unfold Rabs; case (Rcase_abs (/ 2)); intro.
+  unfold Rabs; case (Rcase_abs (/ 2)) as [Hlt|Hge].
   assert (Hyp : 0 < 2).
   prove_sup0.
-  assert (H11 := Rmult_lt_compat_l 2 _ _ Hyp r); rewrite Rmult_0_r in H11;
+  assert (H11 := Rmult_lt_compat_l 2 _ _ Hyp Hlt); rewrite Rmult_0_r in H11;
     rewrite <- Rinv_r_sym in H11; [ idtac | discrR ].
   elim (Rlt_irrefl 0 (Rlt_trans _ _ _ Rlt_0_1 H11)).
   reflexivity.
   apply (Rabs_pos_lt _ H0).
   ring.
   assert (H6 := Req_dec x0 (x0 + h)); elim H6; intro.
-  intro; rewrite <- H7; unfold dist, R_met; unfold R_dist;
+  intro; rewrite <- H7. unfold R_met, dist; unfold R_dist;
     unfold Rminus; rewrite Rplus_opp_r; rewrite Rabs_R0;
       apply Rabs_pos_lt.
   unfold Rdiv; apply prod_neq_R0;

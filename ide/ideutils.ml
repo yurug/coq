@@ -1,6 +1,6 @@
 (************************************************************************)
 (*  v      *   The Coq Proof Assistant  /  The Coq Development Team     *)
-(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2012     *)
+(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2015     *)
 (*   \VV/  **************************************************************)
 (*    //   *      This file is distributed under the terms of the       *)
 (*         *       GNU Lesser General Public License Version 2.1        *)
@@ -60,9 +60,6 @@ let byte_offset_to_char_offset s byte_offset =
   byte_offset - !extra_bytes
 
 let glib_utf8_pos_to_offset s ~off = byte_offset_to_char_offset s off
-
-let print_id id =
-  Minilib.log ("GOT sig id :"^(string_of_int (Obj.magic id)))
 
 let do_convert s =
   let from_loc () =
@@ -249,14 +246,9 @@ let coqtop_path () =
 	    let i = Str.search_backward (Str.regexp_string "coqide") prog pos
             in
 	    String.blit "coqtop" 0 prog i 6;
-	    prog
+	    if Sys.file_exists prog then prog else "coqtop"
 	  with Not_found -> "coqtop"
   in file
-
-let rec print_list print fmt = function
-  | [] -> ()
-  | [x] -> print fmt x
-  | x :: r -> print fmt x; print_list print fmt r
 
 (* In win32, when a command-line is to be executed via cmd.exe
    (i.e. Sys.command, Unix.open_process, ...), it cannot contain several
@@ -272,15 +264,15 @@ let textview_width (view : #GText.view_skel) =
   let char_width = GPango.to_pixels metrics#approx_char_width in
   pixel_width / char_width
 
-type logger = Interface.message_level -> string -> unit
+type logger = Pp.message_level -> string -> unit
 
 let default_logger level message =
   let level = match level with
-  | Interface.Debug _ -> `DEBUG
-  | Interface.Info -> `INFO
-  | Interface.Notice -> `NOTICE
-  | Interface.Warning -> `WARNING
-  | Interface.Error -> `ERROR
+  | Pp.Debug _ -> `DEBUG
+  | Pp.Info -> `INFO
+  | Pp.Notice -> `NOTICE
+  | Pp.Warning -> `WARNING
+  | Pp.Error -> `ERROR
   in
   Minilib.log ~level message
 
@@ -390,7 +382,7 @@ let url_for_keyword =
         let cin =
           try let index_urls = Filename.concat (List.find
             (fun x -> Sys.file_exists (Filename.concat x "index_urls.txt"))
-            (Minilib.coqide_config_dirs ())) "index_urls.txt" in
+            (Minilib.coqide_data_dirs ())) "index_urls.txt" in
             open_in index_urls
           with Not_found ->
             let doc_url = doc_url () in

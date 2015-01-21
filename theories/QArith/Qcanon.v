@@ -1,6 +1,6 @@
 (************************************************************************)
 (*  v      *   The Coq Proof Assistant  /  The Coq Development Team     *)
-(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2012     *)
+(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2015     *)
 (*   \VV/  **************************************************************)
 (*    //   *      This file is distributed under the terms of the       *)
 (*         *       GNU Lesser General Public License Version 2.1        *)
@@ -70,7 +70,6 @@ Qed.
 
 Definition Q2Qc (q:Q) : Qc := Qcmake (Qred q) (Qred_involutive q).
 Arguments Q2Qc q%Q.
-Notation " !! " := Q2Qc : Qc_scope.
 
 Lemma Qc_is_canon : forall q q' : Qc, q == q' -> q = q'.
 Proof.
@@ -87,8 +86,8 @@ Proof.
 Qed.
 Hint Resolve Qc_is_canon.
 
-Notation " 0 " := (!!0) : Qc_scope.
-Notation " 1 " := (!!1) : Qc_scope.
+Notation " 0 " := (Q2Qc 0) : Qc_scope.
+Notation " 1 " := (Q2Qc 1) : Qc_scope.
 
 Definition Qcle (x y : Qc) := (x <= y)%Q.
 Definition Qclt (x y : Qc) := (x < y)%Q.
@@ -144,15 +143,15 @@ Defined.
 (** The addition, multiplication and opposite are defined
    in the straightforward way: *)
 
-Definition Qcplus (x y : Qc) := !!(x+y).
+Definition Qcplus (x y : Qc) := Q2Qc (x+y).
 Infix "+" := Qcplus : Qc_scope.
-Definition Qcmult (x y : Qc) := !!(x*y).
+Definition Qcmult (x y : Qc) := Q2Qc (x*y).
 Infix "*" := Qcmult : Qc_scope.
-Definition Qcopp (x : Qc) := !!(-x).
+Definition Qcopp (x : Qc) := Q2Qc (-x).
 Notation "- x" := (Qcopp x) : Qc_scope.
 Definition Qcminus (x y : Qc) := x+-y.
 Infix "-" := Qcminus : Qc_scope.
-Definition Qcinv (x : Qc) := !!(/x).
+Definition Qcinv (x : Qc) := Q2Qc (/x).
 Notation "/ x" := (Qcinv x) : Qc_scope.
 Definition Qcdiv (x y : Qc) := x*/y.
 Infix "/" := Qcdiv : Qc_scope.
@@ -254,7 +253,7 @@ Theorem Qcmult_integral : forall x y, x*y=0 -> x=0 \/ y=0.
 Proof.
   intros.
   destruct (Qmult_integral x y); try qc; auto.
-  injection H; clear H; intros _ H.
+  injection H; clear H; intros.
   rewrite <- (Qred_correct (x*y)).
   rewrite <- (Qred_correct 0).
   rewrite H; auto with qarith.
@@ -460,13 +459,13 @@ Proof.
   induction n; simpl; auto with qarith.
   rewrite IHn; auto with qarith.
 Qed.
-
+Transparent Qred.
 Lemma Qcpower_0 : forall n, n<>O -> 0^n = 0.
 Proof.
   destruct n; simpl.
   destruct 1; auto.
   intros.
-  now apply Qc_is_canon.
+  now apply Qc_is_canon. 
 Qed.
 
 Lemma Qcpower_pos : forall p n, 0 <= p -> 0 <= p^n.
@@ -521,6 +520,7 @@ Add Field Qcfield : Qcft.
 (** A field tactic for rational numbers *)
 
 Example test_field : (forall x y : Qc, y<>0 -> (x/y)*y = x)%Qc.
+Proof.
 intros.
 field.
 auto.

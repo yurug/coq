@@ -13,9 +13,13 @@ Store
 Exninfo
 Backtrace
 Flags
+Control
 Pp_control
-Pp
 Loc
+Serialize
+Stateid
+Feedback
+Pp
 Segmenttree
 Unicodetable
 Unicode
@@ -30,6 +34,7 @@ Ephemeron
 Future
 CUnix
 System
+Profile
 RemoteCounter
 Envars
 Predicate

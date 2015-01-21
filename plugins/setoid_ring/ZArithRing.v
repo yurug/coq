@@ -1,6 +1,6 @@
 (************************************************************************)
 (*  v      *   The Coq Proof Assistant  /  The Coq Development Team     *)
-(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2012     *)
+(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2015     *)
 (*   \VV/  **************************************************************)
 (*    //   *      This file is distributed under the terms of the       *)
 (*         *       GNU Lesser General Public License Version 2.1        *)
@@ -48,8 +48,8 @@ Ltac Zpower_neg :=
 Add Ring Zr : Zth
   (decidable Zeq_bool_eq, constants [Zcst], preprocess [Zpower_neg;unfold Z.succ],
    power_tac Zpower_theory [Zpow_tac],
-    (* The two following option are not needed, it is the default chose when the set of
-        coefficiant is usual ring Z *)
+    (* The following two options are not needed; they are the default choice
+       when the set of coefficient is the usual ring Z *)
     div (InitialRing.Ztriv_div_th (@Eqsth Z) (@IDphi Z)),
    sign get_signZ_th).
 

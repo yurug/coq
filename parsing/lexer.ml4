@@ -1,6 +1,6 @@
 (************************************************************************)
 (*  v      *   The Coq Proof Assistant  /  The Coq Development Team     *)
-(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2012     *)
+(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2015     *)
 (*   \VV/  **************************************************************)
 (*    //   *      This file is distributed under the terms of the       *)
 (*         *       GNU Lesser General Public License Version 2.1        *)
@@ -298,9 +298,6 @@ let rec string in_comments bp len = parser
   | [< 'c; s >] -> string in_comments bp (store len c) s
   | [< _ = Stream.empty >] ep -> err (bp, ep) Unterminated_string
 
-(* Hook for exporting comment into xml theory files *)
-let (f_xml_output_comment, xml_output_comment) = Hook.make ~default:ignore ()
-
 (* Utilities for comments in beautify *)
 let comment_begin = ref None
 let comm_loc bp = match !comment_begin with
@@ -343,9 +340,6 @@ let null_comment s =
 
 let comment_stop ep =
   let current_s = Buffer.contents current in
-  if !Flags.xml_export && Buffer.length current > 0 &&
-    (!between_com || not(null_comment current_s)) then
-      Hook.get f_xml_output_comment current_s;
   (if Flags.do_beautify() && Buffer.length current > 0 &&
     (!between_com || not(null_comment current_s)) then
     let bp = match !comment_begin with
@@ -435,6 +429,14 @@ let find_keyword id s =
   | None -> raise Not_found
   | Some c -> KEYWORD c
 
+let process_sequence bp c cs =
+  let rec aux n cs =
+    match Stream.peek cs with
+    | Some c' when c == c' -> Stream.junk cs; aux (n+1) cs
+    | _ -> BULLET (String.make n c), (bp, Stream.count cs)
+  in
+  aux 1 cs
+
 (* Must be a special token *)
 let process_chars bp c cs =
   let t = progress_from_byte None (-1) !token_tree cs c in
@@ -493,12 +495,18 @@ let rec next_token = parser bp
       (* We enforce that "." should either be part of a larger keyword,
          for instance ".(", or followed by a blank or eof. *)
       let () = match t with
-      | KEYWORD "." ->
+      | KEYWORD ("." | "...") ->
         if not (blank_or_eof s) then err (bp,ep+1) Undefined_token;
-        if Flags.do_beautify() then between_com := true;
+        between_com := true;
       | _ -> ()
       in
       (t, (bp,ep))
+  | [< ' ('-'|'+'|'*' as c); s >] ->
+      let t,new_between_com =
+        if !between_com then process_sequence bp c s,true
+        else process_chars bp c s,false
+      in
+      comment_stop bp; between_com := new_between_com; t
   | [< ''?'; s >] ep ->
       let t = parse_after_qmark bp s in comment_stop bp; (t, (ep, bp))
   | [< ' ('a'..'z' | 'A'..'Z' | '_' as c);
@@ -531,7 +539,9 @@ let rec next_token = parser bp
             (try find_keyword id s with Not_found -> IDENT id), (bp, ep)
         | AsciiChar | Utf8Token ((Unicode.Symbol | Unicode.IdentPart), _) ->
             let t = process_chars bp (Stream.next s) s in
-            comment_stop bp; t
+            let new_between_com = match t with
+              (KEYWORD ("{"|"}"),_) -> !between_com | _ -> false in
+            comment_stop bp; between_com := new_between_com; t
         | EmptyStream ->
             comment_stop bp; (EOI, (bp, bp + 1))
 

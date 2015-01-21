@@ -1,6 +1,6 @@
 (************************************************************************)
 (*  v      *   The Coq Proof Assistant  /  The Coq Development Team     *)
-(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2012     *)
+(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2015     *)
 (*   \VV/  **************************************************************)
 (*    //   *      This file is distributed under the terms of the       *)
 (*         *       GNU Lesser General Public License Version 2.1        *)
@@ -119,11 +119,11 @@ Lemma Nneq_elim a a' :
    N.odd a = negb (N.odd a') \/
    N.eqb (N.div2 a) (N.div2 a') = false.
 Proof.
-  intros. cut (N.odd a = N.odd a' \/ N.odd a = negb (N.odd a')).
-  intros. elim H0. intro. right. apply Ndiv2_bit_neq. assumption.
-  assumption.
-  intro. left. assumption.
-  case (N.odd a), (N.odd a'); auto.
+  intros.
+  enough (N.odd a = N.odd a' \/ N.odd a = negb (N.odd a')) as [].
+  - right. apply Ndiv2_bit_neq; assumption.
+  - left. assumption.
+  - case (N.odd a), (N.odd a'); auto.
 Qed.
 
 Lemma Ndouble_or_double_plus_un a :

@@ -1,6 +1,6 @@
 (************************************************************************)
 (*  v      *   The Coq Proof Assistant  /  The Coq Development Team     *)
-(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2012     *)
+(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2015     *)
 (*   \VV/  **************************************************************)
 (*    //   *      This file is distributed under the terms of the       *)
 (*         *       GNU Lesser General Public License Version 2.1        *)
@@ -10,6 +10,7 @@ Require Ring.
 Import Ring_polynom Ring_tac Ring_theory InitialRing Setoid List Morphisms.
 Require Import ZArith_base.
 Set Implicit Arguments.
+(* Set Universe Polymorphism. *)
 
 Section MakeFieldPol.
 
@@ -593,7 +594,7 @@ Definition NPEadd e1 e2 :=
   | PEc c, _ => if (c =? 0)%coef then e2 else e1 + e2
   |  _, PEc c => if (c =? 0)%coef then e1 else e1 + e2
     (* Peut t'on factoriser ici ??? *)
-  | _, _ => e1 + e2
+  | _, _ => (e1 + e2)
   end%poly.
 Infix "++" := NPEadd (at level 60, right associativity).
 
@@ -1167,7 +1168,8 @@ induction fe; simpl condition; rewrite ?PCond_cons, ?PCond_app; simpl;
   assert (U2 := split_ok_r (num F1) (num F2) l).
   assert (U3 := split_ok_l (denum F1) (denum F2) l).
   assert (U4 := split_ok_r (denum F1) (denum F2) l).
-  rewrite (IHfe1 Hc2), (IHfe2 Hc3), U1, U2, U3, U4; apply rdiv7b;
+  rewrite (IHfe1 Hc2), (IHfe2 Hc3), U1, U2, U3, U4.
+  simpl in U2, U3, U4. apply rdiv7b;
    rewrite <- ?U2, <- ?U3, <- ?U4; try apply Pcond_Fnorm; trivial.
 
 - rewrite !NPEpow_ok. simpl. rewrite !rpow_pow, (IHfe Hc).
@@ -1273,6 +1275,9 @@ Qed.
 (* simplify a field equation : generate the crossproduct and simplify
    polynomials *)
 
+(** This allows rewriting modulo the simplification of PEeval on PMul *)
+Declare Equivalent Keys PEeval rmul.
+
 Theorem Field_simplify_eq_correct :
  forall n l lpe fe1 fe2,
     Ninterp_PElist l lpe ->
@@ -1293,8 +1298,7 @@ rewrite (split_ok_r (denum nfe1) (denum nfe2) l), eq3.
 simpl.
 rewrite !rmul_assoc.
 apply rmul_ext; trivial.
-rewrite
- (ring_rw_correct n lpe l Hlpe Logic.eq_refl (num nfe1 * right den) Logic.eq_refl),
+rewrite (ring_rw_correct n lpe l Hlpe Logic.eq_refl (num nfe1 * right den) Logic.eq_refl),
  (ring_rw_correct n lpe l Hlpe Logic.eq_refl (num nfe2 * left den) Logic.eq_refl).
 rewrite Hlmp.
 apply Hcrossprod.

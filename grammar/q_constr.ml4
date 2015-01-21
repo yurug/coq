@@ -1,6 +1,6 @@
 (************************************************************************)
 (*  v      *   The Coq Proof Assistant  /  The Coq Development Team     *)
-(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2012     *)
+(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2015     *)
 (*   \VV/  **************************************************************)
 (*    //   *      This file is distributed under the terms of the       *)
 (*         *       GNU Lesser General Public License Version 2.1        *)
@@ -18,7 +18,7 @@ let dloc = <:expr< Loc.ghost >>
 
 let apply_ref f l =
   <:expr<
-    Glob_term.GApp ($dloc$, Glob_term.GRef ($dloc$, Lazy.force $f$), $mlexpr_of_list (fun x -> x) l$)
+    Glob_term.GApp ($dloc$, Glob_term.GRef ($dloc$, Lazy.force $f$, None), $mlexpr_of_list (fun x -> x) l$)
   >>
 
 EXTEND
@@ -30,7 +30,7 @@ EXTEND
   sort:
     [ [ "Set"  -> Misctypes.GSet
       | "Prop" -> Misctypes.GProp
-      | "Type" -> Misctypes.GType None ] ]
+      | "Type" -> Misctypes.GType [] ] ]
   ;
   ident:
     [ [ s = string -> <:expr< Names.Id.of_string $str:s$ >> ] ]
@@ -70,11 +70,11 @@ EXTEND
     | "0"
       [ s = sort -> <:expr< Glob_term.GSort ($dloc$,s) >>
       | id = ident -> <:expr< Glob_term.GVar ($dloc$,$id$) >>
-      | "_" -> <:expr< Glob_term.GHole ($dloc$,Evar_kinds.QuestionMark (Evar_kinds.Define False),None) >>
+      | "_" -> <:expr< Glob_term.GHole ($dloc$,Evar_kinds.QuestionMark (Evar_kinds.Define False),Misctypes.IntroAnonymous,None) >>
       | "?"; id = ident -> <:expr< Glob_term.GPatVar($dloc$,(False,$id$)) >>
       | "{"; c1 = constr; "}"; "+"; "{"; c2 = constr; "}" ->
           apply_ref <:expr< coq_sumbool_ref >> [c1;c2]
-      | "%"; e = string -> <:expr< Glob_term.GRef ($dloc$,Lazy.force $lid:e$) >>
+      | "%"; e = string -> <:expr< Glob_term.GRef ($dloc$,Lazy.force $lid:e$, None) >>
       | c = match_constr -> c
       | "("; c = constr LEVEL "200"; ")" -> c ] ]
   ;

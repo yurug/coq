@@ -1,6 +1,6 @@
 (************************************************************************)
 (*  v      *   The Coq Proof Assistant  /  The Coq Development Team     *)
-(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2012     *)
+(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2015     *)
 (*   \VV/  **************************************************************)
 (*    //   *      This file is distributed under the terms of the       *)
 (*         *       GNU Lesser General Public License Version 2.1        *)
@@ -78,7 +78,7 @@ let unif t1 t2=
 		  for i=0 to l-1 do
 		    Queue.add (va.(i),vb.(i)) bige
 		  done
-	  | _->if not (eq_constr nt1 nt2) then raise (UFAIL (nt1,nt2))
+	  | _->if not (eq_constr_nounivs nt1 nt2) then raise (UFAIL (nt1,nt2))
     done;
       assert false
 	(* this place is unreachable but needed for the sake of typing *)

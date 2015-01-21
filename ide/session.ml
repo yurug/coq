@@ -1,6 +1,6 @@
 (************************************************************************)
 (*  v      *   The Coq Proof Assistant  /  The Coq Development Team     *)
-(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2012     *)
+(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2015     *)
 (*   \VV/  **************************************************************)
 (*    //   *      This file is distributed under the terms of the       *)
 (*         *       GNU Lesser General Public License Version 2.1        *)
@@ -26,13 +26,14 @@ class type control =
   end
 
 type errpage = (int * string) list page
-type jobpage = string Int.Map.t page
+type jobpage = string CString.Map.t page
 
 type session = {
   buffer : GText.buffer;
   script : Wg_ScriptView.script_view;
   proof : Wg_ProofView.proof_view;
   messages : Wg_MessageView.message_view;
+  segment : Wg_Segment.segment;
   fileops : FileOps.ops;
   coqops : CoqOps.ops;
   coqtop : Coq.coqtop;
@@ -132,7 +133,7 @@ let set_buffer_handlers
     try ignore(buffer#get_mark (`NAME "stop_of_input"))
     with GText.No_such_mark _ -> assert false in
   let get_insert () = buffer#get_iter_at_mark `INSERT in
-  let debug_edit_zone () = if !Minilib.debug then begin
+  let debug_edit_zone () = if false (*!Minilib.debug*) then begin
     buffer#remove_tag Tags.Script.edit_zone
       ~start:buffer#start_iter ~stop:buffer#end_iter;
     buffer#apply_tag Tags.Script.edit_zone
@@ -303,10 +304,10 @@ let create_errpage (script : Wg_ScriptView.script_view) : errpage =
 let create_jobpage coqtop coqops : jobpage =
   let table, access =
     make_table_widget
-      [`Int,"Worker",true; `String,"Job name",true]
+      [`String,"Worker",true; `String,"Job name",true]
       (fun columns store tp vc ->
         let row = store#get_iter tp in
-        let w = store#get ~row ~column:(find_int_col "Worker" columns) in
+        let w = store#get ~row ~column:(find_string_col "Worker" columns) in
 	let info () = Minilib.log ("Coq busy, discarding query") in
 	Coq.try_grab coqtop (coqops#stop_worker w) info
       ) in
@@ -314,7 +315,7 @@ let create_jobpage coqtop coqops : jobpage =
   let box = GPack.vbox ~homogeneous:false () in
   let () = box#pack ~expand:true table#coerce in
   let () = box#pack ~expand:false ~padding:2 tip#coerce in
-  let last_update = ref Int.Map.empty in
+  let last_update = ref CString.Map.empty in
   let callback = ref (fun _ -> ()) in
   object (self)
     inherit GObj.widget box#as_widget
@@ -324,10 +325,16 @@ let create_jobpage coqtop coqops : jobpage =
 	last_update := jobs;
 	access (fun _ store -> store#clear ());
         !callback jobs;
-	Int.Map.iter (fun id job -> access (fun columns store ->
-          let line = store#append () in
-          store#set line (find_int_col "Worker" columns) id;
-          store#set line (find_string_col "Job name" columns) job))
+	CString.Map.iter (fun id job -> access (fun columns store ->
+          let column = find_string_col "Worker" columns in
+          if job = "Dead" then
+            store#foreach (fun _ row ->
+              if store#get ~row ~column = id then store#remove row || true
+              else false)
+          else
+            let line = store#append () in
+            store#set line column id;
+            store#set line (find_string_col "Job name" columns) job))
           jobs
       end
     method on_update ~callback:cb = callback := cb
@@ -362,12 +369,13 @@ let create file coqtop_args =
   let script = create_script coqtop buffer in
   let proof = create_proof () in
   let messages = create_messages () in
+  let segment = new Wg_Segment.segment () in
   let command = new Wg_Command.command_window basename coqtop in
   let finder = new Wg_Find.finder basename (script :> GText.view) in
   let fops = new FileOps.fileops (buffer :> GText.buffer) file reset in
   let _ = fops#update_stats in
   let cops =
-    new CoqOps.coqops script proof messages coqtop (fun () -> fops#filename) in
+    new CoqOps.coqops script proof messages segment coqtop (fun () -> fops#filename) in
   let errpage = create_errpage script in
   let jobpage = create_jobpage coqtop cops in
   let _ = set_buffer_handlers (buffer :> GText.buffer) script cops coqtop in
@@ -378,6 +386,7 @@ let create file coqtop_args =
     script=script;
     proof=proof;
     messages=messages;
+    segment=segment;
     fileops=fops;
     coqops=cops;
     coqtop=coqtop;
@@ -483,6 +492,7 @@ let build_layout (sn:session) =
 	 end)
   in
   session_box#pack sn.finder#coerce;
+  session_box#pack sn.segment#coerce;
   sn.command#pack_in (session_paned#pack2 ~shrink:false ~resize:false);
   script_scroll#add sn.script#coerce;
   proof_scroll#add sn.proof#coerce;

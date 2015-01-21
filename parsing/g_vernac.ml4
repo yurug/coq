@@ -1,6 +1,6 @@
 (************************************************************************)
 (*  v      *   The Coq Proof Assistant  /  The Coq Development Team     *)
-(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2012     *)
+(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2015     *)
 (*   \VV/  **************************************************************)
 (*    //   *      This file is distributed under the terms of the       *)
 (*         *       GNU Lesser General Public License Version 2.1        *)
@@ -32,7 +32,7 @@ let _ = List.iter Lexer.add_keyword vernac_kw
 (* Rem: do not join the different GEXTEND into one, it breaks native *)
 (* compilation on PowerPC and Sun architectures *)
 
-let check_command = Gram.entry_create "vernac:check_command"
+let query_command = Gram.entry_create "vernac:query_command"
 
 let tactic_mode = Gram.entry_create "vernac:tactic_command"
 let noedit_mode = Gram.entry_create "vernac:noedit_command"
@@ -46,6 +46,7 @@ let record_field = Gram.entry_create "vernac:record_field"
 let of_type_with_opt_coercion = Gram.entry_create "vernac:of_type_with_opt_coercion"
 let subgoal_command = Gram.entry_create "proof_mode:subgoal_command"
 let instance_name = Gram.entry_create "vernac:instance_name"
+let section_subset_descr = Gram.entry_create "vernac:section_subset_descr"
 
 let command_entry = ref noedit_mode
 let set_command_entry e = command_entry := e
@@ -62,6 +63,14 @@ let _ = Proof_global.register_proof_mode {Proof_global.
 					    reset = set_noedit_mode
 					 }
 
+let make_bullet s =
+  let n = String.length s in
+  match s.[0] with
+  | '-' -> Dash n
+  | '+' -> Plus n
+  | '*' -> Star n
+  | _ -> assert false
+
 let default_command_entry =
   Gram.Entry.of_parser "command_entry"
     (fun strm -> Gram.parse_tokens_after_filter (get_command_entry ()) strm)
@@ -69,11 +78,12 @@ let default_command_entry =
 GEXTEND Gram
   GLOBAL: vernac gallina_ext tactic_mode noedit_mode subprf subgoal_command;
   vernac: FIRST
-    [ [ IDENT "Time"; v = vernac -> VernacTime v
+    [ [ IDENT "Time"; l = vernac_list -> VernacTime l
       | IDENT "Timeout"; n = natural; v = vernac -> VernacTimeout(n,v)
       | IDENT "Fail"; v = vernac -> VernacFail v
-      | IDENT "Local"; v = vernac_aux -> VernacLocal (true, v)
-      | IDENT "Global"; v = vernac_aux -> VernacLocal (false, v)
+
+      | IDENT "Local"; v = vernac_poly -> VernacLocal (true, v)
+      | IDENT "Global"; v = vernac_poly -> VernacLocal (false, v)
 
       (* Stm backdoor *)
       | IDENT "Stm"; IDENT "JoinDocument"; "." -> VernacStm JoinDocument
@@ -85,7 +95,13 @@ GEXTEND Gram
       | IDENT "Stm"; IDENT "Command"; v = vernac_aux -> VernacStm (Command v)
       | IDENT "Stm"; IDENT "PGLast"; v = vernac_aux -> VernacStm (PGLast v)
 
-      | v = vernac_aux -> v ] 
+      | v = vernac_poly -> v ] 
+    ]
+  ;
+  vernac_poly: 
+    [ [ IDENT "Polymorphic"; v = vernac_aux -> VernacPolymorphic (true, v)
+      | IDENT "Monomorphic"; v = vernac_aux -> VernacPolymorphic (false, v) 
+      | v = vernac_aux -> v ]
     ]
   ;
   vernac_aux:
@@ -97,9 +113,11 @@ GEXTEND Gram
       | g = gallina_ext; "." -> g
       | c = command; "." -> c
       | c = syntax; "." -> c
-      | "["; l = LIST1 located_vernac; "]"; "." -> VernacList l
       | c = subprf -> c
     ] ]
+  ;
+  vernac_list:
+    [ [ c = located_vernac -> [c] ] ]
   ;
   vernac_aux: LAST
     [ [ prfcom = default_command_entry -> prfcom ] ]
@@ -110,7 +128,9 @@ GEXTEND Gram
 
   selector:
     [ [ n=natural; ":" -> SelectNth n
-      | IDENT "all" ; ":" -> SelectAll ] ]
+      | "["; id = ident; "]"; ":" -> SelectId id
+      | IDENT "all" ; ":" -> SelectAll
+      | IDENT "par" ; ":" -> SelectAllParallel ] ]
   ;
 
   tactic_mode:
@@ -119,30 +139,26 @@ GEXTEND Gram
   ;
 
   subprf:
-  [ [
-      "-" -> VernacBullet Dash
-    | "*" -> VernacBullet Star
-    | "+" -> VernacBullet Plus
+  [ [ s = BULLET -> VernacBullet (make_bullet s)
     | "{" -> VernacSubproof None
     | "}" -> VernacEndSubproof
     ] ]
   ;
 
-
-
   subgoal_command: 
-    [ [ c = check_command; "." ->
+    [ [ c = query_command; "." ->
                   begin function
                     | Some (SelectNth g) -> c (Some g)
                     | None -> c None
                     | _ ->
                         VernacError (UserError ("",str"Typing and evaluation commands, cannot be used with the \"all:\" selector."))
                   end
-      | tac = Tactic.tactic;
+      | info = OPT [IDENT "Info";n=natural -> n];
+        tac = Tactic.tactic;
         use_dft_tac = [ "." -> false | "..." -> true ] ->
         (fun g ->
             let g = Option.default (Proof_global.get_default_goal_selector ()) g in
-            VernacSolve(g,tac,use_dft_tac)) ] ]
+            VernacSolve(g,info,tac,use_dft_tac)) ] ]
   ;
   located_vernac:
     [ [ v = vernac -> !@loc, v ] ]
@@ -171,8 +187,8 @@ GEXTEND Gram
     [ [ thm = thm_token; id = identref; bl = binders; ":"; c = lconstr;
         l = LIST0
           [ "with"; id = identref; bl = binders; ":"; c = lconstr ->
-            (Some id,(bl,c,None)) ] ->
-          VernacStartTheoremProof (thm,(Some id,(bl,c,None))::l, false)
+          (Some id,(bl,c,None)) ] ->
+          VernacStartTheoremProof (thm, (Some id,(bl,c,None))::l, false)
       | stre = assumption_token; nl = inline; bl = assum_list ->
 	  VernacAssumption (stre, nl, bl)
       | stre = assumptions_token; nl = inline; bl = assum_list ->
@@ -183,11 +199,11 @@ GEXTEND Gram
       | IDENT "Let"; id = identref; b = def_body ->
           VernacDefinition ((Some Discharge, Definition), id, b)
       (* Gallina inductive declarations *)
-      | f = finite_token;
+      | priv = private_token; f = finite_token;
         indl = LIST1 inductive_definition SEP "with" ->
 	  let (k,f) = f in
 	  let indl=List.map (fun ((a,b,c,d),e) -> ((a,b,c,k,d),e)) indl in
-          VernacInductive (f,false,indl)
+          VernacInductive (priv,f,indl)
       | "Fixpoint"; recs = LIST1 rec_definition SEP "with" ->
           VernacFixpoint (None, recs)
       | IDENT "Let"; "Fixpoint"; recs = LIST1 rec_definition SEP "with" ->
@@ -201,18 +217,12 @@ GEXTEND Gram
 	      l = LIST1 identref SEP "," -> VernacCombinedScheme (id, l)
       | IDENT "Register"; IDENT "Inline"; id = identref ->
           VernacRegister(id, RegisterInline)
+      | IDENT "Universe"; l = LIST1 identref -> VernacUniverse l
+      | IDENT "Universes"; l = LIST1 identref -> VernacUniverse l
+      | IDENT "Constraint"; l = LIST1 univ_constraint SEP "," -> VernacConstraint l
   ] ]
   ;
-  gallina_ext:
-    [ [ b = record_token; infer = infer_token; oc = opt_coercion; name = identref;
-        ps = binders;
-	s = OPT [ ":"; s = lconstr -> s ];
-	cfs = [ ":="; l = constructor_list_or_record_decl -> l
-	  | -> RecordDecl (None, []) ] ->
-	  let (recf,indf) = b in
-	    VernacInductive (indf,infer,[((oc,name),ps,s,recf,cfs),[]])
-  ] ]
-  ;
+
   thm_token:
     [ [ "Theorem" -> Theorem
       | IDENT "Lemma" -> Lemma
@@ -245,17 +255,20 @@ GEXTEND Gram
       | IDENT "Inline" -> DefaultInline
       | -> NoInline] ]
   ;
+  univ_constraint:
+    [ [ l = identref; ord = [ "<" -> Univ.Lt | "=" -> Univ.Eq | "<=" -> Univ.Le ];
+	r = identref -> (l, ord, r) ] ]
+  ;
   finite_token:
     [ [ "Inductive" -> (Inductive_kw,Finite)
-      | "CoInductive" -> (CoInductive,CoFinite) ] ]
-  ;
-  infer_token:
-    [ [ IDENT "Infer" -> true | -> false ] ]
-  ;
-  record_token:
-    [ [ IDENT "Record" -> (Record,BiFinite)
+      | "CoInductive" -> (CoInductive,CoFinite)
+      | "Variant" -> (Variant,BiFinite)
+      | IDENT "Record" -> (Record,BiFinite)
       | IDENT "Structure" -> (Structure,BiFinite)
       | IDENT "Class" -> (Class true,BiFinite) ] ]
+  ;
+  private_token:
+    [ [ IDENT "Private" -> true | -> false ] ]
   ;
   (* Simple definitions *)
   def_body:
@@ -281,10 +294,14 @@ GEXTEND Gram
     | -> [] ] ]
   ;
   (* Inductives and records *)
+  opt_constructors_or_fields:
+    [ [ ":="; lc = constructor_list_or_record_decl -> lc
+      | -> RecordDecl (None, []) ] ]
+  ;
   inductive_definition:
-    [ [ id = identref; oc = opt_coercion; indpar = binders;
+    [ [ oc = opt_coercion; id = identref; indpar = binders;
         c = OPT [ ":"; c = lconstr -> c ];
-        ":="; lc = constructor_list_or_record_decl; ntn = decl_notation ->
+        lc=opt_constructors_or_fields; ntn = decl_notation ->
 	   (((oc,id),indpar,c,lc),ntn) ] ]
   ;
   constructor_list_or_record_decl:
@@ -321,7 +338,7 @@ GEXTEND Gram
   ;
   type_cstr:
     [ [ ":"; c=lconstr -> c
-      | -> CHole (!@loc, None, None) ] ]
+      | -> CHole (!@loc, None, Misctypes.IntroAnonymous, None) ] ]
   ;
   (* Inductive schemes *)
   scheme:
@@ -370,7 +387,7 @@ GEXTEND Gram
 	     (None,DefExpr(id,mkCLambdaN (!@loc) l b,None)) ] ]
   ;
   record_binder:
-    [ [ id = name -> (None,AssumExpr(id,CHole (!@loc, None, None)))
+    [ [ id = name -> (None,AssumExpr(id,CHole (!@loc, None, Misctypes.IntroAnonymous, None)))
       | id = name; f = record_binder_body -> f id ] ]
   ;
   assum_list:
@@ -389,7 +406,7 @@ GEXTEND Gram
       t= [ coe = of_type_with_opt_coercion; c = lconstr ->
 	            fun l id -> (not (Option.is_empty coe),(id,mkCProdN (!@loc) l c))
             |  ->
-		 fun l id -> (false,(id,mkCProdN (!@loc) l (CHole (!@loc, None, None)))) ]
+		 fun l id -> (false,(id,mkCProdN (!@loc) l (CHole (!@loc, None, Misctypes.IntroAnonymous, None)))) ]
 	 -> t l
      ]]
 ;
@@ -407,10 +424,20 @@ GEXTEND Gram
   ;
 END
 
+let only_identrefs =
+  Gram.Entry.of_parser "test_only_identrefs"
+    (fun strm ->
+      let rec aux n =
+      match get_tok (Util.stream_nth n strm) with
+        | KEYWORD "." -> ()
+        | KEYWORD ")" -> ()
+        | IDENT _ -> aux (n+1)
+        | _ -> raise Stream.Failure in
+      aux 0)
 
 (* Modules and Sections *)
 GEXTEND Gram
-  GLOBAL: gallina_ext module_expr module_type;
+  GLOBAL: gallina_ext module_expr module_type section_subset_descr;
 
   gallina_ext:
     [ [ (* Interactive module declaration *)
@@ -431,6 +458,10 @@ GEXTEND Gram
 
       (* This end a Section a Module or a Module Type *)
       | IDENT "End"; id = identref -> VernacEndSegment id
+
+      (* Naming a set of section hyps *)
+      | IDENT "Collection"; id = identref; ":="; expr = section_subset_descr ->
+          VernacNameSectionHypSet (id, expr)
 
       (* Requiring an already compiled module *)
       | IDENT "Require"; export = export_token; qidl = LIST1 global ->
@@ -521,6 +552,23 @@ GEXTEND Gram
           CMwith (!@loc,mty,decl)
       ] ]
   ;
+  section_subset_descr:
+    [ [ IDENT "All" -> SsAll
+      | "Type" -> SsType
+      | only_identrefs; l = LIST0 identref -> SsExpr (SsSet l)
+      | e = section_subset_expr -> SsExpr e ] ]
+  ;
+  section_subset_expr:
+    [ "35" 
+      [ "-"; e = section_subset_expr -> SsCompl e ]
+    | "50"
+      [ e1 = section_subset_expr; "-"; e2 = section_subset_expr->SsSubstr(e1,e2)
+      | e1 = section_subset_expr; "+"; e2 = section_subset_expr->SsUnion(e1,e2)]
+    | "0"
+      [ i = identref -> SsSet [i]
+      | "("; only_identrefs; l = LIST0 identref; ")"-> SsSet l
+      | "("; e = section_subset_expr; ")"-> e ] ]
+  ;
 END
 
 (* Extensions: implicits, coercions, etc. *)
@@ -579,8 +627,8 @@ GEXTEND Gram
       | IDENT "Instance"; namesup = instance_name; ":";
 	 expl = [ "!" -> Decl_kinds.Implicit | -> Decl_kinds.Explicit ] ; t = operconstr LEVEL "200";
 	 pri = OPT [ "|"; i = natural -> i ] ;
-	 props = [ ":="; "{"; r = record_declaration; "}" -> Some r |
-	     ":="; c = lconstr -> Some c | -> None ] ->
+	 props = [ ":="; "{"; r = record_declaration; "}" -> Some (true,r) |
+	     ":="; c = lconstr -> Some (false,c) | -> None ] ->
 	   VernacInstance (false,snd namesup,(fst namesup,expl,t),props,pri)
 
       | IDENT "Existing"; IDENT "Instance"; id = global;
@@ -669,6 +717,7 @@ GEXTEND Gram
       | IDENT "clear"; IDENT "implicits" -> [`ClearImplicits]
       | IDENT "clear"; IDENT "scopes" -> [`ClearScopes]
       | IDENT "rename" -> [`Rename]
+      | IDENT "assert" -> [`Assert]
       | IDENT "extra"; IDENT "scopes" -> [`ExtraScopes]
       | IDENT "clear"; IDENT "scopes"; IDENT "and"; IDENT "implicits" ->
           [`ClearImplicits; `ClearScopes]
@@ -716,7 +765,7 @@ GEXTEND Gram
 END
 
 GEXTEND Gram
-  GLOBAL: command check_command class_rawexpr;
+  GLOBAL: command query_command class_rawexpr;
 
   command:
     [ [ IDENT "Ltac";
@@ -777,30 +826,13 @@ GEXTEND Gram
       | IDENT "Print"; IDENT "Namespace" ; ns = dirpath ->
           VernacPrint (PrintNamespace ns)
       | IDENT "Inspect"; n = natural -> VernacPrint (PrintInspect n)
-      | IDENT "About"; qid = smart_global -> VernacPrint (PrintAbout qid)
-
-      (* Searching the environment *)
-      | IDENT "SearchHead"; c = constr_pattern; l = in_or_out_modules ->
-	  VernacSearch (SearchHead c, l)
-      | IDENT "SearchPattern"; c = constr_pattern; l = in_or_out_modules ->
-	  VernacSearch (SearchPattern c, l)
-      | IDENT "SearchRewrite"; c = constr_pattern; l = in_or_out_modules ->
-	  VernacSearch (SearchRewrite c, l)
-      | IDENT "Search"; s = searchabout_query; l = searchabout_queries ->
-	  let (sl,m) = l in VernacSearch (SearchAbout (s::sl), m)
-      (* compatibility: SearchAbout *)
-      | IDENT "SearchAbout"; s = searchabout_query; l = searchabout_queries ->
-	  let (sl,m) = l in VernacSearch (SearchAbout (s::sl), m)
-      (* compatibility: SearchAbout with "[ ... ]" *)
-      | IDENT "SearchAbout"; "["; sl = LIST1 searchabout_query; "]";
-	  l = in_or_out_modules -> VernacSearch (SearchAbout sl, l)
 
       | IDENT "Add"; IDENT "ML"; IDENT "Path"; dir = ne_string ->
 	  VernacAddMLPath (false, dir)
       | IDENT "Add"; IDENT "Rec"; IDENT "ML"; IDENT "Path"; dir = ne_string ->
 	  VernacAddMLPath (true, dir)
 
-      (* Pour intervenir sur les tables de paramètres *)
+      (* For acting on parameter tables *)
       | "Set"; table = option_table; v = option_value ->
   	  VernacSetOption (table,v)
       | "Set"; table = option_table ->
@@ -813,10 +845,10 @@ GEXTEND Gram
 
       | IDENT "Add"; table = IDENT; field = IDENT; v = LIST1 option_ref_value
         -> VernacAddOption ([table;field], v)
-      (* Un value global ci-dessous va être caché par un field au dessus! *)
-      (* En fait, on donne priorité aux tables secondaires *)
-      (* Pas de syntaxe pour les tables tertiaires pour cause de conflit *)
-      (* (mais de toutes façons, pas utilisées) *)
+      (* A global value below will be hidden by a field above! *)
+      (* In fact, we give priority to secondary tables *)
+      (* No syntax for tertiary tables due to conflict *)
+      (* (but they are unused anyway) *)
       | IDENT "Add"; table = IDENT; v = LIST1 option_ref_value ->
           VernacAddOption ([table], v)
 
@@ -830,13 +862,31 @@ GEXTEND Gram
       | IDENT "Remove"; table = IDENT; v = LIST1 option_ref_value ->
 	  VernacRemoveOption ([table], v) ]] 
   ;
-  check_command: (* TODO: rapprocher Eval et Check *)
+  query_command: (* TODO: rapprocher Eval et Check *)
     [ [ IDENT "Eval"; r = Tactic.red_expr; "in"; c = lconstr ->
           fun g -> VernacCheckMayEval (Some r, g, c)
       | IDENT "Compute"; c = lconstr ->
 	  fun g -> VernacCheckMayEval (Some (Genredexpr.CbvVm None), g, c)
       | IDENT "Check"; c = lconstr ->
-	  fun g -> VernacCheckMayEval (None, g, c) ] ]
+	 fun g -> VernacCheckMayEval (None, g, c)
+      (* Searching the environment *)
+      | IDENT "About"; qid = smart_global ->
+	 fun g -> VernacPrint (PrintAbout (qid,g))
+      | IDENT "SearchHead"; c = constr_pattern; l = in_or_out_modules ->
+	  fun g -> VernacSearch (SearchHead c,g, l)
+      | IDENT "SearchPattern"; c = constr_pattern; l = in_or_out_modules ->
+	  fun g -> VernacSearch (SearchPattern c,g, l)
+      | IDENT "SearchRewrite"; c = constr_pattern; l = in_or_out_modules ->
+	  fun g -> VernacSearch (SearchRewrite c,g, l)
+      | IDENT "Search"; s = searchabout_query; l = searchabout_queries ->
+	  let (sl,m) = l in fun g -> VernacSearch (SearchAbout (s::sl),g, m)
+      (* compatibility: SearchAbout *)
+      | IDENT "SearchAbout"; s = searchabout_query; l = searchabout_queries ->
+	  fun g -> let (sl,m) = l in VernacSearch (SearchAbout (s::sl),g, m)
+      (* compatibility: SearchAbout with "[ ... ]" *)
+      | IDENT "SearchAbout"; "["; sl = LIST1 searchabout_query; "]";
+	  l = in_or_out_modules -> fun g -> VernacSearch (SearchAbout sl,g, l)
+      ] ]
   ;
   printable:
     [ [ IDENT "Term"; qid = smart_global -> PrintName qid
@@ -888,7 +938,8 @@ GEXTEND Gram
       | qid = smart_global -> RefClass qid ] ]
   ;
   locatable:
-    [ [ qid = smart_global -> LocateTerm qid
+    [ [ qid = smart_global -> LocateAny qid
+      | IDENT "Term"; qid = smart_global -> LocateTerm qid
       | IDENT "File"; f = ne_string -> LocateFile f
       | IDENT "Library"; qid = global -> LocateLibrary qid
       | IDENT "Module"; qid = global -> LocateModule qid
@@ -1010,6 +1061,8 @@ GEXTEND Gram
          modl = [ "("; l = LIST1 syntax_modifier SEP ","; ")" -> l | -> [] ];
 	 sc = OPT [ ":"; sc = IDENT -> sc ] ->
            VernacNotation (local,c,(s,modl),sc)
+     | IDENT "Format"; IDENT "Notation"; n = STRING; s = STRING; fmt = STRING ->
+           VernacNotationAddFormat (n,s,fmt)
 
      | IDENT "Tactic"; IDENT "Notation"; n = tactic_level;
 	 pil = LIST1 production_item; ":="; t = Tactic.tactic
@@ -1056,7 +1109,11 @@ GEXTEND Gram
         SetOnlyParsing Flags.Current
       | IDENT "compat"; s = STRING ->
         SetOnlyParsing (Coqinit.get_compat_version s)
-      | IDENT "format"; s = [s = STRING -> (!@loc,s)] -> SetFormat s
+      | IDENT "format"; s1 = [s = STRING -> (!@loc,s)];
+                        s2 = OPT [s = STRING -> (!@loc,s)] ->
+          begin match s1, s2 with
+          | (_,k), Some s -> SetFormat(k,s)
+          | s, None -> SetFormat ("text",s) end
       | x = IDENT; ","; l = LIST1 [id = IDENT -> id ] SEP ","; "at";
         lev = level -> SetItemLevel (x::l,lev)
       | x = IDENT; "at"; lev = level -> SetItemLevel ([x],lev)

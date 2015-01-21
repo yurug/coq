@@ -1,6 +1,6 @@
 (************************************************************************)
 (*  v      *   The Coq Proof Assistant  /  The Coq Development Team     *)
-(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2012     *)
+(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2015     *)
 (*   \VV/  **************************************************************)
 (*    //   *      This file is distributed under the terms of the       *)
 (*         *       GNU Lesser General Public License Version 2.1        *)
@@ -36,11 +36,11 @@ let warning_mult suf iter =
   in
   iter check
 
-let add_coqlib_known phys_dir log_dir f =
+let add_coqlib_known recur phys_dir log_dir f =
   match get_extension f [".vo"] with
     | (basename,".vo") ->
         let name = log_dir@[basename] in
-	let paths = suffixes name in
+	let paths = if recur then suffixes name else [name] in
         List.iter (fun f -> Hashtbl.add coqlibKnown f ()) paths
     | _ -> ()
 
@@ -382,9 +382,9 @@ let rec insert_graph name path graphs = match path, graphs with
 let print_graphs chan graph =
   let rec print_aux name = function
   | [] -> name
-  | (Element str) :: tl -> fprintf chan "%s\n" str; print_aux name tl
+  | (Element str) :: tl -> fprintf chan "\"%s\";\n" str; print_aux name tl
   | Subgraph (box, names) :: tl ->
-    fprintf chan "subgraph cluster%n {\n label=\"%s\"" name box;
+    fprintf chan "subgraph cluster%n {\nlabel=\"%s\";\n" name box;
     let name = print_aux (name + 1) names in
     fprintf chan "}\n"; print_aux name tl
   in
@@ -404,7 +404,7 @@ let rec pop_last = function
 let get_boxes path = pop_last (split_path path)
 
 let insert_raw_graph file =
-  insert_graph (basename_noext file) (get_boxes file)
+  insert_graph file (get_boxes file)
 
 let rec get_dependencies name args =
   let vdep  = treat_coq_file (name ^ ".v") in
@@ -439,20 +439,25 @@ let usage () =
   eprintf "  -dumpgraph f : print a dot dependency graph in file 'f'\n";
   exit 1
 
+let split_period = Str.split (Str.regexp (Str.quote "."))
+
 let rec parse = function
   | "-c" :: ll -> option_c := true; parse ll
   | "-D" :: ll -> option_D := true; parse ll
   | "-w" :: ll -> option_w := true; parse ll
-  | "-boot" :: ll -> Flags.boot := true; parse ll
+  | "-boot" :: ll -> option_boot := true; parse ll
   | "-sort" :: ll -> option_sort := true; parse ll
   | ("-noglob" | "-no-glob") :: ll -> option_noglob := true; parse ll
-  | "-I" :: r :: "-as" :: ln :: ll -> add_dir add_known r [ln]; parse ll
+  | "-I" :: r :: "-as" :: ln :: ll -> add_dir add_known r [];
+    add_dir add_known r (split_period ln);
+    parse ll
   | "-I" :: r :: "-as" :: [] -> usage ()
-  | "-I" :: r :: ll -> add_dir add_known r []; parse ll
+  | "-I" :: r :: ll -> add_caml_dir r; parse ll
   | "-I" :: [] -> usage ()
-  | "-R" :: r :: "-as" :: ln :: ll -> add_rec_dir add_known r [ln]; parse ll
+  | "-R" :: r :: "-as" :: ln :: ll -> add_rec_dir add_known r (split_period ln); parse ll
   | "-R" :: r :: "-as" :: [] -> usage ()
-  | "-R" :: r :: ln :: ll -> add_rec_dir add_known r [ln]; parse ll
+  | "-R" :: r :: ln :: ll -> add_rec_dir add_known r (split_period ln); parse ll
+  | "-Q" :: r :: ln :: ll -> add_dir add_known r (split_period ln); parse ll
   | "-R" :: ([] | [_]) -> usage ()
   | "-dumpgraph" :: f :: ll -> option_dump := Some (false, f); parse ll
   | "-dumpgraphbox" :: f :: ll -> option_dump := Some (true, f); parse ll
@@ -474,23 +479,25 @@ let coqdep () =
   parse (List.tl (Array.to_list Sys.argv));
   if not Coq_config.has_natdynlink then option_natdynlk := false;
   (* NOTE: These directories are searched from last to first *)
-  if !Flags.boot then begin
+  if !option_boot then begin
     add_rec_dir add_known "theories" ["Coq"];
-    add_rec_dir add_known "plugins" ["Coq"]
+    add_rec_dir add_known "plugins" ["Coq"];
+    add_rec_dir (fun _ -> add_caml_known) "theories" ["Coq"];
+    add_rec_dir (fun _ -> add_caml_known) "plugins" ["Coq"];
   end else begin
     Envars.set_coqlib ~fail:Errors.error;
     let coqlib = Envars.coqlib () in
     add_rec_dir add_coqlib_known (coqlib//"theories") ["Coq"];
     add_rec_dir add_coqlib_known (coqlib//"plugins") ["Coq"];
     let user = coqlib//"user-contrib" in
-    if Sys.file_exists user then add_rec_dir add_coqlib_known user [];
-    List.iter (fun s -> add_rec_dir add_coqlib_known s [])
+    if Sys.file_exists user then add_dir add_coqlib_known user [];
+    List.iter (fun s -> add_dir add_coqlib_known s [])
       (Envars.xdg_dirs (fun x -> Pp.msg_warning (Pp.str x)));
-    List.iter (fun s -> add_rec_dir add_coqlib_known s []) Envars.coqpath;
+    List.iter (fun s -> add_dir add_coqlib_known s []) Envars.coqpath;
   end;
-  List.iter (fun (f,d) -> add_mli_known f d) !mliAccu;
-  List.iter (fun (f,d) -> add_mllib_known f d) !mllibAccu;
-  List.iter (fun (f,_,d) -> add_ml_known f d) !mlAccu;
+  List.iter (fun (f,d) -> add_mli_known f d ".mli") !mliAccu;
+  List.iter (fun (f,d) -> add_mllib_known f d ".mllib") !mllibAccu;
+  List.iter (fun (f,suff,d) -> add_ml_known f d suff) !mlAccu;
   warning_mult ".mli" iter_mli_known;
   warning_mult ".ml" iter_ml_known;
   if !option_sort then begin sort (); exit 0 end;
@@ -505,4 +512,9 @@ let coqdep () =
     with e -> close_out chan; raise e
   end
 
-let _ = Printexc.catch coqdep ()
+let _ =
+  try
+    coqdep ()
+  with Errors.UserError(s,p) ->
+    let pp = if s <> "_" then Pp.(str s ++ str ": " ++ p) else p in
+    Pp.msgerrnl pp

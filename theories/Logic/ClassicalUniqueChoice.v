@@ -1,7 +1,7 @@
 (* -*- coding: utf-8 -*- *)
 (************************************************************************)
 (*  v      *   The Coq Proof Assistant  /  The Coq Development Team     *)
-(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2012     *)
+(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2015     *)
 (*   \VV/  **************************************************************)
 (*    //   *      This file is distributed under the terms of the       *)
 (*         *       GNU Lesser General Public License Version 2.1        *)
@@ -42,8 +42,8 @@ intros A B.
 apply (dependent_unique_choice A (fun _ => B)).
 Qed.
 
-(** The following proof comes from [[ChicliPottierSimpson02]] *)
 
+(** The following proof comes from [[ChicliPottierSimpson02]] *)
 Require Import Setoid.
 
 Theorem classic_set_in_prop_context :
@@ -78,7 +78,7 @@ destruct (f P).
   right.
   destruct HfP as [[_ Hfalse]| [Hna _]].
     discriminate.
-    assumption.
+    assumption. 
 Qed.
 
 Corollary not_not_classic_set :

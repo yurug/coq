@@ -1,6 +1,6 @@
 (************************************************************************)
 (*  v      *   The Coq Proof Assistant  /  The Coq Development Team     *)
-(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2012     *)
+(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2015     *)
 (*   \VV/  **************************************************************)
 (*    //   *      This file is distributed under the terms of the       *)
 (*         *       GNU Lesser General Public License Version 2.1        *)
@@ -20,6 +20,20 @@ open Typeclasses_errors
 open Libobject
 (*i*)
 
+let typeclasses_unique_solutions = ref false
+let set_typeclasses_unique_solutions d = (:=) typeclasses_unique_solutions d
+let get_typeclasses_unique_solutions () = !typeclasses_unique_solutions
+
+open Goptions
+
+let set_typeclasses_unique_solutions =
+  declare_bool_option
+    { optsync  = true;
+      optdepr  = false;
+      optname  = "check that typeclasses proof search returns unique solutions";
+      optkey   = ["Typeclasses";"Unique";"Solutions"];
+      optread  = get_typeclasses_unique_solutions;
+      optwrite = set_typeclasses_unique_solutions; }
 
 let (add_instance_hint, add_instance_hint_hook) = Hook.make ()
 let add_instance_hint id = Hook.get add_instance_hint id
@@ -33,10 +47,10 @@ let set_typeclass_transparency gr local c = Hook.get set_typeclass_transparency 
 let (classes_transparent_state, classes_transparent_state_hook) = Hook.make ()
 let classes_transparent_state () = Hook.get classes_transparent_state ()
 
-let solve_instanciation_problem = ref (fun _ _ _ -> assert false)
+let solve_instantiation_problem = ref (fun _ _ _ _ -> assert false)
 
-let resolve_one_typeclass env evm t =
-  !solve_instanciation_problem env evm t
+let resolve_one_typeclass ?(unique=get_typeclasses_unique_solutions ()) env evm t =
+  !solve_instantiation_problem env evm t unique
 
 type direction = Forward | Backward
 
@@ -53,6 +67,10 @@ type typeclass = {
 
   (* The method implementaions as projections. *)
   cl_projs : (Name.t * (direction * int option) option * constant option) list;
+  
+  cl_strict : bool;
+
+  cl_unique : bool;
 }
 
 type typeclasses = typeclass Refmap.t
@@ -64,6 +82,7 @@ type instance = {
      -1 for discard, 0 for none, mutable to avoid redeclarations
      when multiple rebuild_object happen. *)
   is_global: int;
+  is_poly: bool;
   is_impl: global_reference;
 }
 
@@ -73,7 +92,7 @@ let instance_impl is = is.is_impl
 
 let instance_priority is = is.is_pri
 
-let new_instance cl pri glob impl =
+let new_instance cl pri glob poly impl =
   let global =
     if glob then Lib.sections_depth ()
     else -1
@@ -81,6 +100,7 @@ let new_instance cl pri glob impl =
     { is_class = cl.cl_impl;
       is_pri = pri ;
       is_global = global ;
+      is_poly = poly;
       is_impl = impl }
 
 (*
@@ -90,12 +110,35 @@ let new_instance cl pri glob impl =
 let classes : typeclasses ref = Summary.ref Refmap.empty ~name:"classes"
 let instances : instances ref = Summary.ref Refmap.empty ~name:"instances"
 
+open Declarations
+
+let typeclass_univ_instance (cl,u') =
+  let subst = 
+    let u = 
+      match cl.cl_impl with
+      | ConstRef c -> 
+        let cb = Global.lookup_constant c in
+	  if cb.const_polymorphic then Univ.UContext.instance cb.const_universes
+	  else Univ.Instance.empty
+      | IndRef c ->
+         let mib,oib = Global.lookup_inductive c in
+	  if mib.mind_polymorphic then Univ.UContext.instance mib.mind_universes
+	  else Univ.Instance.empty
+      | _ -> Univ.Instance.empty
+    in Array.fold_left2 (fun subst u u' -> Univ.LMap.add u u' subst) 
+      Univ.LMap.empty (Univ.Instance.to_array u) (Univ.Instance.to_array u')
+  in
+  let subst_ctx = Context.map_rel_context (subst_univs_level_constr subst) in
+    { cl with cl_context = fst cl.cl_context, subst_ctx (snd cl.cl_context);
+      cl_props = subst_ctx cl.cl_props}, u'
+
 let class_info c =
   try Refmap.find c !classes
-  with Not_found -> not_a_class (Global.env()) (constr_of_global c)
+  with Not_found -> not_a_class (Global.env()) (printable_constr_of_global c)
 
 let global_class_of_constr env c =
-  try class_info (global_of_constr c)
+  try let gr, u = Universes.global_of_constr c in
+	class_info gr, u
   with Not_found -> not_a_class env c
 
 let dest_class_app env c =
@@ -110,16 +153,19 @@ let class_of_constr c =
   try Some (dest_class_arity (Global.env ()) c)
   with e when Errors.noncritical e -> None
 
-let rec is_class_type evd c =
-  match kind_of_term c with
-  | Prod (_, _, t) -> is_class_type evd t
-  | Evar (e, _) when is_defined evd e -> is_class_type evd (Evarutil.nf_evar evd c)
-  | _ ->
-    begin match class_of_constr c with
-    | Some _ -> true
-    | None -> false
-    end
+let is_class_constr c = 
+  try let gr, u = Universes.global_of_constr c in
+	Refmap.mem gr !classes
+  with Not_found -> false
 
+let rec is_class_type evd c =
+  let c, args = decompose_app c in
+    match kind_of_term c with
+    | Prod (_, _, t) -> is_class_type evd t
+    | Evar (e, _) when Evd.is_defined evd e ->
+      is_class_type evd (Evarutil.whd_head_evar evd c)
+    | _ -> is_class_constr c
+      
 let is_class_evar evd evi =
   is_class_type evd evi.Evd.evar_concl
 
@@ -133,7 +179,7 @@ let load_class (_, cl) =
 let cache_class = load_class
 
 let subst_class (subst,cl) =
-  let do_subst_con c = fst (Mod_subst.subst_con subst c)
+  let do_subst_con c = Mod_subst.subst_constant subst c
   and do_subst c = Mod_subst.subst_mps subst c
   and do_subst_gr gr = fst (subst_global subst gr) in
   let do_subst_ctx ctx = List.smartmap
@@ -142,11 +188,14 @@ let subst_class (subst,cl) =
   let do_subst_context (grs,ctx) =
     List.smartmap (Option.smartmap (fun (gr,b) -> do_subst_gr gr, b)) grs,
     do_subst_ctx ctx in
-  let do_subst_projs projs = List.smartmap (fun (x, y, z) -> (x, y, Option.smartmap do_subst_con z)) projs in
+  let do_subst_projs projs = List.smartmap (fun (x, y, z) -> 
+    (x, y, Option.smartmap do_subst_con z)) projs in
   { cl_impl = do_subst_gr cl.cl_impl;
     cl_context = do_subst_context cl.cl_context;
     cl_props = do_subst_ctx cl.cl_props;
-    cl_projs = do_subst_projs cl.cl_projs; }
+    cl_projs = do_subst_projs cl.cl_projs;
+    cl_strict = cl.cl_strict;
+    cl_unique = cl.cl_unique }
 
 let discharge_class (_,cl) =
   let repl = Lib.replacement_context () in
@@ -174,7 +223,7 @@ let discharge_class (_,cl) =
       let newgrs = List.map (fun (_, _, t) -> 
 	match class_of_constr t with
 	| None -> None
-	| Some (_, (tc, _)) -> Some (tc.cl_impl, true))
+	| Some (_, ((tc,_), _)) -> Some (tc.cl_impl, true))
 	ctx' 
       in
 	List.smartmap (Option.smartmap (fun (gr, b) -> Lib.discharge_global gr, b)) grs
@@ -182,14 +231,18 @@ let discharge_class (_,cl) =
     in grs', discharge_rel_context subst 1 ctx @ ctx' in
   let cl_impl' = Lib.discharge_global cl.cl_impl in
   if cl_impl' == cl.cl_impl then cl else
-    let ctx = abs_context cl in
+    let ctx, usubst, uctx = abs_context cl in
     let ctx, subst = rel_of_variable_context ctx in
     let context = discharge_context ctx subst cl.cl_context in
     let props = discharge_rel_context subst (succ (List.length (fst cl.cl_context))) cl.cl_props in
-    { cl_impl = cl_impl';
-      cl_context = context;
-      cl_props = props;
-      cl_projs = List.smartmap (fun (x, y, z) -> x, y, Option.smartmap Lib.discharge_con z) cl.cl_projs }
+    let discharge_proj (x, y, z) = x, y, Option.smartmap Lib.discharge_con z in
+      { cl_impl = cl_impl';
+	cl_context = context;
+	cl_props = props;
+	cl_projs = List.smartmap discharge_proj cl.cl_projs;
+	cl_strict = cl.cl_strict;
+	cl_unique = cl.cl_unique
+      }
 
 let rebuild_class cl = 
   try 
@@ -217,7 +270,7 @@ let check_instance env sigma c =
   try 
     let (evd, c) = resolve_one_typeclass env sigma
       (Retyping.get_type_of env sigma c) in
-      Evd.has_undefined evd
+      not (Evd.has_undefined evd)
   with e when Errors.noncritical e -> false
 
 let build_subclasses ~check env sigma glob pri =
@@ -227,11 +280,13 @@ let build_subclasses ~check env sigma glob pri =
       (fun () -> incr i;
         Nameops.add_suffix _id ("_subinstance_" ^ string_of_int !i))
   in
-  let rec aux pri c path =
-    let ty = Evarutil.nf_evar sigma (Retyping.get_type_of env sigma c) in
+  let ty, ctx = Global.type_of_global_in_context env glob in
+  let sigma = Evd.merge_context_set Evd.univ_rigid sigma (Univ.ContextSet.of_context ctx) in
+  let rec aux pri c ty path =
+    let ty = Evarutil.nf_evar sigma ty in
       match class_of_constr ty with
       | None -> []
-      | Some (rels, (tc, args)) ->
+      | Some (rels, ((tc,u), args)) ->
 	let instapp = 
 	  Reductionops.whd_beta sigma (appvectc c (Termops.extended_rel_vect 0 rels)) 
 	in
@@ -243,7 +298,7 @@ let build_subclasses ~check env sigma glob pri =
 	   | Some (Backward, _) -> None
 	   | Some (Forward, pri') ->
 	     let proj = Option.get proj in
-	     let body = it_mkLambda_or_LetIn (mkApp (mkConst proj, projargs)) rels in
+	     let body = it_mkLambda_or_LetIn (mkApp (mkConstU (proj,u), projargs)) rels in
 	       if check && check_instance env sigma body then None
 	       else 
 		 let pri = 
@@ -256,10 +311,15 @@ let build_subclasses ~check env sigma glob pri =
 	in
 	let declare_proj hints (cref, pri, body) =
 	  let path' = cref :: path in
-	  let rest = aux pri body path' in
+	  let ty = Retyping.get_type_of env sigma body in
+	  let rest = aux pri body ty path' in
 	    hints @ (path', pri, body) :: rest
 	in List.fold_left declare_proj [] projs 
-  in aux pri (constr_of_global glob) [glob]
+  in
+  let term = Universes.constr_of_global_univ (glob,Univ.UContext.instance ctx) in
+    (*FIXME subclasses should now get substituted for each particular instance of
+      the polymorphic superclass *)
+    aux pri term ty [glob]
 
 (*
  * instances persistent object
@@ -305,9 +365,11 @@ let discharge_instance (_, (action, inst)) =
 let is_local i = Int.equal i.is_global (-1)
 
 let add_instance check inst =
-  add_instance_hint (IsGlobal inst.is_impl) [inst.is_impl] (is_local inst) inst.is_pri;
+  let poly = Global.is_polymorphic inst.is_impl in
+  add_instance_hint (IsGlobal inst.is_impl) [inst.is_impl] (is_local inst) 
+    inst.is_pri poly;
   List.iter (fun (path, pri, c) -> add_instance_hint (IsConstr c) path
-    (is_local inst) pri) 
+    (is_local inst) pri poly)
     (build_subclasses ~check:(check && not (isVarRef inst.is_impl))
        (Global.env ()) Evd.empty inst.is_impl inst.is_pri)
 
@@ -342,11 +404,10 @@ let remove_instance i =
   remove_instance_hint i.is_impl
 
 let declare_instance pri local glob =
-  let c = constr_of_global glob in
-  let ty = Retyping.get_type_of (Global.env ()) Evd.empty c in
+  let ty = Global.type_of_global_unsafe glob in
     match class_of_constr ty with
-    | Some (rels, (tc, args) as _cl) ->
-      add_instance (new_instance tc pri (not local) glob)
+    | Some (rels, ((tc,_), args) as _cl) ->
+      add_instance (new_instance tc pri (not local) (Flags.use_polymorphic_flag ()) glob)
 (*       let path, hints = build_subclasses (not local) (Global.env ()) Evd.empty glob in *)
 (*       let entries = List.map (fun (path, pri, c) -> (pri, local, path, c)) hints in *)
 (* 	Auto.add_hints local [typeclasses_db] (Auto.HintsResolveEntry entries); *)
@@ -367,38 +428,12 @@ let add_class cl =
 
 
 open Declarations
-
-let add_constant_class cst =
-  let ty = Typeops.type_of_constant (Global.env ()) cst in
-  let ctx, arity = decompose_prod_assum ty in
-  let tc = 
-    { cl_impl = ConstRef cst;
-      cl_context = (List.map (const None) ctx, ctx);
-      cl_props = [(Anonymous, None, arity)];
-      cl_projs = []
-    }
-  in add_class tc;
-    set_typeclass_transparency (EvalConstRef cst) false false
-      
-let add_inductive_class ind =
-  let mind, oneind = Global.lookup_inductive ind in
-  let k =
-    let ctx = oneind.mind_arity_ctxt in
-    let ty = Inductive.type_of_inductive_knowing_parameters
-      (push_rel_context ctx (Global.env ()))
-	  oneind (Array.map (fun x -> lazy x) (Termops.extended_rel_vect 0 ctx))
-    in
-      { cl_impl = IndRef ind;
-	cl_context = List.map (const None) ctx, ctx;
-	cl_props = [Anonymous, None, ty];
-	cl_projs = [] }
-  in add_class k
       
 (*
  * interface functions
  *)
 
-let instance_constructor cl args =
+let instance_constructor (cl,u) args =
   let filter (_, b, _) = match b with
   | None -> true
   | Some _ -> false
@@ -406,14 +441,17 @@ let instance_constructor cl args =
   let lenpars = List.length (List.filter filter (snd cl.cl_context)) in
   let pars = fst (List.chop lenpars args) in
     match cl.cl_impl with
-      | IndRef ind -> Some (applistc (mkConstruct (ind, 1)) args),
-	  applistc (mkInd ind) pars
+      | IndRef ind -> 
+        let ind = ind, u in
+          (Some (applistc (mkConstructUi (ind, 1)) args),
+	   applistc (mkIndU ind) pars)
       | ConstRef cst -> 
+        let cst = cst, u in
 	let term = match args with
-	| [] -> None
-	| _ -> Some (List.last args)
+	  | [] -> None
+	  | _ -> Some (List.last args)
 	in
-	  term, applistc (mkConst cst) pars
+	  (term, applistc (mkConstU cst) pars)
       | _ -> assert false
 
 let typeclasses () = Refmap.fold (fun _ l c -> l :: c) !classes []
@@ -467,6 +505,9 @@ let is_implicit_arg = function
 
 let resolvable = Store.field ()
 
+let set_resolvable s b =
+  Store.set s resolvable b
+
 let is_resolvable evi =
   assert (match evi.evar_body with Evar_empty -> true | _ -> false);
   Option.default true (Store.get evi.evar_extra resolvable)
@@ -486,10 +527,10 @@ open Evar_kinds
 type evar_filter = existential_key -> Evar_kinds.t -> bool
 
 let all_evars _ _ = true
-let all_goals _ = function GoalEvar -> true | _ -> false
+let all_goals _ = function VarInstance _ | GoalEvar -> true | _ -> false
 let no_goals ev evi = not (all_goals ev evi)
 let no_goals_or_obligations _ = function
-  | GoalEvar | QuestionMark _ -> false
+  | VarInstance _ | GoalEvar | QuestionMark _ -> false
   | _ -> true
 
 let mark_resolvability filter b sigma =
@@ -500,16 +541,24 @@ let mark_resolvability filter b sigma =
   Evd.raw_map_undefined map sigma
 
 let mark_unresolvables ?(filter=all_evars) sigma = mark_resolvability filter false sigma
-let mark_resolvables sigma = mark_resolvability all_evars true sigma
+let mark_resolvables ?(filter=all_evars) sigma = mark_resolvability filter true sigma
 
 let has_typeclasses filter evd =
   let check ev evi =
-    filter ev (snd evi.evar_source) && is_class_evar evd evi && is_resolvable evi
+    filter ev (snd evi.evar_source) && is_resolvable evi && is_class_evar evd evi
   in
   Evar.Map.exists check (Evd.undefined_map evd)
 
-let solve_instanciations_problem = ref (fun _ _ _ _ _ -> assert false)
+let solve_instantiations_problem = ref (fun _ _ _ _ _ _ -> assert false)
 
-let resolve_typeclasses ?(filter=no_goals) ?(split=true) ?(fail=true) env evd =
+let solve_problem env evd filter unique split fail =
+  !solve_instantiations_problem env evd filter unique split fail
+
+(** Profiling resolution of typeclasses *)
+(* let solve_classeskey = Profile.declare_profile "solve_typeclasses" *)
+(* let solve_problem = Profile.profile5 solve_classeskey solve_problem *)
+
+let resolve_typeclasses ?(filter=no_goals) ?(unique=get_typeclasses_unique_solutions ())
+    ?(split=true) ?(fail=true) env evd =
   if not (has_typeclasses filter evd) then evd
-  else !solve_instanciations_problem env evd filter split fail
+  else solve_problem env evd filter unique split fail

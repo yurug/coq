@@ -1,6 +1,6 @@
 (************************************************************************)
 (*  v      *   The Coq Proof Assistant  /  The Coq Development Team     *)
-(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2012     *)
+(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2015     *)
 (*   \VV/  **************************************************************)
 (*    //   *      This file is distributed under the terms of the       *)
 (*         *       GNU Lesser General Public License Version 2.1        *)
@@ -57,7 +57,7 @@ Variables ceqb cleb : C -> C -> bool.
 Variable phi : C -> R.
 
 (* Power coefficients *)
-Variable E : Set. (* the type of exponents *)
+Variable E : Type. (* the type of exponents *)
 Variable pow_phi : N -> E.
 Variable rpow : R -> E -> R.
 
@@ -78,9 +78,9 @@ Record SORaddon := mk_SOR_addon {
 Variable addon : SORaddon.
 
 Add Relation R req
-  reflexivity proved by sor.(SORsetoid).(@Equivalence_Reflexive _ _ )
-  symmetry proved by sor.(SORsetoid).(@Equivalence_Symmetric _ _ )
-  transitivity proved by sor.(SORsetoid).(@Equivalence_Transitive _ _ )
+  reflexivity proved by sor.(SORsetoid).(@Equivalence_Reflexive _ _)
+  symmetry proved by sor.(SORsetoid).(@Equivalence_Symmetric _ _)
+  transitivity proved by sor.(SORsetoid).(@Equivalence_Transitive _ _)
 as micomega_sor_setoid.
 
 Add Morphism rplus with signature req ==> req ==> req as rplus_morph.
@@ -412,12 +412,12 @@ Proof.
   induction e.
   (* PsatzIn *)
   simpl ; intros.
-  destruct (nth_in_or_default n l (Pc cO, Equal)).
+  destruct (nth_in_or_default n l (Pc cO, Equal)) as [Hin|Heq].
   (* index is in bounds *)
-  apply H ; congruence.
+  apply H. congruence.
   (* index is out-of-bounds *)
   inversion H0.
-  rewrite e. simpl.
+  rewrite Heq. simpl.
   now apply  addon.(SORrm).(morph0).
   (* PsatzSquare *)
   simpl. intros. inversion H0.

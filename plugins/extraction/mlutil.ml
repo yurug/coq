@@ -1,6 +1,6 @@
 (************************************************************************)
 (*  v      *   The Coq Proof Assistant  /  The Coq Development Team     *)
-(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2012     *)
+(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2015     *)
 (*   \VV/  **************************************************************)
 (*    //   *      This file is distributed under the terms of the       *)
 (*         *       GNU Lesser General Public License Version 2.1        *)
@@ -796,7 +796,7 @@ let branch_as_cst (l,_,c) =
    When searching for the best factorisation below, we'll try both.
 *)
 
-(* The following structure allows to record which element occurred
+(* The following structure allows recording which element occurred
    at what position, and then finally return the most frequent
    element and its positions. *)
 

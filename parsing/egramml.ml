@@ -1,11 +1,12 @@
 (************************************************************************)
 (*  v      *   The Coq Proof Assistant  /  The Coq Development Team     *)
-(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2012     *)
+(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2015     *)
 (*   \VV/  **************************************************************)
 (*    //   *      This file is distributed under the terms of the       *)
 (*         *       GNU Lesser General Public License Version 2.1        *)
 (************************************************************************)
 
+open Util
 open Compat
 open Names
 open Pcoq
@@ -42,22 +43,21 @@ let make_rule mkact pt =
   let act = make_generic_action mkact ntl in
   (symbs, act)
 
-(** Tactic grammar extensions *)
-
-let extend_tactic_grammar s gl =
-  let mkact loc l = Tacexpr.TacExtend (loc,s,List.map snd l) in
-  let rules = List.map (make_rule mkact) gl in
-  maybe_uncurry (Gram.extend Tactic.simple_tactic)
-    (None,[(None, None, List.rev rules)])
-
 (** Vernac grammar extensions *)
 
 let vernac_exts = ref []
-let get_extend_vernac_grammars () = !vernac_exts
+
+let get_extend_vernac_rule (s, i) =
+  try
+    let find ((name, j), _) = String.equal name s && Int.equal i j in
+    let (_, rules) = List.find find !vernac_exts in
+    rules
+  with
+  | Failure _ -> raise Not_found
 
 let extend_vernac_command_grammar s nt gl =
   let nt = Option.default Vernac_.command nt in
   vernac_exts := (s,gl) :: !vernac_exts;
   let mkact loc l = VernacExtend (s,List.map snd l) in
-  let rules = List.map (make_rule mkact) gl in
+  let rules = [make_rule mkact gl] in
   maybe_uncurry (Gram.extend nt) (None,[(None, None, List.rev rules)])

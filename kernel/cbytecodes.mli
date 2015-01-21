@@ -1,6 +1,6 @@
 (************************************************************************)
 (*  v      *   The Coq Proof Assistant  /  The Coq Development Team     *)
-(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2012     *)
+(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2015     *)
 (*   \VV/  **************************************************************)
 (*    //   *      This file is distributed under the terms of the       *)
 (*         *       GNU Lesser General Public License Version 2.1        *)
@@ -23,7 +23,7 @@ val cofix_evaluated_tag : tag
 
 type structured_constant =
   | Const_sorts of sorts
-  | Const_ind of inductive
+  | Const_ind of pinductive
   | Const_b0 of tag
   | Const_bn of tag * structured_constant array
 
@@ -60,7 +60,7 @@ type instruction =
                    (** nb fv, init, lbl types, lbl bodies *)
   | Kclosurecofix of int * int * Label.t array * Label.t array
                    (** nb fv, init, lbl types, lbl bodies *)
-  | Kgetglobal of constant
+  | Kgetglobal of pconstant
   | Kconst of structured_constant
   | Kmakeblock of int * tag             (** size, tag *)
   | Kmakeprod

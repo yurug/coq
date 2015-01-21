@@ -1,6 +1,6 @@
 (************************************************************************)
 (*  v      *   The Coq Proof Assistant  /  The Coq Development Team     *)
-(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2012     *)
+(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2015     *)
 (*   \VV/  **************************************************************)
 (*    //   *      This file is distributed under the terms of the       *)
 (*         *       GNU Lesser General Public License Version 2.1        *)
@@ -28,8 +28,7 @@ val loc_of_or_by_notation : ('a -> Loc.t) -> 'a or_by_notation -> Loc.t
 
 val wit_int_or_var : int or_var uniform_genarg_type
 
-val wit_intro_pattern : intro_pattern_expr located uniform_genarg_type
-
+val wit_intro_pattern : (constr_expr intro_pattern_expr located, glob_constr_and_expr intro_pattern_expr located, intro_pattern) genarg_type
 
 val wit_ident : Id.t uniform_genarg_type
 
@@ -49,6 +48,8 @@ val wit_constr_may_eval :
   ((constr_expr,reference or_by_notation,constr_expr) may_eval,
   (glob_constr_and_expr,evaluable_global_reference and_short_name or_var,glob_constr_pattern_and_expr) may_eval,
   constr) genarg_type
+
+val wit_uconstr : (constr_expr , glob_constr_and_expr, Glob_term.closed_glob_constr) genarg_type
 
 val wit_open_constr :
   (open_constr_expr, open_glob_constr, Evd.open_constr) genarg_type
@@ -70,4 +71,4 @@ val wit_red_expr :
 
 val wit_tactic : (raw_tactic_expr, glob_tactic_expr, glob_tactic_expr) genarg_type
 
-val wit_clause_dft_concl :  (Names.Id.t Loc.located Tacexpr.or_metaid Locus.clause_expr,Names.Id.t Loc.located Locus.clause_expr,Names.Id.t Locus.clause_expr) genarg_type
+val wit_clause_dft_concl :  (Names.Id.t Loc.located Locus.clause_expr,Names.Id.t Loc.located Locus.clause_expr,Names.Id.t Locus.clause_expr) genarg_type

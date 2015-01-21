@@ -1,6 +1,6 @@
 (************************************************************************)
 (*  v      *   The Coq Proof Assistant  /  The Coq Development Team     *)
-(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2012     *)
+(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2015     *)
 (*   \VV/  **************************************************************)
 (*    //   *      This file is distributed under the terms of the       *)
 (*         *       GNU Lesser General Public License Version 2.1        *)
@@ -34,9 +34,6 @@ val get_load_paths : unit -> t list
 
 val get_paths : unit -> CUnix.physical_path list
 (** Same as [get_load_paths] but only get the physical part. *)
-
-val get_accessible_paths : unit -> CUnix.physical_path list
-(** Same as [get_paths] but also get paths that can be relatively accessed. *)
 
 val add_load_path : CUnix.physical_path -> path_type -> DirPath.t -> unit
 (** [add_load_path phys type log] adds the binding [phys := log] to the current

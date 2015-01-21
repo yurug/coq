@@ -1,6 +1,6 @@
 (************************************************************************)
 (*  v      *   The Coq Proof Assistant  /  The Coq Development Team     *)
-(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2012     *)
+(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2015     *)
 (*   \VV/  **************************************************************)
 (*    //   *      This file is distributed under the terms of the       *)
 (*         *       GNU Lesser General Public License Version 2.1        *)
@@ -143,18 +143,20 @@ Arguments S _%nat.
 (********************************************************************)
 (** * Container datatypes *)
 
+(* Set Universe Polymorphism. *)
+
 (** [option A] is the extension of [A] with an extra element [None] *)
 
 Inductive option (A:Type) : Type :=
   | Some : A -> option A
   | None : option A.
 
-Arguments None [A].
+Arguments None {A}.
 
-Definition option_map (A B:Type) (f:A->B) o :=
+Definition option_map (A B:Type) (f:A->B) (o : option A) : option B :=
   match o with
-    | Some a => Some (f a)
-    | None => None
+    | Some a => @Some B (f a)
+    | None => @None B
   end.
 
 (** [sum A B], written [A + B], is the disjoint sum of [A] and [B] *)
@@ -182,7 +184,8 @@ Notation "( x , y , .. , z )" := (pair .. (pair x y) .. z) : core_scope.
 Arguments pair {A B} _ _.
 
 Section projections.
-  Variables A B : Type.
+  Context {A : Type} {B : Type}.
+
   Definition fst (p:A * B) := match p with
 				| (x, y) => x
                               end.
@@ -221,7 +224,7 @@ Inductive list (A : Type) : Type :=
  | nil : list A
  | cons : A -> list A -> list A.
 
-Arguments nil [A].
+Arguments nil {A}.
 Infix "::" := cons (at level 60, right associativity) : list_scope.
 Delimit Scope list_scope with list.
 Bind Scope list_scope with list.
@@ -244,8 +247,10 @@ Definition app (A : Type) : list A -> list A -> list A :=
    | a :: l1 => a :: app l1 m
   end.
 
+
 Infix "++" := app (right associativity, at level 60) : list_scope.
 
+(* Unset Universe Polymorphism. *)
 
 (********************************************************************)
 (** * The comparison datatype *)
@@ -310,6 +315,7 @@ Defined.
 
 Definition CompSpec {A} (eq lt : A->A->Prop)(x y:A) : comparison -> Prop :=
  CompareSpec (eq x y) (lt x y) (lt y x).
+
 Definition CompSpecT {A} (eq lt : A->A->Prop)(x y:A) : comparison -> Type :=
  CompareSpecT (eq x y) (lt x y) (lt y x).
 Hint Unfold CompSpec CompSpecT.
@@ -338,6 +344,9 @@ Arguments identity_rect [A] a P f y i.
 
 Definition ID := forall A:Type, A -> A.
 Definition id : ID := fun A x => x.
+
+Definition IDProp := forall A:Prop, A -> A.
+Definition idProp : IDProp := fun A x => x.
 
 
 (* begin hide *)

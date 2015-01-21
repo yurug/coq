@@ -1,30 +1,46 @@
 (************************************************************************)
 (*  v      *   The Coq Proof Assistant  /  The Coq Development Team     *)
-(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2012     *)
+(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2015     *)
 (*   \VV/  **************************************************************)
 (*    //   *      This file is distributed under the terms of the       *)
 (*         *       GNU Lesser General Public License Version 2.1        *)
 (************************************************************************)
 
-module Make(Worker : sig
+type worker_id = string
+
+type 'a cpanel = {
+  exit : unit -> unit; (* called by manager to exit instead of Thread.exit *)
+  cancelled : unit -> bool; (* manager checks for a request of termination *)
+  extra : 'a;                        (* extra stuff to pass to the manager *)
+}
+
+module type PoolModel = sig
+  (* this shall come from a Spawn.* model *)
   type process
-  val spawn :
-      ?prefer_sock:bool -> ?env:string array -> string -> string array ->
-      process * in_channel * out_channel
-end) : sig
+  val spawn : int -> worker_id * process * CThread.thread_ic * out_channel
 
-type worker_id = int
-type spawn =
-  args:string array -> env:string array -> unit ->
-    in_channel * out_channel * Worker.process
+  (* this defines the main loop of the manager *)
+  type extra
+  val manager :
+    extra cpanel -> worker_id * process * CThread.thread_ic * out_channel -> unit
+end
 
-val init :
-  size:int -> manager:(cancel:bool ref -> worker_id -> spawn -> unit) -> unit
-val is_empty : unit -> bool
-val n_workers : unit -> int
-val cancel : worker_id -> unit
+module Make(Model : PoolModel) : sig
 
-(* The worker should call this function *)
-val worker_handshake : in_channel -> out_channel -> unit
+  type pool
+  
+  val create : Model.extra -> size:int -> pool
+
+  val is_empty : pool -> bool
+  val n_workers : pool -> int
+
+  (* cancel signal *)
+  val cancel : worker_id -> pool -> unit
+  val cancel_all : pool -> unit
+  (* camcel signal + true removal, the pool is empty afterward *)
+  val destroy : pool -> unit
+
+  (* The worker should call this function *)
+  val worker_handshake : CThread.thread_ic -> out_channel -> unit
 
 end

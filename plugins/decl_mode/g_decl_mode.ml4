@@ -1,6 +1,6 @@
 (************************************************************************)
 (*  v      *   The Coq Proof Assistant  /  The Coq Development Team     *)
-(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2012     *)
+(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2015     *)
 (*   \VV/  **************************************************************)
 (*    //   *      This file is distributed under the terms of the       *)
 (*         *       GNU Lesser General Public License Version 2.1        *)
@@ -26,8 +26,8 @@ let pr_goal gs =
   let preamb,thesis,penv,pc =
     (str "     *** Declarative Mode ***" ++ fnl ()++fnl ()),
     (str "thesis := "  ++ fnl ()),
-    Printer.pr_context_of env,
-    Printer.pr_goal_concl_style_env env (Goal.V82.concl sigma g)
+    Printer.pr_context_of env sigma,
+    Printer.pr_goal_concl_style_env env sigma (Goal.V82.concl sigma g)
   in
     preamb ++
     str"  " ++ hv 0 (penv ++ fnl () ++
@@ -55,8 +55,8 @@ let pr_glob_proof_instr _ _ _ instr = Empty.abort instr
 let interp_proof_instr _ { Evd.it = gl ; sigma = sigma }=
   Decl_interp.interp_proof_instr 
     (Decl_mode.get_info sigma gl)
-    (sigma)
     (Goal.V82.env sigma gl)
+    (sigma)
 
 let vernac_decl_proof () = 
   let pf = Proof_global.give_me_the_proof () in
@@ -106,7 +106,7 @@ let proof_instr : raw_proof_instr Gram.entry =
 let _ = Pptactic.declare_extra_genarg_pprule wit_proof_instr
   pr_raw_proof_instr pr_glob_proof_instr pr_proof_instr
 
-let classify_proof_instr _ = VtProofStep, VtLater
+let classify_proof_instr _ = VtProofStep false, VtLater
 
 (* We use the VERNAC EXTEND facility with a custom non-terminal
     to populate [proof_mode] with a new toplevel interpreter.
@@ -176,7 +176,7 @@ GLOBAL: proof_instr;
   statement :
     [[ i=ident ; ":" ; c=constr -> {st_label=Name i;st_it=c}
      | i=ident -> {st_label=Anonymous;
-		   st_it=Constrexpr.CRef (Libnames.Ident (!@loc, i))}
+		   st_it=Constrexpr.CRef (Libnames.Ident (!@loc, i), None)}
      | c=constr -> {st_label=Anonymous;st_it=c}
      ]];
   constr_or_thesis :
@@ -189,7 +189,7 @@ GLOBAL: proof_instr;
     |
       [ i=ident ; ":" ; cot=constr_or_thesis -> {st_label=Name i;st_it=cot}
       | i=ident -> {st_label=Anonymous;
-		    st_it=This (Constrexpr.CRef (Libnames.Ident (!@loc, i)))}
+		    st_it=This (Constrexpr.CRef (Libnames.Ident (!@loc, i), None))}
       | c=constr -> {st_label=Anonymous;st_it=This c}
       ]
     ];

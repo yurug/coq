@@ -1,6 +1,6 @@
 (************************************************************************)
 (*  v      *   The Coq Proof Assistant  /  The Coq Development Team     *)
-(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2012     *)
+(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2015     *)
 (*   \VV/  **************************************************************)
 (*    //   *      This file is distributed under the terms of the       *)
 (*         *       GNU Lesser General Public License Version 2.1        *)
@@ -32,7 +32,7 @@ type 'a glob_red_flag = {
 type ('a,'b,'c) red_expr_gen =
   | Red of bool
   | Hnf
-  | Simpl of 'c Locus.with_occurrences option
+  | Simpl of 'b glob_red_flag*('b,'c) Util.union Locus.with_occurrences option
   | Cbv of 'b glob_red_flag
   | Cbn of 'b glob_red_flag
   | Lazy of 'b glob_red_flag
@@ -40,8 +40,8 @@ type ('a,'b,'c) red_expr_gen =
   | Fold of 'a list
   | Pattern of 'a Locus.with_occurrences list
   | ExtraRedExpr of string
-  | CbvVm of 'c Locus.with_occurrences option
-  | CbvNative of 'c Locus.with_occurrences option
+  | CbvVm of ('b,'c) Util.union Locus.with_occurrences option
+  | CbvNative of ('b,'c) Util.union Locus.with_occurrences option
 
 type ('a,'b,'c) may_eval =
   | ConstrTerm of 'a

@@ -1,6 +1,6 @@
 (************************************************************************)
 (*  v      *   The Coq Proof Assistant  /  The Coq Development Team     *)
-(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2012     *)
+(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2015     *)
 (*   \VV/  **************************************************************)
 (*    //   *      This file is distributed under the terms of the       *)
 (*         *       GNU Lesser General Public License Version 2.1        *)
@@ -128,6 +128,9 @@ val lift_implicits : int -> manual_implicits -> manual_implicits
 val make_implicits_list : implicit_status list -> implicits_list list
 
 val drop_first_implicits : int -> implicits_list -> implicits_list
+
+val projection_implicits : env -> projection -> implicit_status list -> 
+  implicit_status list
 
 val select_impargs_size : int -> implicits_list list -> implicit_status list
 

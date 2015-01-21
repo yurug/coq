@@ -1,6 +1,6 @@
 (************************************************************************)
 (*  v      *   The Coq Proof Assistant  /  The Coq Development Team     *)
-(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2012     *)
+(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2015     *)
 (*   \VV/  **************************************************************)
 (*    //   *      This file is distributed under the terms of the       *)
 (*         *       GNU Lesser General Public License Version 2.1        *)
@@ -111,6 +111,9 @@ val global_inductive : reference -> inductive
 
 val locate_all : qualid -> global_reference list
 val locate_extended_all : qualid -> extended_global_reference list
+val locate_extended_all_tactic : qualid -> ltac_constant list
+val locate_extended_all_dir : qualid -> global_dir_reference list
+val locate_extended_all_modtype : qualid -> module_path list
 
 (** Mapping a full path to a global reference *)
 
@@ -124,6 +127,7 @@ val exists_modtype : full_path -> bool
 val exists_dir : DirPath.t -> bool
 val exists_section : DirPath.t -> bool (** deprecated synonym of [exists_dir] *)
 val exists_module : DirPath.t -> bool (** deprecated synonym of [exists_dir] *)
+val exists_tactic : full_path -> bool (** deprecated synonym of [exists_dir] *)
 
 (** {6 These functions locate qualids into full user names } *)
 
@@ -141,6 +145,7 @@ val full_name_module : qualid -> DirPath.t
 val path_of_syndef : syndef_name -> full_path
 val path_of_global : global_reference -> full_path
 val dirpath_of_module : module_path -> DirPath.t
+val path_of_modtype : module_path -> full_path
 val path_of_tactic : ltac_constant -> full_path
 
 (** Returns in particular the dirpath or the basename of the full path

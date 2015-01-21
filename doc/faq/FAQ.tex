@@ -14,7 +14,7 @@
 %\usepackage{multicol}
 \usepackage{hevea}
 \usepackage{fullpage}
-\usepackage[latin1]{inputenc}
+\usepackage[utf8]{inputenc}
 \usepackage[english]{babel}
 
 \ifpdf   % si on est en pdflatex
@@ -37,7 +37,7 @@
 % les macros d'amour
 \def\Coq{\textsc{Coq}}
 \def\Why{\textsc{Why}}
-\def\Caduceus{\textsc{Caduceus}}
+\def\Framac{\textsc{Frama-c}}
 \def\Krakatoa{\textsc{Krakatoa}}
 \def\Ltac{\textsc{Ltac}}
 \def\CoqIde{\textsc{CoqIde}}
@@ -138,7 +138,7 @@
   \large(\protect\ref{lastquestion}
   \ Hints)
 }
-\author{Pierre Castéran \and Hugo Herbelin \and Florent Kirchner \and Benjamin Monate \and Julien Narboux}
+\author{Pierre CastÃ©ran \and Hugo Herbelin \and Florent Kirchner \and Benjamin Monate \and Julien Narboux}
 \maketitle
 
 %%%%%%%
@@ -254,7 +254,7 @@ notes~\cite{Types:Dowek}.
 \item[Inductive types]
 Christine Paulin-Mohring's habilitation thesis~\cite{Pau96b}.
 \item[Co-Inductive types]
-Eduardo Giménez' thesis~\cite{EGThese}.
+Eduardo GimÃ©nez' thesis~\cite{EGThese}.
 \item[Miscellaneous] A
 \ahref{http://coq.inria.fr/doc/biblio.html}{bibliography} about Coq
 \end{description}
@@ -264,9 +264,9 @@ Eduardo Giménez' thesis~\cite{EGThese}.
 
 You can either extract a program from a proof by using the extraction
 mechanism or use dedicated tools, such as
-\ahref{http://why.lri.fr}{\Why},
+\ahref{http://why3.lri.fr}{\Why},
 \ahref{http://krakatoa.lri.fr}{\Krakatoa},
-\ahref{http://why.lri.fr/caduceus/index.en.html}{\Caduceus}, to prove
+\ahref{http://frama-c.com}{\Framac}, to prove
 annotated programs written in other languages.
 
 %\Question{How many {\Coq} users are there?}
@@ -295,7 +295,6 @@ There are graphical user interfaces:
 There are documentation and browsing tools:
 
 \begin{description}
-\item[Helm/Mowgli] A rendering, searching and publishing tool.
 \item[coq-tex] A tool to insert {\Coq} examples within .tex files. 
 \item[coqdoc] A documentation tool for \Coq.
 \item[coqgraph] A tool to generate a dependency graph from {\Coq} sources.
@@ -372,7 +371,7 @@ downloadable postscripts.
 
 \Question{Where can I find this FAQ on the web?}
 
-This FAQ is available online at \ahref{http://coq.inria.fr/doc/faq.html}{\url{http://coq.inria.fr/doc/faq.html}}.
+This FAQ is available online at \ahref{http://coq.inria.fr/faq}{\url{http://coq.inria.fr/faq}}.
 
 \Question{How can I submit suggestions / improvements / additions for this FAQ?}
 
@@ -383,12 +382,12 @@ sections that are missing). Please send contributions to Coq-Club.
 The main {\Coq} mailing list is \url{coq-club@inria.fr}, which
 broadcasts questions and suggestions about the implementation, the
 logical formalism or proof developments. See
-\ahref{http://coq.inria.fr/mailman/listinfo/coq-club}{\url{http://sympa-roc.inria.fr/wws/info/coq-club}} for
+\ahref{http://sympa.inria.fr/sympa/info/coq-club}{\url{http://sympa.inria.fr/sympa/info/coq-club}} for
 subscription. For bugs reports see question \ref{coqbug}.
 
 \Question{Where can I find an archive of the list?}
 The archives of the {\Coq} mailing list are available at
-\ahref{http://pauillac.inria.fr/pipermail/coq-club}{\url{http://sympa-roc.inria.fr/wws/arc/coq-club}}.
+\ahref{http://sympa.inria.fr/sympa/arc/coq-club}{\url{http://sympa.inria.fr/sympa/arc/coq-club}}.
 
 
 \Question{How can I be kept informed of new releases of {\Coq}?}
@@ -398,7 +397,7 @@ New versions of {\Coq} are announced on the coq-club mailing list. If you only w
 
 \Question{Is there any book about {\Coq}?}
 
-The first book on \Coq, Yves Bertot and Pierre Castéran's Coq'Art has been published by Springer-Verlag in 2004:
+The first book on \Coq, Yves Bertot and Pierre CastÃ©ran's Coq'Art has been published by Springer-Verlag in 2004:
 \begin{quote}
 ``This book provides a pragmatic introduction to the development of
 proofs and certified programs using \Coq. With its large collection of
@@ -1125,7 +1124,7 @@ Qed.
 Just use the semi-decision tactic: \firstorder.
 
 \iffalse
-todo: demander un exemple à Pierre
+todo: demander un exemple Ã  Pierre
 \fi
 
 \Question{My goal is solvable by a sequence of rewrites, how can I prove it?}
@@ -1201,7 +1200,7 @@ Qed.
 
 \Question{My goal is an equation solvable using equational hypothesis on some ring (e.g. natural numbers), how can I prove it?}
 
-You need the {\gb} tactic (see Loïc Pottier's homepage).
+You need the {\gb} tactic (see LoÃ¯c Pottier's homepage).
 
 \subsection{Tactics usage}
 
@@ -1266,7 +1265,7 @@ You can split your hint bases into smaller ones.
 
 \Question{What is the equivalent of {\tauto} for classical logic?}
 
-Currently there are no equivalent tactic for classical logic. You can use Gödel's ``not not'' translation.
+Currently there are no equivalent tactic for classical logic. You can use GÃ¶del's ``not not'' translation.
 
 
 \Question{I want to replace some term with another in the goal, how can I do it?}
@@ -1644,7 +1643,7 @@ is a strong specification, using the
 \texttt{sumbool} type (look at the reference manual or chapter 9 of
 \cite{coqart}). Eliminations of the form
 ``~\texttt{case (le\_lt\_dec n p)}~'' provide proofs of
-either $n \leq p$ or $p < n$, allowing to prove easily theorems as in
+either $n \leq p$ or $p < n$, allowing easy proofs of some theorems as in
 question~\ref{minmax}. Unfortunately, this not the case of your
 \texttt{my\_le\_lt\_dec}, which returns a quite non-informative boolean
 value.
@@ -1915,7 +1914,7 @@ Notation "x ^2" := (Rmult x x) (at level 20).
 \end{verbatim}
 Note that you can not use:
 \begin{tt}
-Notation "x $^²$" := (Rmult x x) (at level 20).
+Notation "x $^2$" := (Rmult x x) (at level 20).
 \end{tt}
 because ``$^2$'' is an iso-latin character. If you really want this kind of notation you should use UTF-8.
 

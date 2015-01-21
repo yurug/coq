@@ -21,6 +21,8 @@ Require Vectors.Fin.
 Import EqNotations.
 Local Open Scope nat_scope.
 
+(* Set Universe Polymorphism. *)
+
 (**
 A vector is a list of size n whose elements belong to a set A. *)
 
@@ -43,38 +45,17 @@ Definition rectS {A} (P:forall {n}, t A (S n) -> Type)
  |@cons _ a 0 v =>
    match v with
      |nil _ => bas a
-     |_ => fun devil => False_rect (@ID) devil (* subterm !!! *)
+     |_ => fun devil => False_ind (@IDProp) devil (* subterm !!! *)
    end
  |@cons _ a (S nn') v => rect a v (rectS_fix v)
- |_ => fun devil => False_rect (@ID) devil (* subterm !!! *)
+ |_ => fun devil => False_ind (@IDProp) devil (* subterm !!! *)
  end.
-
-(** An induction scheme for 2 vectors of same length *)
-Definition rect2 {A B} (P:forall {n}, t A n -> t B n -> Type)
-  (bas : P [] []) (rect : forall {n v1 v2}, P v1 v2 ->
-    forall a b, P (a :: v1) (b :: v2)) :=
-fix rect2_fix {n} (v1:t A n):
-  forall v2 : t B n, P v1 v2 :=
-match v1 as v1' in t _ n1
-  return forall v2 : t B n1, P v1' v2 with
-  |[] => fun v2 =>
-     match v2 with
-       |[] => bas
-       |_ => fun devil => False_rect (@ID) devil (* subterm !!! *)
-     end
-  |h1 :: t1 => fun v2 =>
-    match v2 with
-      |h2 :: t2 => fun t1' =>
-        rect (rect2_fix t1' t2) h1 h2
-      |_ => fun devil => False_rect (@ID) devil (* subterm !!! *)
-    end t1
-end.
 
 (** A vector of length [0] is [nil] *)
 Definition case0 {A} (P:t A 0 -> Type) (H:P (nil A)) v:P v :=
 match v with
   |[] => H
-  |_ => fun devil => False_rect (@ID) devil (* subterm !!! *)
+  |_ => fun devil => False_ind (@IDProp) devil (* subterm !!! *)
 end.
 
 (** A vector of length [S _] is [cons] *)
@@ -82,8 +63,27 @@ Definition caseS {A} (P : forall {n}, t A (S n) -> Type)
   (H : forall h {n} t, @P n (h :: t)) {n} (v: t A (S n)) : P v :=
 match v with
   |h :: t => H h t
-  |_ => fun devil => False_rect (@ID) devil (* subterm !!! *)
+  |_ => fun devil => False_ind (@IDProp) devil (* subterm !!! *)
 end.
+
+Definition caseS' {A} {n : nat} (v : t A (S n)) : forall (P : t A (S n) -> Type)
+  (H : forall h t, P (h :: t)), P v :=
+  match v with
+  | h :: t => fun P H => H h t
+  | _ => fun devil => False_rect (@IDProp) devil
+  end.
+
+(** An induction scheme for 2 vectors of same length *)
+Definition rect2 {A B} (P:forall {n}, t A n -> t B n -> Type)
+  (bas : P [] []) (rect : forall {n v1 v2}, P v1 v2 ->
+    forall a b, P (a :: v1) (b :: v2)) :=
+  fix rect2_fix {n} (v1 : t A n) : forall v2 : t B n, P v1 v2 :=
+  match v1 with
+  | [] => fun v2 => case0 _ bas v2
+  | @cons _ h1 n' t1 => fun v2 =>
+    caseS' v2 (fun v2' => P (h1::t1) v2') (fun h2 t2 => rect (rect2_fix t1 t2) h1 h2)
+  end.
+
 End SCHEMES.
 
 Section BASES.
@@ -117,9 +117,9 @@ Definition nth_order {A} {n} (v: t A n) {p} (H: p < n) :=
 (** Put [a] at the p{^ th} place of [v] *)
 Fixpoint replace {A n} (v : t A n) (p: Fin.t n) (a : A) {struct p}: t A n :=
   match p with
-  |@Fin.F1 k => fun v': t A (S k) => caseS (fun n _ => t A (S n)) (fun h _ t => a :: t) v'
-  |Fin.FS p' => fun v' =>
-    (caseS (fun n _ => Fin.t n -> t A (S n)) (fun h _ t p2 => h :: (replace t p2 a)) v') p'
+  | @Fin.F1 k => fun v': t A (S k) => caseS' v' _ (fun h t => a :: t)
+  | @Fin.FS k p' => fun v' : t A (S k) =>
+    (caseS' v' (fun _ => t A (S k)) (fun h t => h :: (replace t p' a)))
   end v.
 
 (** Version of replace with [lt] *)
@@ -243,14 +243,9 @@ Definition fold_right2 {A B C} (g:A -> B -> C -> C) (c: C) :=
 Definition fold_left2 {A B C: Type} (f : A -> B -> C -> A) :=
 fix fold_left2_fix (a : A) {n} (v : t B n) : t C n -> A :=
 match v in t _ n0 return t C n0 -> A with
-  |[] => fun w => match w with
-    |[] => a
-    |_ => fun devil => False_rect (@ID) devil (* subterm !!! *)
-  end
-  |@cons _ vh vn vt => fun w => match w with
-    |wh :: wt => fun vt' => fold_left2_fix (f a vh wh) vt' wt
-    |_ => fun devil => False_rect (@ID) devil (* subterm !!! *)
-  end vt
+  |[] => fun w => case0 (fun _ => A) a w
+  |@cons _ vh vn vt => fun w =>
+    caseS' w (fun _ => A) (fun wh wt => fold_left2_fix (f a vh wh) vt wt)
 end.
 
 End ITERATORS.

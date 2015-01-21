@@ -10,7 +10,7 @@ open Misctypes
    Some basic functions to rebuild glob_constr
    In each of them the location is Loc.ghost
 *)
-let mkGRef ref = GRef(Loc.ghost,ref)
+let mkGRef ref = GRef(Loc.ghost,ref,None)
 let mkGVar id = GVar(Loc.ghost,id)
 let mkGApp(rt,rtl) = GApp(Loc.ghost,rt,rtl)
 let mkGLambda(n,t,b) = GLambda(Loc.ghost,n,Explicit,t,b)
@@ -18,7 +18,7 @@ let mkGProd(n,t,b) = GProd(Loc.ghost,n,Explicit,t,b)
 let mkGLetIn(n,t,b) = GLetIn(Loc.ghost,n,t,b)
 let mkGCases(rto,l,brl) = GCases(Loc.ghost,Term.RegularStyle,rto,l,brl)
 let mkGSort s = GSort(Loc.ghost,s)
-let mkGHole () = GHole(Loc.ghost,Evar_kinds.BinderType Anonymous,None)
+let mkGHole () = GHole(Loc.ghost,Evar_kinds.BinderType Anonymous,Misctypes.IntroAnonymous,None)
 let mkGCast(b,t) = GCast(Loc.ghost,b,CastConv t)
 
 (*
@@ -424,7 +424,7 @@ let rec pattern_to_term  = function
 	mkGVar id
   | PatCstr(loc,constr,patternl,_) ->
       let cst_narg =
-	Inductiveops.mis_constructor_nargs_env
+	Inductiveops.constructor_nallargs_env
 	  (Global.env ())
 	  constr
       in

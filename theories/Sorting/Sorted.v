@@ -1,6 +1,6 @@
 (************************************************************************)
 (*  v      *   The Coq Proof Assistant  /  The Coq Development Team     *)
-(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2012     *)
+(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2015     *)
 (*   \VV/  **************************************************************)
 (*    //   *      This file is distributed under the terms of the       *)
 (*         *       GNU Lesser General Public License Version 2.1        *)
@@ -19,6 +19,8 @@
 *)
 
 Require Import List Relations Relations_1.
+
+(* Set Universe Polymorphism. *)
 
 (** Preambule *)
 
@@ -67,7 +69,7 @@ Section defs.
       (forall a l, Sorted l -> P l -> HdRel a l -> P (a :: l)) ->
       forall l:list A, Sorted l -> P l.
   Proof.
-    induction l; firstorder using Sorted_inv.
+    induction l. firstorder using Sorted_inv. firstorder using Sorted_inv.
   Qed.
 
   Lemma Sorted_LocallySorted_iff : forall l, Sorted l <-> LocallySorted l.

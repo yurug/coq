@@ -1,6 +1,6 @@
 (************************************************************************)
 (*  v      *   The Coq Proof Assistant  /  The Coq Development Team     *)
-(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2012     *)
+(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2015     *)
 (*   \VV/  **************************************************************)
 (*    //   *      This file is distributed under the terms of the       *)
 (*         *       GNU Lesser General Public License Version 2.1        *)
@@ -26,17 +26,22 @@ open Misctypes
 val extern_cases_pattern : Id.Set.t -> cases_pattern -> cases_pattern_expr
 val extern_glob_constr : Id.Set.t -> glob_constr -> constr_expr
 val extern_glob_type : Id.Set.t -> glob_constr -> constr_expr
-val extern_constr_pattern : names_context -> constr_pattern -> constr_expr
+val extern_constr_pattern : names_context -> Evd.evar_map ->
+  constr_pattern -> constr_expr
+val extern_closed_glob : ?lax:bool -> bool -> env -> Evd.evar_map -> closed_glob_constr -> constr_expr
 
 (** If [b=true] in [extern_constr b env c] then the variables in the first
-   level of quantification clashing with the variables in [env] are renamed *)
+   level of quantification clashing with the variables in [env] are renamed.
+    ~lax is for debug printing, when the constr might not be well typed in 
+    env, sigma
+*)
 
-val extern_constr : bool -> env -> constr -> constr_expr
-val extern_constr_in_scope : bool -> scope_name -> env -> constr -> constr_expr
+val extern_constr : ?lax:bool -> bool -> env -> Evd.evar_map -> constr -> constr_expr
+val extern_constr_in_scope : bool -> scope_name -> env -> Evd.evar_map -> constr -> constr_expr
 val extern_reference : Loc.t -> Id.Set.t -> global_reference -> reference
-val extern_type : bool -> env -> types -> constr_expr
-val extern_sort : sorts -> glob_sort
-val extern_rel_context : constr option -> env ->
+val extern_type : bool -> env -> Evd.evar_map -> types -> constr_expr
+val extern_sort : Evd.evar_map -> sorts -> glob_sort
+val extern_rel_context : constr option -> env -> Evd.evar_map ->
   rel_context -> local_binder list
 
 (** Printing options *)
@@ -54,8 +59,6 @@ val set_extern_reference :
   (Loc.t -> Id.Set.t -> global_reference -> reference) -> unit
 val get_extern_reference :
   unit -> (Loc.t -> Id.Set.t -> global_reference -> reference)
-
-val in_debugger : bool ref
 
 (** This governs printing of implicit arguments. If [with_implicits] is
    on and not [with_arguments] then implicit args are printed prefixed

@@ -186,12 +186,12 @@ let make_con_equiv mpu mpc dir l =
   if mpu == mpc then constant_of_kn knu
   else constant_of_kn_equiv knu (make_kn mpc dir l)
 
-let subst_con0 sub con =
+let subst_con0 sub con u =
   let kn1,kn2 = user_con con,canonical_con con in
   let mp1,dir,l = repr_kn kn1 in
   let mp2,_,_ = repr_kn kn2 in
   let rebuild_con mp1 mp2 = make_con_equiv mp1 mp2 dir l in
-  let dup con = con, Const con in
+  let dup con = con, Const (con, u) in
   let side,con',resolve = gen_subst_mp rebuild_con sub mp1 mp2 in
   match constant_of_delta_with_inline resolve con' with
     | Some t -> con', t
@@ -205,13 +205,21 @@ let subst_con0 sub con =
 let rec map_kn f f' c =
   let func = map_kn f f' in
     match c with
-      | Const kn -> (try snd (f' kn) with No_subst -> c)
-      | Ind (kn,i) ->
+      | Const (kn, u) -> (try snd (f' kn u) with No_subst -> c)
+      | Proj (kn,t) -> 
+          let kn' = 
+	    try fst (f' kn Univ.Instance.empty)
+	    with No_subst -> kn 
+	  in
+	  let t' = func t in
+	    if kn' == kn && t' == t then c
+	    else Proj (kn', t')
+      | Ind ((kn,i),u) ->
 	  let kn' = f kn in
-	  if kn'==kn then c else Ind (kn',i)
-      | Construct ((kn,i),j) ->
+	  if kn'==kn then c else Ind ((kn',i),u)
+      | Construct (((kn,i),j),u) ->
 	  let kn' = f kn in
-	  if kn'==kn then c else Construct ((kn',i),j)
+	  if kn'==kn then c else Construct (((kn',i),j),u)
       | Case (ci,p,ct,l) ->
 	  let ci_ind =
             let (kn,i) = ci.ci_ind in
@@ -433,6 +441,8 @@ let subst_constant_def sub = function
   | Def c -> Def (subst_constr_subst sub c)
   | OpaqueDef lc -> OpaqueDef (subst_lazy_constr sub lc)
 
+(** Local variables and graph *)
+
 let body_of_constant cb = match cb.const_body with
   | Undef _ -> None
   | Def c -> Some (force_constr c)
@@ -488,9 +498,35 @@ let eq_wf_paths = Rtree.equal eq_recarg
    with      In (params) : Un := cn1 : Tn1 | ... | cnpn : Tnpn
 *)
 
-let subst_arity sub = function
-| NonPolymorphicType s -> NonPolymorphicType (subst_mps sub s)
-| PolymorphicArity (ctx,s) -> PolymorphicArity (subst_rel_context sub ctx,s)
+
+let subst_decl_arity f g sub ar = 
+  match ar with
+  | RegularArity x -> 
+    let x' = f sub x in 
+      if x' == x then ar
+      else RegularArity x'
+  | TemplateArity x -> 
+    let x' = g sub x in 
+      if x' == x then ar
+      else TemplateArity x'
+
+let map_decl_arity f g = function
+  | RegularArity a -> RegularArity (f a)
+  | TemplateArity a -> TemplateArity (g a)
+
+
+let subst_rel_declaration sub (id,copt,t as x) =
+  let copt' = Option.smartmap (subst_mps sub) copt in
+  let t' = subst_mps sub t in
+  if copt == copt' && t == t' then x else (id,copt',t')
+
+let subst_rel_context sub = List.smartmap (subst_rel_declaration sub)
+
+let subst_template_cst_arity sub (ctx,s as arity) =
+  let ctx' = subst_rel_context sub ctx in
+    if ctx==ctx' then arity else (ctx',s)
+
+let subst_arity sub s = subst_decl_arity subst_mps subst_template_cst_arity sub s
 
 (* TODO: should be changed to non-coping after Term.subst_mps *)
 (* NB: we leave bytecode and native code fields untouched *)
@@ -499,13 +535,17 @@ let subst_const_body sub cb =
     const_body = subst_constant_def sub cb.const_body;
     const_type = subst_arity sub cb.const_type }
 
-let subst_arity sub = function
-| Monomorphic s ->
-    Monomorphic {
-      mind_user_arity = subst_mps sub s.mind_user_arity;
-      mind_sort = s.mind_sort;
-    }
-| Polymorphic s as x -> x
+
+let subst_regular_ind_arity sub s =
+  let uar' = subst_mps sub s.mind_user_arity in
+    if uar' == s.mind_user_arity then s 
+    else { mind_user_arity = uar'; mind_sort = s.mind_sort }
+
+let subst_template_ind_arity sub s = s
+
+(* FIXME records *)
+let subst_ind_arity =
+  subst_decl_arity subst_regular_ind_arity subst_template_ind_arity
 
 let subst_mind_packet sub mbp =
   { mind_consnames = mbp.mind_consnames;
@@ -514,10 +554,10 @@ let subst_mind_packet sub mbp =
     mind_typename = mbp.mind_typename;
     mind_nf_lc = Array.smartmap (subst_mps sub) mbp.mind_nf_lc;
     mind_arity_ctxt = subst_rel_context sub mbp.mind_arity_ctxt;
-    mind_arity = subst_arity sub mbp.mind_arity;
+    mind_arity = subst_ind_arity sub mbp.mind_arity;
     mind_user_lc = Array.smartmap (subst_mps sub) mbp.mind_user_lc;
     mind_nrealargs = mbp.mind_nrealargs;
-    mind_nrealargs_ctxt = mbp.mind_nrealargs_ctxt;
+    mind_nrealdecls = mbp.mind_nrealdecls;
     mind_kelim = mbp.mind_kelim;
     mind_recargs = subst_wf_paths sub mbp.mind_recargs (*wf_paths*);
     mind_nb_constant = mbp.mind_nb_constant;
@@ -551,23 +591,17 @@ let rec subst_expr sub = function
   | MEwith (me,wd)-> MEwith (subst_expr sub me, subst_with_body sub wd)
 
 let rec subst_expression sub me =
-  functor_map (subst_modtype sub) (subst_expr sub) me
+  functor_map (subst_module sub) (subst_expr sub) me
 
 and subst_signature sub sign =
-  functor_map (subst_modtype sub) (subst_structure sub) sign
-
-and subst_modtype sub mtb=
-  { mtb with
-    typ_mp = subst_mp sub mtb.typ_mp;
-    typ_expr = subst_signature sub mtb.typ_expr;
-    typ_expr_alg = Option.smartmap (subst_expression sub) mtb.typ_expr_alg }
+  functor_map (subst_module sub) (subst_structure sub) sign
 
 and subst_structure sub struc =
   let subst_body = function
     | SFBconst cb -> SFBconst (subst_const_body sub cb)
     | SFBmind mib -> SFBmind (subst_mind sub mib)
-    | SFBmodule mb -> SFBmodule (subst_module sub  mb)
-    | SFBmodtype mtb -> SFBmodtype (subst_modtype sub mtb)
+    | SFBmodule mb -> SFBmodule (subst_module sub mb)
+    | SFBmodtype mtb -> SFBmodtype (subst_module sub mtb)
   in
   List.map (fun (l,b) -> (l,subst_body b)) struc
 
@@ -577,5 +611,4 @@ and subst_module sub mb =
     mod_expr =
       implem_map (subst_signature sub) (subst_expression sub) mb.mod_expr;
     mod_type = subst_signature sub mb.mod_type;
-    mod_type_alg = Option.map (subst_expression sub) mb.mod_type_alg }
-
+    mod_type_alg = Option.smartmap (subst_expression sub) mb.mod_type_alg }

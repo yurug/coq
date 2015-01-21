@@ -1,6 +1,6 @@
 (************************************************************************)
 (*  v      *   The Coq Proof Assistant  /  The Coq Development Team     *)
-(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2012     *)
+(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2015     *)
 (*   \VV/  **************************************************************)
 (*    //   *      This file is distributed under the terms of the       *)
 (*         *       GNU Lesser General Public License Version 2.1        *)
@@ -37,6 +37,8 @@ sig
 
   val of_constr : constr -> t
   val to_constr : t -> constr option
+  val of_uconstr : Glob_term.closed_glob_constr -> t
+  val to_uconstr : t -> Glob_term.closed_glob_constr option
   val of_int : int -> t
   val to_int : t -> int option
   val to_list : t -> t list option
@@ -48,13 +50,21 @@ val coerce_to_constr_context : Value.t -> constr
 
 val coerce_to_ident : bool -> Environ.env -> Value.t -> Id.t
 
-val coerce_to_intro_pattern : Environ.env -> Value.t -> intro_pattern_expr
+val coerce_to_intro_pattern : Environ.env -> Value.t -> Tacexpr.delayed_open_constr intro_pattern_expr
+
+val coerce_to_intro_pattern_naming :
+  Environ.env -> Value.t -> intro_pattern_naming_expr
+
+val coerce_to_intro_pattern_naming :
+  Environ.env -> Value.t -> intro_pattern_naming_expr
 
 val coerce_to_hint_base : Value.t -> string
 
 val coerce_to_int : Value.t -> int
 
 val coerce_to_constr : Environ.env -> Value.t -> constr_under_binders
+
+val coerce_to_uconstr : Environ.env -> Value.t -> Glob_term.closed_glob_constr
 
 val coerce_to_closed_constr : Environ.env -> Value.t -> constr
 
@@ -64,15 +74,13 @@ val coerce_to_evaluable_ref :
 val coerce_to_constr_list : Environ.env -> Value.t -> constr list
 
 val coerce_to_intro_pattern_list :
-  Loc.t -> Environ.env -> Value.t -> intro_pattern_expr Loc.located list
+  Loc.t -> Environ.env -> Value.t -> Tacexpr.intro_patterns
 
 val coerce_to_hyp : Environ.env -> Value.t -> Id.t
 
 val coerce_to_hyp_list : Environ.env -> Value.t -> Id.t list
 
 val coerce_to_reference : Environ.env -> Value.t -> Globnames.global_reference
-
-val coerce_to_inductive : Value.t -> inductive
 
 val coerce_to_quantified_hypothesis : Value.t -> quantified_hypothesis
 

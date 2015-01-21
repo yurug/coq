@@ -1,6 +1,6 @@
 (************************************************************************)
 (*  v      *   The Coq Proof Assistant  /  The Coq Development Team     *)
-(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2012     *)
+(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2015     *)
 (*   \VV/  **************************************************************)
 (*    //   *      This file is distributed under the terms of the       *)
 (*         *       GNU Lesser General Public License Version 2.1        *)
@@ -14,19 +14,31 @@ open Tacexpr
 open Vernacexpr
 open Pfedit
 
+type 'a declaration_hook
+
+val mk_hook :
+  (Decl_kinds.locality -> Globnames.global_reference -> 'a) -> 'a declaration_hook
+
+val call_hook :
+  Future.fix_exn -> 'a declaration_hook -> Decl_kinds.locality -> Globnames.global_reference -> 'a
+
 (** A hook start_proof calls on the type of the definition being started *)
 val set_start_hook : (types -> unit) -> unit
 
-val start_proof : Id.t -> goal_kind -> ?sign:Environ.named_context_val -> types ->
+val start_proof : Id.t -> goal_kind -> Evd.evar_map -> ?sign:Environ.named_context_val -> types ->
   ?init_tac:unit Proofview.tactic -> ?compute_guard:lemma_possible_guards -> 
    unit declaration_hook -> unit
+
+val start_proof_univs : Id.t -> goal_kind -> Evd.evar_map -> ?sign:Environ.named_context_val -> types ->
+  ?init_tac:unit Proofview.tactic -> ?compute_guard:lemma_possible_guards -> 
+  (Proof_global.proof_universes option -> unit declaration_hook) -> unit
 
 val start_proof_com : goal_kind ->
   (lident option * (local_binder list * constr_expr * (lident option * recursion_order_expr) option)) list ->
   unit declaration_hook -> unit
 
 val start_proof_with_initialization : 
-  goal_kind -> (bool * lemma_possible_guards * unit Proofview.tactic list option) option ->
+  goal_kind -> Evd.evar_map -> (bool * lemma_possible_guards * unit Proofview.tactic list option) option ->
   (Id.t * (types * (Name.t list * Impargs.manual_explicitation list))) list
   -> int list option -> unit declaration_hook -> unit
 

@@ -15,6 +15,7 @@
 #directory "printing";;
 #directory "grammar";;
 #directory "intf";;
+#directory "stm";;
 
 #directory "+camlp4";; (* lazy solution: add both of camlp4/5 so that *)
 #directory "+camlp5";; (* Gramext is found in top_printers.ml *)
@@ -33,6 +34,7 @@
 #install_printer  (* qualid *)  ppqualid;;
 #install_printer  (* kernel_name *) ppkn;;
 #install_printer  (* constant *) ppcon;;
+#install_printer  (* projection *) ppproj;;
 #install_printer  (* cl_index *) ppclindex;;
 #install_printer  (* recarg Rtree.t *)  ppwf_paths;;
 #install_printer  (* constr *)  print_pure_constr;;
@@ -54,6 +56,8 @@
 
 open Names
 open Term
+open Vars
+open Context
 open Typeops
 open Term_typing
 open Univ
@@ -76,6 +80,7 @@ open Pattern
 open Patternops
 open Cbv
 open Classops
+open Arguments_renaming
 open Pretyping
 open Cbv
 open Classops
@@ -93,12 +98,21 @@ open Evarutil
 open Evarsolve
 open Tacred
 open Evd
+open Universes
 open Termops
 open Namegen
 open Indrec
 open Typing
 open Inductiveops
+open Locusops
+open Find_subterm
 open Unification
+open Miscops
+open Miscops
+open Nativenorm
+open Typeclasses
+open Typeclasses_errors
+open Vnorm
 
 open Constrextern
 open Constrintern
@@ -118,14 +132,19 @@ open Prettyp
 open Search
 
 open Evar_refiner
+open Goal
 open Logic
 open Pfedit
+open Proof
+open Proof_using
+open Proof_global
 open Proof_type
 open Redexpr
 open Refiner
 open Tacmach
-open Decl_proof_instr
 open Tactic_debug
+
+open Decl_proof_instr
 open Decl_mode
 
 open Auto
@@ -153,7 +172,6 @@ open Command
 open Indschemes
 open Ind_tables
 open Auto_ind_decl
-open Lemmas
 open Coqinit
 open Coqtop
 open Discharge
@@ -185,7 +203,7 @@ let e s = Constrintern.intern_constr (Global.env()) (parse_constr s);;
    implicit syntax *)
 
 let constr_of_string s = 
-  Constrintern.interp_constr Evd.empty (Global.env()) (parse_constr s);;
+  Constrintern.interp_constr (Global.env()) Evd.empty (parse_constr s);;
 
 (* get the body of a constant *)
 
@@ -194,7 +212,7 @@ open Declareops;;
 
 let constbody_of_string s =
   let b = Global.lookup_constant (Nametab.locate_constant (qualid_of_string s)) in
-  Option.get (Declareops.body_of_constant b);;
+  Option.get (Declareops.body_of_constant Opaqueproof.empty_opaquetab b);;
 
 (* Get the current goal *)
 (*
@@ -204,10 +222,11 @@ let get_nth_goal n = nth_goal_of_pftreestate n (Pfedit.get_pftreestate ());;
 let current_goal () = get_nth_goal 1;;
 *)
 let pf_e gl s = 
-  Constrintern.interp_constr (project gl) (pf_env gl) (parse_constr s);;
+  Constrintern.interp_constr (pf_env gl) (project gl) (parse_constr s);;
 
 (* Set usual printing since the global env is available from the tracer *)
-let _ = Constrextern.in_debugger := false
+let _ = Flags.in_debugger := false
+let _ = Flags.in_toplevel := true
 let _ = Constrextern.set_extern_reference
   (fun loc _ r -> Libnames.Qualid (loc,Nametab.shortest_qualid_of_global Idset.empty r));;
 

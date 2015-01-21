@@ -1,6 +1,6 @@
 (************************************************************************)
 (*  v      *   The Coq Proof Assistant  /  The Coq Development Team     *)
-(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2012     *)
+(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2015     *)
 (*   \VV/  **************************************************************)
 (*    //   *      This file is distributed under the terms of the       *)
 (*         *       GNU Lesser General Public License Version 2.1        *)
@@ -44,7 +44,7 @@ Qed.
 (** The generic function that should be used to program, together with some
   useful tactics. *)
 
-Definition decide P {H : Decidable P} := @Decidable_witness P H.
+Definition decide P {H : Decidable P} := Decidable_witness (Decidable:=H).
 
 Ltac _decide_ P H :=
   let b := fresh "b" in
@@ -64,33 +64,29 @@ Tactic Notation "decide" constr(P) :=
 Require Import Bool Arith ZArith.
 
 Program Instance Decidable_eq_bool : forall (x y : bool), Decidable (eq x y) := {
-  Decidable_witness := eqb x y
+  Decidable_witness := Bool.eqb x y
 }.
 Next Obligation.
-split.
-  now apply eqb_prop.
-  now destruct 1; apply eqb_reflx.
+ apply eqb_true_iff.
 Qed.
 
 Program Instance Decidable_eq_nat : forall (x y : nat), Decidable (eq x y) := {
-  Decidable_witness := beq_nat x y
+  Decidable_witness := Nat.eqb x y
 }.
 Next Obligation.
-split.
-  now intros H; symmetry in H; apply beq_nat_eq in H; auto.
-  now destruct 1; symmetry; apply beq_nat_refl.
+ apply Nat.eqb_eq.
 Qed.
 
 Program Instance Decidable_le_nat : forall (x y : nat), Decidable (x <= y) := {
-  Decidable_witness := leb x y
+  Decidable_witness := Nat.leb x y
 }.
 Next Obligation.
-apply leb_iff.
+ apply Nat.leb_le.
 Qed.
 
 Program Instance Decidable_eq_Z : forall (x y : Z), Decidable (eq x y) := {
-  Decidable_witness := Zeq_bool x y
+  Decidable_witness := Z.eqb x y
 }.
 Next Obligation.
-split; apply Zeq_is_eq_bool.
+ apply Z.eqb_eq.
 Qed.

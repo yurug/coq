@@ -1,6 +1,6 @@
 (************************************************************************)
 (*  v      *   The Coq Proof Assistant  /  The Coq Development Team     *)
-(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2012     *)
+(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2015     *)
 (*   \VV/  **************************************************************)
 (*    //   *      This file is distributed under the terms of the       *)
 (*         *       GNU Lesser General Public License Version 2.1        *)
@@ -56,7 +56,7 @@ val delete_all_proofs : unit -> unit
 type lemma_possible_guards = Proof_global.lemma_possible_guards
 
 val start_proof :
-  Id.t -> goal_kind -> named_context_val -> constr ->
+  Id.t -> goal_kind -> Evd.evar_map -> named_context_val -> constr ->
   ?init_tac:unit Proofview.tactic ->
   Proof_global.proof_terminator -> unit
 
@@ -69,11 +69,11 @@ val start_proof :
 val cook_this_proof :
     Proof_global.proof_object ->
   (Id.t *
-    (Entries.definition_entry * goal_kind))
+    (Entries.definition_entry * Proof_global.proof_universes * goal_kind))
 
 val cook_proof : unit ->
   (Id.t *
-    (Entries.definition_entry * goal_kind))
+    (Entries.definition_entry * Proof_global.proof_universes * goal_kind))
 
 (** {6 ... } *)
 (** [get_pftreestate ()] returns the current focused pending proof.
@@ -117,7 +117,7 @@ val set_end_tac : Tacexpr.raw_tactic_expr -> unit
 (** {6 ... } *)
 (** [set_used_variables l] declares that section variables [l] will be
     used in the proof *)
-val set_used_variables : Id.t list -> unit
+val set_used_variables : Id.t list -> Context.section_context
 val get_used_variables : unit -> Context.section_context option
 
 (** {6 ... } *)
@@ -126,7 +126,8 @@ val get_used_variables : unit -> Context.section_context option
     proof is focused or if there is no [n]th subgoal. [solve SelectAll
     tac] applies [tac] to all subgoals. *)
 
-val solve : ?with_end_tac:unit Proofview.tactic -> Vernacexpr.goal_selector -> unit Proofview.tactic ->
+val solve : ?with_end_tac:unit Proofview.tactic ->
+      Vernacexpr.goal_selector -> int option -> unit Proofview.tactic ->
       Proof.proof -> Proof.proof*bool
 
 (** [by tac] applies tactic [tac] to the 1st subgoal of the current
@@ -148,9 +149,13 @@ val instantiate_nth_evar_com : int -> Constrexpr.constr_expr -> unit
     tactic. *)
 
 val build_constant_by_tactic :
-  Id.t -> named_context_val -> ?goal_kind:goal_kind ->
-    types -> unit Proofview.tactic -> Entries.definition_entry * bool
-val build_by_tactic : env -> types -> unit Proofview.tactic -> constr * bool
+  Id.t -> Evd.evar_universe_context -> named_context_val -> ?goal_kind:goal_kind ->
+  types -> unit Proofview.tactic -> 
+  Entries.definition_entry * bool * Evd.evar_universe_context
+
+val build_by_tactic : env -> Evd.evar_universe_context -> ?poly:polymorphic -> 
+  types -> unit Proofview.tactic -> 
+  constr * bool * Evd.evar_universe_context
 
 (** Declare the default tactic to fill implicit arguments *)
 
@@ -160,11 +165,5 @@ val declare_implicit_tactic : unit Proofview.tactic -> unit
 val clear_implicit_tactic : unit -> unit
 
 (* Raise Exit if cannot solve *)
+(* FIXME: interface: it may incur some new universes etc... *)
 val solve_by_implicit_tactic : env -> Evd.evar_map -> Evd.evar -> constr
-
-
-
-
-
-
-

@@ -1,6 +1,6 @@
 (************************************************************************)
 (*  v      *   The Coq Proof Assistant  /  The Coq Development Team     *)
-(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2012     *)
+(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2015     *)
 (*   \VV/  **************************************************************)
 (*    //   *      This file is distributed under the terms of the       *)
 (*         *       GNU Lesser General Public License Version 2.1        *)
@@ -13,7 +13,7 @@
 To ensure this file is up-to-date, 'make' now compares the md5 of cic.mli
 with a copy we maintain here:
 
-MD5 b6df941161847354cea0591850f4d528  checker/cic.mli
+MD5 0fbea8efeae581d87d977faa9eb2f421 checker/cic.mli
 
 *)
 
@@ -52,6 +52,7 @@ let v_enum name n = Sum(name,n,[||])
 
 (** Ocaml standard library *)
 
+let v_pair v1 v2 = v_tuple "*" [|v1; v2|]
 let v_bool = v_enum "bool" 2
 let v_ref v = v_tuple "ref" [|v|]
 
@@ -93,10 +94,11 @@ let v_cons = v_tuple "constructor" [|v_ind;Int|]
 
 (** kernel/univ *)
 
-let v_level = v_sum "level" 1 [|[|Int;v_dp|]|]
-let v_univ = v_sum "univ" 0
-  [|[|v_level|];
-    [|List v_level;List v_level|]|]
+let v_raw_level = v_sum "raw_level" 2 (* Prop, Set *) 
+  [|(*Level*)[|Int;v_dp|]; (*Var*)[|Int|]|]
+let v_level = v_tuple "level" [|Int;v_raw_level|] 
+let v_expr = v_tuple "levelexpr" [|v_level;Int|]
+let rec v_univ = Sum ("universe", 1, [| [|v_expr; Int; v_univ|] |])
 
 let v_cstrs =
   Annot
@@ -105,20 +107,25 @@ let v_cstrs =
        (v_tuple "univ_constraint"
           [|v_level;v_enum "order_request" 3;v_level|]))
 
+let v_instance = Annot ("instance", Array v_level)
+let v_context = v_tuple "universe_context" [|v_instance;v_cstrs|]
+let v_context_set = v_tuple "universe_context_set" [|v_hset v_level;v_cstrs|]
 
 (** kernel/term *)
 
 let v_sort = v_sum "sort" 0 [|[|v_enum "cnt" 2|];[|v_univ|]|]
 let v_sortfam = v_enum "sorts_family" 3
 
+let v_puniverses v = v_tuple "punivs" [|v;v_instance|]
+
+let v_boollist = List v_bool  
+
 let v_caseinfo =
   let v_cstyle = v_enum "case_style" 5 in
-  let v_cprint = v_tuple "case_printing" [|Int;v_cstyle|] in
+  let v_cprint = v_tuple "case_printing" [|v_boollist;Array v_boollist;v_cstyle|] in
   v_tuple "case_info" [|v_ind;Int;Array Int;Array Int;v_cprint|]
 
-let v_cast = v_enum "cast_kind" 3
-(** NB : In fact there are 4 cast markers, but the last one
-   (REVERTcast) isn't supposed to appear in a vo *)
+let v_cast = v_enum "cast_kind" 4
 
 let rec v_constr =
   Sum ("constr",0,[|
@@ -132,12 +139,13 @@ let rec v_constr =
     [|v_name;v_constr;v_constr|]; (* Lambda *)
     [|v_name;v_constr;v_constr;v_constr|]; (* LetIn *)
     [|v_constr;Array v_constr|]; (* App *)
-    [|v_cst|]; (* Const *)
-    [|v_ind|]; (* Ind *)
-    [|v_cons|]; (* Construct *)
+    [|v_puniverses v_cst|]; (* Const *)
+    [|v_puniverses v_ind|]; (* Ind *)
+    [|v_puniverses v_cons|]; (* Construct *)
     [|v_caseinfo;v_constr;v_constr;Array v_constr|]; (* Case *)
     [|v_fix|]; (* Fix *)
-    [|v_cofix|] (* CoFix *)
+    [|v_cofix|]; (* CoFix *)
+    [|v_cst;v_constr|] (* Proj *)
   |])
 
 and v_prec = Tuple ("prec_declaration",
@@ -187,21 +195,27 @@ let v_lazy_constr =
 let v_engagement = v_enum "eng" 1
 
 let v_pol_arity =
-  v_tuple "polymorphic_arity" [|List(Opt v_univ);v_univ|]
+  v_tuple "polymorphic_arity" [|List(Opt v_level);v_univ|]
 
 let v_cst_type =
-  v_sum "constant_type" 0 [|[|v_constr|];[|v_rctxt;v_pol_arity|]|]
+  v_sum "constant_type" 0 [|[|v_constr|]; [|v_pair v_rctxt v_pol_arity|]|]
 
 let v_cst_def =
   v_sum "constant_def" 0
     [|[|Opt Int|]; [|v_cstr_subst|]; [|v_lazy_constr|]|]
+
+let v_projbody =
+  v_tuple "projection_body" [|v_cst;Int;Int;v_constr;v_tuple "proj_eta" [|v_constr;v_constr|];
+			      v_constr|]
 
 let v_cb = v_tuple "constant_body"
   [|v_section_ctxt;
     v_cst_def;
     v_cst_type;
     Any;
-    v_cstrs;
+    v_bool;
+    v_context;
+    Opt v_projbody;
     v_bool|]
 
 let v_recarg = v_sum "recarg" 1 (* Norec *)
@@ -236,16 +250,22 @@ let v_one_ind = v_tuple "one_inductive_body"
     Int;
     Any|]
 
+let v_finite = v_enum "recursivity_kind" 3
+let v_mind_record = Annot ("mind_record", 
+			   Opt (Opt (v_tuple "record" [| v_id; Array v_cst; Array v_projbody |])))
+
 let v_ind_pack = v_tuple "mutual_inductive_body"
   [|Array v_one_ind;
-    v_bool;
-    v_bool;
+    v_mind_record;
+    v_finite;
     Int;
     v_section_ctxt;
     Int;
     Int;
     v_rctxt;
-    v_cstrs|]
+    v_bool;
+    v_context;
+    Opt v_bool|]
 
 let v_with =
   Sum ("with_declaration_body",0,
@@ -276,15 +296,16 @@ and v_mexpr =
   [|[|v_mae|];                     (* NoFunctor *)
     [|v_uid;v_modtype;v_mexpr|]|]) (* MoreFunctor *)
 and v_impl =
-  Sum ("module_impl",2,
+  Sum ("module_impl",2, (* Abstract, FullStruct *)
   [|[|v_mexpr|];  (* Algebraic *)
     [|v_sign|]|])  (* Struct *)
+and v_noimpl = v_enum "no_impl" 1 (* Abstract is mandatory for mtb *)
 and v_module =
   Tuple ("module_body",
          [|v_mp;v_impl;v_sign;Opt v_mexpr;v_cstrs;v_resolver;Any|])
 and v_modtype =
   Tuple ("module_type_body",
-         [|v_mp;v_sign;Opt v_mexpr;v_cstrs;v_resolver|])
+         [|v_mp;v_noimpl;v_sign;Opt v_mexpr;v_cstrs;v_resolver;Any|])
 
 (** kernel/safe_typing *)
 
@@ -307,7 +328,7 @@ let v_lib =
 
 let v_opaques = Array (v_computation v_constr)
 let v_univopaques =
-  Opt (Tuple ("univopaques",[|Array (v_computation v_cstrs);v_cstrs;v_bool|]))
+  Opt (Tuple ("univopaques",[|Array (v_computation v_context_set);v_context_set;v_bool|]))
 
 (** Registering dynamic values *)
 

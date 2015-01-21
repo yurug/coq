@@ -1,6 +1,6 @@
 (************************************************************************)
 (*  v      *   The Coq Proof Assistant  /  The Coq Development Team     *)
-(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2012     *)
+(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2015     *)
 (*   \VV/  **************************************************************)
 (*    //   *      This file is distributed under the terms of the       *)
 (*         *       GNU Lesser General Public License Version 2.1        *)
@@ -185,17 +185,17 @@ Section DoubleSqrt.
   Notation wwB := (base (ww_digits w_digits)).
   Notation "[| x |]" := (w_to_Z x)  (at level 0, x at level 99).
   Notation "[+| c |]" :=
-   (interp_carry 1 wB w_to_Z c) (at level 0, x at level 99).
+   (interp_carry 1 wB w_to_Z c) (at level 0, c at level 99).
   Notation "[-| c |]" :=
-   (interp_carry (-1) wB w_to_Z c) (at level 0, x at level 99).
+   (interp_carry (-1) wB w_to_Z c) (at level 0, c at level 99).
 
   Notation "[[ x ]]" := (ww_to_Z w_digits w_to_Z x)(at level 0, x at level 99).
   Notation "[+[ c ]]" :=
    (interp_carry 1 wwB (ww_to_Z w_digits w_to_Z) c)
-   (at level 0, x at level 99).
+   (at level 0, c at level 99).
   Notation "[-[ c ]]" :=
    (interp_carry (-1) wwB (ww_to_Z w_digits w_to_Z) c)
-   (at level 0, x at level 99).
+   (at level 0, c at level 99).
 
   Notation "[|| x ||]" :=
     (zn2z_to_Z wwB (ww_to_Z w_digits w_to_Z) x)  (at level 0, x at level 99).
@@ -266,8 +266,8 @@ Section DoubleSqrt.
       if ww_is_even x then [[x]] mod 2 = 0 else [[x]] mod 2 = 1.
 clear spec_more_than_1_digit.
 intros x; case x; simpl ww_is_even.
+ reflexivity.
  simpl.
- rewrite Zmod_small; auto with zarith.
  intros w1 w2; simpl.
  unfold base.
  rewrite Zplus_mod; auto with zarith.
@@ -692,7 +692,7 @@ intros x; case x; simpl ww_is_even.
  intros x y H; unfold ww_sqrt2.
  repeat match goal with |- context[split ?x] =>
    generalize (spec_split x); case (split x)
- end; simpl fst; simpl snd.
+ end; simpl @fst; simpl @snd.
  intros w0 w1 Hw0 w2 w3 Hw1.
  assert (U: wB/4 <= [|w2|]).
  case (Z.le_gt_cases (wB / 4) [|w2|]); auto; intros H1.
@@ -1193,7 +1193,7 @@ Qed.
   rewrite <- wwB_4_wB_4; auto.
   generalize (@spec_w_sqrt2 w0 w1 V);auto with zarith.
   case (w_sqrt2 w0 w1); intros w2 c.
-  simpl ww_to_Z; simpl fst.
+  simpl ww_to_Z; simpl @fst.
   case c; unfold interp_carry; autorewrite with rm10.
   intros w3 (H6, H7); rewrite H6.
   assert (V1 := spec_to_Z w3);auto with zarith.
@@ -1256,7 +1256,7 @@ Qed.
   generalize (@spec_w_sqrt2 w0 w1 V);auto with zarith.
   case (w_sqrt2 w0 w1); intros w2 c.
   case (spec_to_Z w2); intros HH1 HH2.
-  simpl ww_to_Z; simpl fst.
+  simpl ww_to_Z; simpl @fst.
   assert (Hv3: [[ww_pred ww_zdigits]]
                  = Zpos (xO w_digits) - 1).
     rewrite spec_ww_pred; rewrite spec_ww_zdigits.

@@ -1,6 +1,6 @@
 (************************************************************************)
 (*  v      *   The Coq Proof Assistant  /  The Coq Development Team     *)
-(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2013     *)
+(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2015     *)
 (*   \VV/  **************************************************************)
 (*    //   *      This file is distributed under the terms of the       *)
 (*         *       GNU Lesser General Public License Version 2.1        *)
@@ -294,8 +294,12 @@ let init w nb ags =
   let status = ref empty in
   let reset () = eprintf "reset\n%!"; cur := pg in
   ignore(w#event#connect#key_press ~callback:(fun t ->
-    if nb#current_term.script#misc#get_property "has-focus" <>
-       `BOOL true
+    let on_current_term f =
+      let term = try Some nb#current_term with Invalid_argument _ -> None in
+      match term with None -> false | Some t -> f t
+    in
+    on_current_term (fun x ->
+    if x.script#misc#get_property "has-focus" <> `BOOL true
     then false
     else begin
     eprintf "got key %s\n%!" (pr_key t);
@@ -309,7 +313,7 @@ let init w nb ags =
            cur := c; true
       | `NotFound -> reset (); false
     end else false
-  end));
+  end)));
   ignore(w#event#connect#button_press ~callback:(fun t -> reset (); false))
 
 

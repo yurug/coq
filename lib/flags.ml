@@ -1,6 +1,6 @@
 (************************************************************************)
 (*  v      *   The Coq Proof Assistant  /  The Coq Development Team     *)
-(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2012     *)
+(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2015     *)
 (*   \VV/  **************************************************************)
 (*    //   *      This file is distributed under the terms of the       *)
 (*         *       GNU Lesser General Public License Version 2.1        *)
@@ -8,11 +8,11 @@
 
 let with_option o f x =
   let old = !o in o:=true;
-   try let r = f x in o := old; r
+   try let r = f x in if !o = true then o := old; r
    with reraise ->
      let reraise = Backtrace.add_backtrace reraise in
      let () = o := old in
-     raise reraise
+     Exninfo.iraise reraise
 
 let with_options ol f x =
   let vl = List.map (!) ol in
@@ -23,15 +23,15 @@ let with_options ol f x =
   with reraise ->
     let reraise = Backtrace.add_backtrace reraise in
     let () = List.iter2 (:=) ol vl in
-    raise reraise
+    Exninfo.iraise reraise
 
 let without_option o f x =
   let old = !o in o:=false;
-  try let r = f x in o := old; r
+  try let r = f x in if !o = false then o := old; r
   with reraise ->
     let reraise = Backtrace.add_backtrace reraise in
     let () = o := old in
-    raise reraise
+    Exninfo.iraise reraise
 
 let with_extra_values o l f x =
   let old = !o in o:=old@l;
@@ -39,45 +39,58 @@ let with_extra_values o l f x =
   with reraise ->
     let reraise = Backtrace.add_backtrace reraise in
     let () = o := old in
-    raise reraise
+    Exninfo.iraise reraise
 
 let boot = ref false
 let load_init = ref true
 let batch_mode = ref false
 
-type compilation_mode = BuildVo | BuildVi | Vi2Vo
+type compilation_mode = BuildVo | BuildVio | Vio2Vo
 let compilation_mode = ref BuildVo
 
-type async_proofs = APoff | APonLazy | APonParallel of int
+type async_proofs = APoff | APonLazy | APon
 let async_proofs_mode = ref APoff
+type cache = Force
+let async_proofs_cache = ref None
 let async_proofs_n_workers = ref 1
-let async_proofs_worker_flags = ref None
+let async_proofs_n_tacworkers = ref 2
+let async_proofs_private_flags = ref None
+let async_proofs_full = ref false
+let async_proofs_never_reopen_branch = ref false
+let async_proofs_flags_for_workers = ref []
+let async_proofs_worker_id = ref "master"
+type priority = Low | High
+let async_proofs_worker_priority = ref Low
+let string_of_priority = function Low -> "low" | High -> "high"
+let priority_of_string = function
+  | "low" -> Low
+  | "high" -> High
+  | _ -> raise (Invalid_argument "priority_of_string")
 
 let async_proofs_is_worker () =
-  match !async_proofs_mode with
-  | APonParallel n -> n > 0
-  | _ -> false
+  !async_proofs_worker_id <> "master"
+let async_proofs_is_master () =
+  !async_proofs_mode = APon && !async_proofs_worker_id = "master"
 
 let debug = ref false
+let in_debugger = ref false
+let in_toplevel = ref false
+
+let profile = false
 
 let print_emacs = ref false
-
-let term_quality = ref false
-
-let xml_export = ref false
+let coqtop_ui = ref false
 
 let ide_slave = ref false
 let ideslave_coqtop_flags = ref None
 
 let time = ref false
 
-type load_proofs = Force | Lazy | Dont
-
-let load_proofs = ref Lazy
-
 let raw_print = ref false
 
 let record_print = ref true
+
+let univ_print = ref false
 
 let we_are_parsing = ref false
 
@@ -125,14 +138,24 @@ let verbosely f x = without_option silent f x
 let if_silent f x = if !silent then f x
 let if_verbose f x = if not !silent then f x
 
-(* Use terminal color *)
-let term_color = ref false
-let make_term_color b = term_color := b
-let is_term_color () = !term_color
-
 let auto_intros = ref true
 let make_auto_intros flag = auto_intros := flag
 let is_auto_intros () = version_strictly_greater V8_2 && !auto_intros
+
+let universe_polymorphism = ref false
+let make_universe_polymorphism b = universe_polymorphism := b
+let is_universe_polymorphism () = !universe_polymorphism
+
+let local_polymorphic_flag = ref None
+let use_polymorphic_flag () = 
+  match !local_polymorphic_flag with 
+  | Some p -> local_polymorphic_flag := None; p
+  | None -> is_universe_polymorphism ()
+let make_polymorphic_flag b =
+  local_polymorphic_flag := Some b
+
+(** [program_mode] tells that Program mode has been activated, either
+    globally via [Set Program] or locally via the Program command prefix. *)
 
 let program_mode = ref false
 let is_program_mode () = !program_mode
@@ -146,21 +169,6 @@ let if_warn f x = if !warn then f x
 let print_hyps_limit = ref (None : int option)
 let set_print_hyps_limit n = print_hyps_limit := n
 let print_hyps_limit () = !print_hyps_limit
-
-(* A list of the areas of the system where "unsafe" operation
- * has been requested *)
-
-module StringOrd =
-struct
-  type t = string
-  let compare = String.compare
-end
-
-module Stringset = Set.Make(StringOrd)
-
-let unsafe_set = ref Stringset.empty
-let add_unsafe s = unsafe_set := Stringset.add s !unsafe_set
-let is_unsafe s = Stringset.mem s !unsafe_set
 
 (* Flags for external tools *)
 

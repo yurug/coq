@@ -1,6 +1,6 @@
 (************************************************************************)
 (*  v      *   The Coq Proof Assistant  /  The Coq Development Team     *)
-(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2012     *)
+(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2015     *)
 (*   \VV/  **************************************************************)
 (*    //   *      This file is distributed under the terms of the       *)
 (*         *       GNU Lesser General Public License Version 2.1        *)
@@ -146,8 +146,8 @@ let compute_branches_lengths ind =
   let (_,mip) = Inductive.lookup_mind_specif (Global.env()) ind in
   mip.Declarations.mind_consnrealdecls
 
-let compute_inductive_nargs ind =
-  Inductiveops.inductive_nargs ind
+let compute_inductive_ndecls ind =
+  Inductiveops.inductive_nrealdecls ind
 
 (* Interpreting constr as a glob_constr *)
 
@@ -177,9 +177,9 @@ let rec interp_xml_constr = function
       (XmlTag (_,("CONST"|"MUTIND"|"MUTCONSTRUCT"),_,_) as x)::xl) ->
       GApp (loc, interp_xml_constr x, List.map interp_xml_arg xl)
   | XmlTag (loc,"META",al,xl) ->
-      GEvar (loc, get_xml_no al, Some (List.map interp_xml_substitution xl))
+      GEvar (loc, get_xml_name al, Some (List.map interp_xml_substitution xl))
   | XmlTag (loc,"CONST",al,[]) ->
-      GRef (loc, ConstRef (get_xml_constant al))
+      GRef (loc, ConstRef (get_xml_constant al), None)
   | XmlTag (loc,"MUTCASE",al,x::y::yl) ->
       let ind = get_xml_inductive al in
       let p = interp_xml_patternsType x in
@@ -188,13 +188,13 @@ let rec interp_xml_constr = function
       let brs = List.map_i (fun i c -> (i,vars.(i),interp_xml_pattern c)) 0 yl
       in
       let mat = simple_cases_matrix_of_branches ind brs in
-      let nparams,n = compute_inductive_nargs ind in
+      let n = compute_inductive_ndecls ind in
       let nal,rtn = return_type_of_predicate ind n p in
       GCases (loc,RegularStyle,rtn,[tm,nal],mat)
   | XmlTag (loc,"MUTIND",al,[]) ->
-      GRef (loc, IndRef (get_xml_inductive al))
+      GRef (loc, IndRef (get_xml_inductive al), None)
   | XmlTag (loc,"MUTCONSTRUCT",al,[]) ->
-      GRef (loc, ConstructRef (get_xml_constructor al))
+      GRef (loc, ConstructRef (get_xml_constructor al), None)
   | XmlTag (loc,"FIX",al,xl) ->
       let li,lnct = List.split (List.map interp_xml_FixFunction xl) in
       let ln,lc,lt = List.split3 lnct in
@@ -228,7 +228,10 @@ and interp_xml_pattern x = interp_xml_constr_alias "pattern" x
 and interp_xml_patternsType x = interp_xml_constr_alias "patternsType" x
 and interp_xml_inductiveTerm x = interp_xml_constr_alias "inductiveTerm" x
 and interp_xml_arg x = interp_xml_constr_alias "arg" x
-and interp_xml_substitution x = interp_xml_constr_alias "substitution" x
+and interp_xml_substitution x =
+  match interp_xml_tag "substitution" x with
+    _, al, [x] -> get_xml_name al, interp_xml_constr x
+  | loc, _, _ -> error_bad_arity loc 1
                      (* no support for empty substitution from official dtd *)
 
 and interp_xml_decl_alias s x =

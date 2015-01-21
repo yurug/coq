@@ -49,7 +49,7 @@ Module Type OrderedType.
   Include MiniOrderedType.
 
   (** A [eq_dec] can be deduced from [compare] below. But adding this
-     redundant field allows to see an OrderedType as a DecidableType. *)
+     redundant field allows seeing an OrderedType as a DecidableType. *)
   Parameter eq_dec : forall x y, { eq x y } + { ~ eq x y }.
 
 End OrderedType.
@@ -85,16 +85,16 @@ Module OrderedTypeFacts (Import O: OrderedType).
 
   Lemma lt_eq : forall x y z, lt x y -> eq y z -> lt x z.
   Proof.
-   intros; destruct (compare x z); auto.
+   intros; destruct (compare x z) as [Hlt|Heq|Hlt]; auto.
    elim (lt_not_eq H); apply eq_trans with z; auto.
-   elim (lt_not_eq (lt_trans l H)); auto.
+   elim (lt_not_eq (lt_trans Hlt H)); auto.
   Qed.
 
   Lemma eq_lt : forall x y z, eq x y -> lt y z -> lt x z.
   Proof.
-   intros; destruct (compare x z); auto.
+   intros; destruct (compare x z) as [Hlt|Heq|Hlt]; auto.
    elim (lt_not_eq H0); apply eq_trans with x; auto.
-   elim (lt_not_eq (lt_trans H0 l)); auto.
+   elim (lt_not_eq (lt_trans H0 Hlt)); auto.
   Qed.
 
   Instance lt_compat : Proper (eq==>eq==>iff) lt.

@@ -1,6 +1,6 @@
 (************************************************************************)
 (*  v      *   The Coq Proof Assistant  /  The Coq Development Team     *)
-(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2012     *)
+(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2015     *)
 (*   \VV/  **************************************************************)
 (*    //   *      This file is distributed under the terms of the       *)
 (*         *       GNU Lesser General Public License Version 2.1        *)
@@ -37,8 +37,8 @@ Lemma sqrt_sqrt : forall x:R, 0 <= x -> sqrt x * sqrt x = x.
 Proof.
   intros.
   unfold sqrt.
-  case (Rcase_abs x); intro.
-  elim (Rlt_irrefl _ (Rlt_le_trans _ _ _ r H)).
+  case (Rcase_abs x) as [Hlt|Hge].
+  elim (Rlt_irrefl _ (Rlt_le_trans _ _ _ Hlt H)).
   rewrite Rsqrt_Rsqrt; reflexivity.
 Qed.
 
@@ -92,6 +92,10 @@ Qed.
 Lemma sqrt_Rsqr : forall x:R, 0 <= x -> sqrt (Rsqr x) = x.
 Proof.
   intros; unfold Rsqr; apply sqrt_square; assumption.
+Qed.
+
+Lemma sqrt_pow2 : forall x, 0 <= x -> sqrt (x ^ 2) = x.
+intros; simpl; rewrite Rmult_1_r, sqrt_square; auto.
 Qed.
 
 Lemma sqrt_Rsqr_abs : forall x:R, sqrt (Rsqr x) = Rabs x.
@@ -517,3 +521,4 @@ Proof.
   reflexivity.
   reflexivity.
 Qed.
+

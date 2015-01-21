@@ -1,6 +1,6 @@
 (************************************************************************)
 (*  v      *   The Coq Proof Assistant  /  The Coq Development Team     *)
-(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2012     *)
+(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2015     *)
 (*   \VV/  **************************************************************)
 (*    //   *      This file is distributed under the terms of the       *)
 (*         *       GNU Lesser General Public License Version 2.1        *)
@@ -73,14 +73,14 @@ type library_objects
 val register_library :
   library_name ->
   Safe_typing.compiled_library -> library_objects -> Safe_typing.vodigest ->
-  Univ.constraints -> unit
+  Univ.universe_context_set -> unit
 
 val get_library_symbols_tbl : library_name -> Nativecode.symbol array
 
 val start_library : library_name -> unit
 
 val end_library :
-  library_name ->
+  ?except:Future.UUIDSet.t -> library_name ->
     Safe_typing.compiled_library * library_objects * Safe_typing.native_library
 
 (** [really_import_module mp] opens the module [mp] (in a Caml sense).

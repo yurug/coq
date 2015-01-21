@@ -1,6 +1,6 @@
 (************************************************************************)
 (*  v      *   The Coq Proof Assistant  /  The Coq Development Team     *)
-(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2012     *)
+(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2015     *)
 (*   \VV/  **************************************************************)
 (*    //   *      This file is distributed under the terms of the       *)
 (*         *       GNU Lesser General Public License Version 2.1        *)
@@ -38,10 +38,10 @@ Section ZModulo.
  Notation "[| x |]" := (to_Z x)  (at level 0, x at level 99).
 
  Notation "[+| c |]" :=
-   (interp_carry 1 wB to_Z c)  (at level 0, x at level 99).
+   (interp_carry 1 wB to_Z c)  (at level 0, c at level 99).
 
  Notation "[-| c |]" :=
-   (interp_carry (-1) wB to_Z c)  (at level 0, x at level 99).
+   (interp_carry (-1) wB to_Z c)  (at level 0, c at level 99).
 
  Notation "[|| x ||]" :=
    (zn2z_to_Z wB to_Z x)  (at level 0, x at level 99).
@@ -466,8 +466,8 @@ Section ZModulo.
  generalize (Zgcd_is_gcd a b); inversion_clear 1.
  destruct H2 as (q,H2); destruct H3 as (q',H3); clear H4.
  assert (H4:=Z.gcd_nonneg a b).
- destruct (Z.eq_dec (Z.gcd a b) 0).
- rewrite e; generalize (Zmax_spec a b); omega.
+ destruct (Z.eq_dec (Z.gcd a b) 0) as [->|Hneq].
+ generalize (Zmax_spec a b); omega.
  assert (0 <= q).
   apply Z.mul_le_mono_pos_r with (Z.gcd a b); auto with zarith.
  destruct (Z.eq_dec q 0).

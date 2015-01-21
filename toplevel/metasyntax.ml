@@ -1,6 +1,6 @@
 (************************************************************************)
 (*  v      *   The Coq Proof Assistant  /  The Coq Development Team     *)
-(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2012     *)
+(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2015     *)
 (*   \VV/  **************************************************************)
 (*    //   *      This file is distributed under the terms of the       *)
 (*         *       GNU Lesser General Public License Version 2.1        *)
@@ -65,12 +65,11 @@ type tactic_grammar_obj = {
   tacobj_local : locality_flag;
   tacobj_tacgram : tactic_grammar;
   tacobj_tacpp : Pptactic.pp_tactic;
-  tacobj_body : DirPath.t * Tacexpr.glob_tactic_expr
+  tacobj_body : Tacexpr.glob_tactic_expr
 }
 
 let cache_tactic_notation ((_, key), tobj) =
-  let (dp, body) = tobj.tacobj_body in
-  Tacenv.register_alias key dp body;
+  Tacenv.register_alias key tobj.tacobj_body;
   Egramcoq.extend_tactic_grammar key tobj.tacobj_tacgram;
   Pptactic.declare_notation_tactic_pprule key tobj.tacobj_tacpp
 
@@ -79,16 +78,14 @@ let open_tactic_notation i ((_, key), tobj) =
     Egramcoq.extend_tactic_grammar key tobj.tacobj_tacgram
 
 let load_tactic_notation i ((_, key), tobj) =
-  let (dp, body) = tobj.tacobj_body in
   (** Only add the printing and interpretation rules. *)
-  Tacenv.register_alias key dp body;
+  Tacenv.register_alias key tobj.tacobj_body;
   Pptactic.declare_notation_tactic_pprule key tobj.tacobj_tacpp;
   if Int.equal i 1 && not tobj.tacobj_local then
     Egramcoq.extend_tactic_grammar key tobj.tacobj_tacgram
 
 let subst_tactic_notation (subst, tobj) =
-  let dir, tac = tobj.tacobj_body in
-  { tobj with tacobj_body = (dir, Tacsubst.subst_tactic subst tac); }
+  { tobj with tacobj_body = Tacsubst.subst_tactic subst tobj.tacobj_body; }
 
 let classify_tactic_notation tacobj = Substitute tacobj
 
@@ -121,9 +118,56 @@ let add_tactic_notation (local,n,prods,e) =
     tacobj_local = local;
     tacobj_tacgram = parule;
     tacobj_tacpp = pprule;
-    tacobj_body = (Lib.cwd (), tac);
+    tacobj_body = tac;
   } in
   Lib.add_anonymous_leaf (inTacticGrammar tacobj)
+
+(**********************************************************************)
+(* ML Tactic entries                                                  *)
+
+type atomic_entry = string * Genarg.glob_generic_argument list option
+
+type ml_tactic_grammar_obj = {
+  mltacobj_name : Tacexpr.ml_tactic_name;
+  (** ML-side unique name *)
+  mltacobj_prod : grammar_prod_item list list;
+  (** Grammar rules generating the ML tactic. *)
+}
+
+(** ML tactic notations whose use can be restricted to an identifier are added
+    as true Ltac entries. *)
+let extend_atomic_tactic name entries =
+  let add_atomic i (id, args) = match args with
+  | None -> ()
+  | Some args ->
+    let open Tacexpr in
+    let entry = { mltac_name = name; mltac_index = i } in
+    let body = TacML (Loc.ghost, entry, args) in
+    Tacenv.register_ltac false false (Names.Id.of_string id) body
+  in
+  List.iteri add_atomic entries
+
+let cache_ml_tactic_notation (_, obj) =
+  extend_ml_tactic_grammar obj.mltacobj_name obj.mltacobj_prod
+
+let open_ml_tactic_notation i obj =
+  if Int.equal i 1 then cache_ml_tactic_notation obj
+
+let inMLTacticGrammar : ml_tactic_grammar_obj -> obj =
+  declare_object { (default_object "MLTacticGrammar") with
+    open_function = open_ml_tactic_notation;
+    cache_function = cache_ml_tactic_notation;
+    classify_function = (fun o -> Substitute o);
+    subst_function = (fun (_, o) -> o);
+  }
+
+let add_ml_tactic_notation name prods atomic =
+  let obj = {
+    mltacobj_name = name;
+    mltacobj_prod = prods;
+  } in
+  Lib.add_anonymous_leaf (inMLTacticGrammar obj);
+  extend_atomic_tactic name atomic
 
 (**********************************************************************)
 (* Printing grammar entries                                           *)
@@ -154,7 +198,9 @@ let pr_grammar = function
       str "Entry binder_tactic is" ++ fnl () ++
       pr_entry Pcoq.Tactic.binder_tactic ++
       str "Entry simple_tactic is" ++ fnl () ++
-      pr_entry Pcoq.Tactic.simple_tactic
+      pr_entry Pcoq.Tactic.simple_tactic ++
+      str "Entry tactic_arg is" ++ fnl () ++
+      pr_entry Pcoq.Tactic.tactic_arg
   | "vernac" ->
       str "Entry vernac is" ++ fnl () ++
       pr_entry Pcoq.Vernac_.vernac ++
@@ -266,8 +312,9 @@ let parse_format ((loc, str) : lstring) =
     else
       error "Empty format."
   with reraise ->
-    let e = Errors.push reraise in
-    Loc.raise loc e
+    let (e, info) = Errors.push reraise in
+    let info = Loc.add_loc info loc in
+    iraise (e, info)
 
 (***********************)
 (* Analyzing notations *)
@@ -642,7 +689,7 @@ let is_not_small_constr = function
 let rec define_keywords_aux = function
   | GramConstrNonTerminal(e,Some _) as n1 :: GramConstrTerminal(IDENT k) :: l
       when is_not_small_constr e ->
-      msg_info (strbrk ("Identifier '"^k^"' now a keyword"));
+      Flags.if_verbose msg_info (strbrk ("Identifier '"^k^"' now a keyword"));
       Lexer.add_keyword k;
       n1 :: GramConstrTerminal(KEYWORD k) :: define_keywords_aux l
   | n :: l -> n :: define_keywords_aux l
@@ -651,7 +698,7 @@ let rec define_keywords_aux = function
   (* Ensure that IDENT articulation terminal symbols are keywords *)
 let define_keywords = function
   | GramConstrTerminal(IDENT k)::l ->
-      msg_info (strbrk ("Identifier '"^k^"' now a keyword"));
+      Flags.if_verbose msg_info (strbrk ("Identifier '"^k^"' now a keyword"));
       Lexer.add_keyword k;
       GramConstrTerminal(KEYWORD k) :: define_keywords_aux l
   | l -> define_keywords_aux l
@@ -746,6 +793,7 @@ type syntax_extension = {
   synext_notation : notation;
   synext_notgram : notation_grammar;
   synext_unparsing : unparsing list;
+  synext_extra : (string * string) list;
 }
 
 type syntax_extension_obj = locality_flag * syntax_extension list
@@ -762,7 +810,8 @@ let cache_one_syntax_extension se =
     (* Declare the parsing rule *)
     Egramcoq.extend_constr_grammar prec se.synext_notgram;
     (* Declare the printing rule *)
-    Notation.declare_notation_printing_rule ntn (se.synext_unparsing, fst prec)
+    Notation.declare_notation_printing_rule ntn
+      ~extra:se.synext_extra (se.synext_unparsing, fst prec)
 
 let cache_syntax_extension (_, (_, sy)) =
   List.iter cache_one_syntax_extension sy
@@ -795,40 +844,48 @@ let inSyntaxExtension : syntax_extension_obj -> obj =
 
 let interp_modifiers modl =
   let onlyparsing = ref false in
-  let rec interp assoc level etyps format = function
+  let rec interp assoc level etyps format extra = function
     | [] ->
-	(assoc,level,etyps,!onlyparsing,format)
+	(assoc,level,etyps,!onlyparsing,format,extra)
     | SetEntryType (s,typ) :: l ->
 	let id = Id.of_string s in
 	if Id.List.mem_assoc id etyps then
 	  error (s^" is already assigned to an entry or constr level.");
-	interp assoc level ((id,typ)::etyps) format l
+	interp assoc level ((id,typ)::etyps) format extra l
     | SetItemLevel ([],n) :: l ->
-	interp assoc level etyps format l
+	interp assoc level etyps format extra l
     | SetItemLevel (s::idl,n) :: l ->
 	let id = Id.of_string s in
 	if Id.List.mem_assoc id etyps then
 	  error (s^" is already assigned to an entry or constr level.");
 	let typ = ETConstr (n,()) in
-	interp assoc level ((id,typ)::etyps) format (SetItemLevel (idl,n)::l)
+	interp assoc level ((id,typ)::etyps) format extra (SetItemLevel (idl,n)::l)
     | SetLevel n :: l ->
 	if not (Option.is_empty level) then error "A level is given more than once.";
-	interp assoc (Some n) etyps format l
+	interp assoc (Some n) etyps format extra l
     | SetAssoc a :: l ->
 	if not (Option.is_empty assoc) then error"An associativity is given more than once.";
-	interp (Some a) level etyps format l
+	interp (Some a) level etyps format extra l
     | SetOnlyParsing _ :: l ->
 	onlyparsing := true;
-	interp assoc level etyps format l
-    | SetFormat s :: l ->
+	interp assoc level etyps format extra l
+    | SetFormat ("text",s) :: l ->
 	if not (Option.is_empty format) then error "A format is given more than once.";
-	interp assoc level etyps (Some s) l
-  in interp None None [] None modl
+	interp assoc level etyps (Some s) extra l
+    | SetFormat (k,(_,s)) :: l ->
+	interp assoc level etyps format ((k,s) :: extra) l
+  in interp None None [] None [] modl
 
 let check_infix_modifiers modifiers =
-  let (assoc,level,t,b,fmt) = interp_modifiers modifiers in
+  let (assoc,level,t,b,fmt,extra) = interp_modifiers modifiers in
   if not (List.is_empty t) then
     error "Explicit entry level or type unexpected in infix notation."
+
+let check_useless_entry_types recvars mainvars etyps =
+  let vars = let (l1,l2) = List.split recvars in l1@l2@mainvars in
+  match List.filter (fun (x,etyp) -> not (List.mem x vars)) etyps with
+  | (x,_)::_ -> error (Id.to_string x ^ " is unbound in the notation.")
+  | _ -> ()
 
 let no_syntax_modifiers = function
   | [] | [SetOnlyParsing _] -> true
@@ -991,10 +1048,11 @@ let remove_curly_brackets l =
   in aux true l
 
 let compute_syntax_data df modifiers =
-  let (assoc,n,etyps,onlyparse,fmt) = interp_modifiers modifiers in
+  let (assoc,n,etyps,onlyparse,fmt,extra) = interp_modifiers modifiers in
   let assoc = match assoc with None -> (* default *) Some NonA | a -> a in
   let toks = split_notation_string df in
   let (recvars,mainvars,symbols) = analyze_notation_tokens toks in
+  let _ = check_useless_entry_types recvars mainvars etyps in
   let ntn_for_interp = make_notation_key symbols in
   let symbols' = remove_curly_brackets symbols in
   let need_squash = not (List.equal Notation.symbol_eq symbols symbols') in
@@ -1018,16 +1076,16 @@ let compute_syntax_data df modifiers =
   let df' = ((Lib.library_dp(),Lib.current_dirpath true),df) in
   let i_data = (onlyparse,recvars,mainvars,(ntn_for_interp,df')) in
   (* Return relevant data for interpretation and for parsing/printing *)
-  (msgs,i_data,i_typs,sy_fulldata)
+  (msgs,i_data,i_typs,sy_fulldata,extra)
 
 let compute_pure_syntax_data df mods =
-  let (msgs,(onlyparse,_,_,_),_,sy_data) = compute_syntax_data df mods in
+  let (msgs,(onlyparse,_,_,_),_,sy_data,extra) = compute_syntax_data df mods in
   let msgs =
     if onlyparse then
       (msg_warning,
       strbrk "The only parsing modifier has no effect in Reserved Notation.")::msgs
     else msgs in
-  msgs, sy_data
+  msgs, sy_data, extra
 
 (**********************************************************************)
 (* Registration of notations interpretation                            *)
@@ -1081,7 +1139,7 @@ let with_lib_stk_protection f x =
   with reraise ->
     let reraise = Errors.push reraise in
     let () = Lib.unfreeze fs in
-    raise reraise
+    iraise reraise
 
 let with_syntax_protection f x =
   with_lib_stk_protection
@@ -1110,11 +1168,13 @@ let recover_syntax ntn =
   try
     let prec = Notation.level_of_notation ntn in
     let pp_rule,_ = Notation.find_notation_printing_rule ntn in
+    let pp_extra_rules = Notation.find_notation_extra_printing_rules ntn in
     let pa_rule = Egramcoq.recover_constr_grammar ntn prec in
     { synext_level = prec;
       synext_notation = ntn;
       synext_notgram = pa_rule;
-      synext_unparsing = pp_rule; }
+      synext_unparsing = pp_rule;
+      synext_extra = pp_extra_rules }
   with Not_found ->
     raise NoSyntaxRule
 
@@ -1146,7 +1206,7 @@ let make_pp_rule (n,typs,symbols,fmt) =
   | None -> [UnpBox (PpHOVB 0, make_hunks typs symbols n)]
   | Some fmt -> hunks_of_format (n, List.split typs) (symbols, parse_format fmt)
 
-let make_syntax_rules (i_typs,ntn,prec,need_squash,sy_data) =
+let make_syntax_rules (i_typs,ntn,prec,need_squash,sy_data) extra =
   let pa_rule = make_pa_rule i_typs sy_data ntn in
   let pp_rule = make_pp_rule sy_data in
   let sy = {
@@ -1154,6 +1214,7 @@ let make_syntax_rules (i_typs,ntn,prec,need_squash,sy_data) =
     synext_notation = ntn;
     synext_notgram = pa_rule;
     synext_unparsing = pp_rule;
+    synext_extra = extra;
   } in
   (* By construction, the rule for "{ _ }" is declared, but we need to
      redeclare it because the file where it is declared needs not be open
@@ -1168,9 +1229,9 @@ let to_map l =
   List.fold_left fold Id.Map.empty l
 
 let add_notation_in_scope local df c mods scope =
-  let (msgs,i_data,i_typs,sy_data) = compute_syntax_data df mods in
+  let (msgs,i_data,i_typs,sy_data,extra) = compute_syntax_data df mods in
   (* Prepare the parsing and printing rules *)
-  let sy_rules = make_syntax_rules sy_data in
+  let sy_rules = make_syntax_rules sy_data extra in
   (* Prepare the interpretation *)
   let (onlyparse, recvars,mainvars, df') = i_data in
   let i_vars = make_internalization_vars recvars mainvars i_typs in
@@ -1232,8 +1293,8 @@ let add_notation_interpretation_core local df ?(impls=empty_internalization_env)
 (* Notations without interpretation (Reserved Notation) *)
 
 let add_syntax_extension local ((loc,df),mods) =
-  let msgs, sy_data = compute_pure_syntax_data df mods in
-  let sy_rules = make_syntax_rules sy_data in
+  let msgs, sy_data, extra = compute_pure_syntax_data df mods in
+  let sy_rules = make_syntax_rules sy_data extra in
   Flags.if_verbose (List.iter (fun (f,x) -> f x)) msgs;
   Lib.add_anonymous_leaf (inSyntaxExtension(local,sy_rules))
 
@@ -1267,9 +1328,16 @@ let add_notation local c ((loc,df),modifiers) sc =
   in
   Dumpglob.dump_notation (loc,df') sc true
 
+let add_notation_extra_printing_rule df k v =
+  let notk = 
+    let dfs = split_notation_string df in
+    let _,_, symbs = analyze_notation_tokens dfs in
+    make_notation_key symbs in
+  Notation.add_notation_extra_printing_rule notk k v
+
 (* Infix notations *)
 
-let inject_var x = CRef (Ident (Loc.ghost, Id.of_string x))
+let inject_var x = CRef (Ident (Loc.ghost, Id.of_string x),None)
 
 let add_infix local ((loc,inf),modifiers) pr sc =
   check_infix_modifiers modifiers;
@@ -1323,7 +1391,7 @@ let add_class_scope scope cl =
 (* Check if abbreviation to a name and avoid early insertion of
    maximal implicit arguments *)
 let try_interp_name_alias = function
-  | [], CRef ref -> intern_reference ref
+  | [], CRef (ref,_) -> intern_reference ref
   | _ -> raise Not_found
 
 let add_syntactic_definition ident (vars,c) local onlyparse =

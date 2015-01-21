@@ -6,9 +6,19 @@ fix F (t : t) : P t :=
   end
      : forall P : t -> Type,
        (let x := t in forall x0 : x, P x0 -> P (k x0)) -> forall t : t, P t
+
+t_rect is not universe polymorphic
+     = fun d : TT => match d with
+                     | @CTT _ _ b => b
+                     end
+     : TT -> 0 = 0
+     = fun d : TT => match d with
+                     | @CTT _ _ b => b
+                     end
+     : TT -> 0 = 0
 proj = 
 fun (x y : nat) (P : nat -> Type) (def : P x) (prf : P y) =>
-match eq_nat_dec x y with
+match Nat.eq_dec x y with
 | left eqprf => match eqprf in (_ = z) return (P z) with
                 | eq_refl => def
                 end
@@ -16,6 +26,7 @@ match eq_nat_dec x y with
 end
      : forall (x y : nat) (P : nat -> Type), P x -> P y -> P y
 
+proj is not universe polymorphic
 Argument scopes are [nat_scope nat_scope _ _ _]
 foo = 
 fix foo (A : Type) (l : list A) {struct l} : option A :=
@@ -26,6 +37,7 @@ fix foo (A : Type) (l : list A) {struct l} : option A :=
   end
      : forall A : Type, list A -> option A
 
+foo is not universe polymorphic
 Argument scopes are [type_scope list_scope]
 uncast = 
 fun (A : Type) (x : I A) => match x with
@@ -33,9 +45,12 @@ fun (A : Type) (x : I A) => match x with
                             end
      : forall A : Type, I A -> A
 
+uncast is not universe polymorphic
 Argument scopes are [type_scope _]
 foo' = if A 0 then true else false
      : bool
+
+foo' is not universe polymorphic
 f = 
 fun H : B =>
 match H with
@@ -46,3 +61,5 @@ match H with
      else fun _ : P false => Logic.I) x
 end
      : B -> True
+
+f is not universe polymorphic

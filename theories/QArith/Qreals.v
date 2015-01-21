@@ -1,6 +1,6 @@
 (************************************************************************)
 (*  v      *   The Coq Proof Assistant  /  The Coq Development Team     *)
-(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2012     *)
+(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2015     *)
 (*   \VV/  **************************************************************)
 (*    //   *      This file is distributed under the terms of the       *)
 (*         *       GNU Lesser General Public License Version 2.1        *)
@@ -14,6 +14,7 @@ Require Export QArith_base.
 Definition Q2R (x : Q) : R := (IZR (Qnum x) * / IZR (QDen x))%R.
 
 Lemma IZR_nz : forall p : positive, IZR (Zpos p) <> 0%R.
+Proof.
 intros; apply not_O_IZR; auto with qarith.
 Qed.
 
@@ -162,19 +163,19 @@ field; auto.
 Qed.
 
 Lemma Q2R_minus : forall x y : Q, Q2R (x-y) = (Q2R x - Q2R y)%R.
+Proof.
 unfold Qminus; intros; rewrite Q2R_plus; rewrite Q2R_opp; auto.
 Qed.
 
 Lemma Q2R_inv : forall x : Q, ~ x==0 -> Q2R (/x) = (/ Q2R x)%R.
 Proof.
-unfold Qinv, Q2R, Qeq; intros (x1, x2); unfold Qden, Qnum.
-case x1.
+unfold Qinv, Q2R, Qeq; intros (x1, x2). case x1; unfold Qnum, Qden.
 simpl; intros; elim H; trivial.
-intros; field; auto.
+intros; field; auto. 
 intros;
   change (IZR (Zneg x2)) with (- IZR (' x2))%R;
   change (IZR (Zneg p)) with (- IZR (' p))%R;
-  field; (*auto 8 with real.*)
+  simpl; field; (*auto 8 with real.*)
   repeat split; auto; auto with real.
 Qed.
 

@@ -1,6 +1,6 @@
 (************************************************************************)
 (*  v      *   The Coq Proof Assistant  /  The Coq Development Team     *)
-(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2013     *)
+(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2015     *)
 (*   \VV/  **************************************************************)
 (*    //   *      This file is distributed under the terms of the       *)
 (*         *       GNU Lesser General Public License Version 2.1        *)
@@ -47,13 +47,13 @@ and translate_field prefix mp env acc (l,x) =
 	Pp.msg_debug (Pp.str msg));
      translate_mod prefix mp env md.mod_type acc
   | SFBmodtype mdtyp ->
-     let mp = mdtyp.typ_mp in
+     let mp = mdtyp.mod_mp in
      (if !Flags.debug then
 	let msg =
 	  Printf.sprintf "Compiling module type %s..." (ModPath.to_string mp)
 	in
 	Pp.msg_debug (Pp.str msg));
-     translate_mod prefix mp env mdtyp.typ_expr acc
+     translate_mod prefix mp env mdtyp.mod_type acc
 
 let dump_library mp dp env mod_expr =
   if !Flags.debug then Pp.msg_debug (Pp.str "Compiling library...");

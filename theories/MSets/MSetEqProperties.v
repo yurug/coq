@@ -819,8 +819,7 @@ Proof.
 intros.
 rewrite for_all_exists in H; auto.
 rewrite negb_true_iff in H.
-elim (@for_all_mem_4 (fun x =>negb (f x)) Comp' s);intros;auto.
-elim p;intros.
+destruct (@for_all_mem_4 (fun x =>negb (f x)) Comp' s) as (x,[]); auto.
 exists x;split;auto.
 rewrite <-negb_false_iff; auto.
 Qed.
@@ -856,7 +855,7 @@ intros.
 rewrite <- (fold_equal _ _ _ _ fc ft 0 _ _ H).
 rewrite <- (fold_equal _ _ _ _ gc gt 0 _ _ H).
 rewrite <- (fold_equal _ _ _ _ fgc fgt 0 _ _ H); auto.
-intros; do 3 (rewrite fold_add; auto with *).
+intros. do 3 (rewrite fold_add; auto with *).
 do 3 rewrite fold_empty;auto.
 Qed.
 

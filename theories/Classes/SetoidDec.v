@@ -1,7 +1,7 @@
 (* -*- coding: utf-8 -*- *)
 (************************************************************************)
 (*  v      *   The Coq Proof Assistant  /  The Coq Development Team     *)
-(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2012     *)
+(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2015     *)
 (*   \VV/  **************************************************************)
 (*    //   *      This file is distributed under the terms of the       *)
 (*         *       GNU Lesser General Public License Version 2.1        *)
@@ -121,7 +121,7 @@ Program Instance bool_function_eqdec `(! EqDec (eq_setoid A))
       else in_right
     else in_right.
 
-  Solve Obligations with try red ; unfold equiv, complement ; program_simpl.
+  Solve Obligations with try red ; unfold complement ; program_simpl.
 
   Next Obligation.
   Proof.

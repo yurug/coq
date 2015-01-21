@@ -102,7 +102,10 @@ let classify =
     (* Exceptions (from a previous version of this function).           *)
     mk_lookup_table_from_unicode_tables_for Symbol
       [
-        single 0x000B2;            (* Squared.                          *)
+        [(0x000B2, 0x000B3)];      (* Superscript 2-3.                  *)
+        single 0x000B9;            (* Superscript 1.                    *)
+        single 0x02070;            (* Superscript 0.                    *)
+        [(0x02074, 0x02079)];      (* Superscript 4-9.                  *)
         single 0x0002E;            (* Dot.                              *)
       ];
     mk_lookup_table_from_unicode_tables_for Letter
@@ -219,13 +222,13 @@ let lowercase_first_char s =
 
 (** For extraction, we need to encode unicode character into ascii ones *)
 
+let is_basic_ascii s =
+  let ok = ref true in
+  String.iter (fun c -> if Char.code c >= 128 then ok := false) s;
+  !ok
+
 let ascii_of_ident s =
-  let check_ascii s =
-    let ok = ref true in
-    String.iter (fun c -> if Char.code c >= 128 then ok := false) s;
-    !ok
-  in
-  if check_ascii s then s else
+  if is_basic_ascii s then s else
     let i = ref 0 and out = ref "" in
     begin try while true do
       let j, n = next_utf8 s !i in

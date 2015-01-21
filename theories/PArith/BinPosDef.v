@@ -1,7 +1,7 @@
 (* -*- coding: utf-8 -*- *)
 (************************************************************************)
 (*  v      *   The Coq Proof Assistant  /  The Coq Development Team     *)
-(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2012     *)
+(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2015     *)
 (*   \VV/  **************************************************************)
 (*    //   *      This file is distributed under the terms of the       *)
 (*         *       GNU Lesser General Public License Version 2.1        *)
@@ -18,7 +18,7 @@
 
 Require Export BinNums.
 
-(** Postfix notation for positive numbers, allowing to mimic
+(** Postfix notation for positive numbers, which allows mimicking
     the position of bits in a big-endian representation.
     For instance, we can write [1~1~0] instead of [(xO (xI xH))]
     for the number 6 (which is 110 in binary notation).
@@ -268,7 +268,7 @@ Fixpoint compare_cont (r:comparison) (x y:positive) {struct y} : comparison :=
     | 1, 1 => r
   end.
 
-Definition compare x y := compare_cont Eq x y.
+Definition compare := compare_cont Eq.
 
 Infix "?=" := compare (at level 70, no associativity) : positive_scope.
 
@@ -375,7 +375,7 @@ Fixpoint gcdn (n : nat) (a b : positive) : positive :=
 Definition gcd (a b : positive) := gcdn (size_nat a + size_nat b)%nat a b.
 
 (** Generalized Gcd, also computing the division of a and b by the gcd *)
-
+Set Printing Universes.
 Fixpoint ggcdn (n : nat) (a b : positive) : (positive*(positive*positive)) :=
   match n with
     | O => (1,(a,b))
@@ -537,7 +537,7 @@ Definition iter_op {A}(op:A->A->A) :=
   end.
 
 Definition to_nat (x:positive) : nat := iter_op plus x (S O).
-
+Arguments to_nat x: simpl never.
 (** ** From Peano natural numbers to binary positive numbers *)
 
 (** A version preserving positive numbers, and sending 0 to 1. *)

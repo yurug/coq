@@ -119,6 +119,10 @@ sig
   val remove_first : ('a -> bool) -> 'a list -> 'a list
   (** Remove the first element satisfying a predicate, or raise [Not_found] *)
 
+  val insert : ('a -> 'a -> bool) -> 'a -> 'a list -> 'a list
+  (** Insert at the (first) position so that if the list is ordered wrt to the
+      total order given as argument, the order is preserved *)
+
   val for_all2eq : ('a -> 'b -> bool) -> 'a list -> 'b list -> bool
   val sep_last : 'a list -> 'a * 'a list
 
@@ -127,7 +131,8 @@ sig
       there is none. *)
 
   val uniquize : 'a list -> 'a list
-  (** Return the list of elements without duplicates. *)
+  (** Return the list of elements without duplicates.
+      This is the list unchanged if there was none. *)
 
   val sort_uniquize : 'a cmp -> 'a list -> 'a list
   (** Return a sorted and de-duplicated version of a list,
@@ -137,7 +142,20 @@ sig
   (** Merge two sorted lists and preserves the uniqueness property. *)
 
   val subset : 'a list -> 'a list -> bool
+
   val chop : int -> 'a list -> 'a list * 'a list
+  (** [chop i l] splits [l] into two lists [(l1,l2)] such that
+      [l1++l2=l] and [l1] has length [i].  It raises [Failure] when [i]
+      is negative or greater than the length of [l] *)
+
+  exception IndexOutOfRange
+  val goto: int -> 'a list -> 'a list * 'a list
+  (** [goto i l] splits [l] into two lists [(l1,l2)] such that
+      [(List.rev l1)++l2=l] and [l1] has length [i].  It raises
+      [IndexOutOfRange] when [i] is negative or greater than the
+      length of [l]. *)
+
+
   val split_when : ('a -> bool) -> 'a list -> 'a list * 'a list
   val split3 : ('a * 'b * 'c) list -> 'a list * 'b list * 'c list
   val firstn : int -> 'a list -> 'a list

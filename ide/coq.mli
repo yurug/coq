@@ -1,6 +1,6 @@
 (************************************************************************)
 (*  v      *   The Coq Proof Assistant  /  The Coq Development Team     *)
-(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2012     *)
+(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2015     *)
 (*   \VV/  **************************************************************)
 (*    //   *      This file is distributed under the terms of the       *)
 (*         *       GNU Lesser General Public License Version 2.1        *)
@@ -63,7 +63,7 @@ val spawn_coqtop : string list -> coqtop
 val set_reset_handler : coqtop -> (reset_kind -> unit task) -> unit
 (** Register a handler called when a coqtop dies (badly or on purpose) *)
 
-val set_feedback_handler : coqtop -> (Interface.feedback -> unit) -> unit
+val set_feedback_handler : coqtop -> (Feedback.feedback -> unit) -> unit
 (** Register a handler called when coqtop sends a feedback message *)
 
 val init_coqtop : coqtop -> unit task -> unit
@@ -171,3 +171,5 @@ val check_connection : string list -> unit
 (** Launch a coqtop with the user args in order to be sure that it works,
     checking in particular that Prelude.vo is found. This command
     may terminate coqide in case of trouble *)
+
+val interrupter : (int -> unit) ref

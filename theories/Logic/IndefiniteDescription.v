@@ -1,13 +1,13 @@
 (************************************************************************)
 (*  v      *   The Coq Proof Assistant  /  The Coq Development Team     *)
-(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2012     *)
+(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2015     *)
 (*   \VV/  **************************************************************)
 (*    //   *      This file is distributed under the terms of the       *)
 (*         *       GNU Lesser General Public License Version 2.1        *)
 (************************************************************************)
 
 (** This file provides a constructive form of indefinite description that
-    allows to build choice functions; this is weaker than Hilbert's
+    allows building choice functions; this is weaker than Hilbert's
     epsilon operator (which implies weakly classical properties) but
     stronger than the axiom of choice (which cannot be used outside
     the context of a theorem proof). *)

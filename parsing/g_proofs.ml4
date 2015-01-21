@@ -1,6 +1,6 @@
 (************************************************************************)
 (*  v      *   The Coq Proof Assistant  /  The Coq Development Team     *)
-(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2012     *)
+(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2015     *)
 (*   \VV/  **************************************************************)
 (*    //   *      This file is distributed under the terms of the       *)
 (*         *       GNU Lesser General Public License Version 2.1        *)
@@ -20,17 +20,6 @@ open Pcoq.Vernac_
 
 let thm_token = G_vernac.thm_token
 
-let only_identrefs =
-  Gram.Entry.of_parser "test_only_identrefs"
-    (fun strm ->
-      let rec aux n =
-      match get_tok (Util.stream_nth n strm) with
-        | KEYWORD "." -> ()
-        | KEYWORD ")" -> ()
-        | IDENT _ -> aux (n+1)
-        | _ -> raise Stream.Failure in
-      aux 0)
-
 let hint_proof_using e = function
   | Some _ as x -> x
   | None -> match Proof_using.get_default_proof_using () with
@@ -48,12 +37,12 @@ GEXTEND Gram
   command:
     [ [ IDENT "Goal"; c = lconstr -> VernacGoal c
       | IDENT "Proof" ->
-          VernacProof (None,hint_proof_using section_subset_descr None)
+          VernacProof (None,hint_proof_using G_vernac.section_subset_descr None)
       | IDENT "Proof" ; IDENT "Mode" ; mn = string -> VernacProofMode mn
       | IDENT "Proof"; "with"; ta = tactic; 
-        l = OPT [ "using"; l = section_subset_descr -> l ] ->
-          VernacProof (Some ta, hint_proof_using section_subset_descr l)
-      | IDENT "Proof"; "using"; l = section_subset_descr;
+        l = OPT [ "using"; l = G_vernac.section_subset_descr -> l ] ->
+          VernacProof (Some ta,hint_proof_using G_vernac.section_subset_descr l)
+      | IDENT "Proof"; "using"; l = G_vernac.section_subset_descr;
         ta = OPT [ "with"; ta = tactic -> ta ] ->
           VernacProof (ta,Some l)
       | IDENT "Proof"; c = lconstr -> VernacExactProof c
@@ -89,6 +78,7 @@ GEXTEND Gram
       | IDENT "Show"; IDENT "Node" -> VernacShow ShowNode
       | IDENT "Show"; IDENT "Script" -> VernacShow ShowScript
       | IDENT "Show"; IDENT "Existentials" -> VernacShow ShowExistentials
+      | IDENT "Show"; IDENT "Universes" -> VernacShow ShowUniverses
       | IDENT "Show"; IDENT "Tree" -> VernacShow ShowTree
       | IDENT "Show"; IDENT "Conjectures" -> VernacShow ShowProofNames
       | IDENT "Show"; IDENT "Proof" -> VernacShow ShowProof
@@ -114,23 +104,6 @@ GEXTEND Gram
 	  VernacHints (false,dbnames,
 	    HintsResolve (List.map (fun x -> (pri, true, x)) lc))
       ] ];
-  section_subset_descr:
-    [ [ IDENT "All" -> SsAll
-      | "Type" -> SsType
-      | only_identrefs; l = LIST0 identref -> SsExpr (SsSet l)
-      | e = section_subset_expr -> SsExpr e ] ]
-  ;
-  section_subset_expr:
-    [ "35" 
-      [ "-"; e = section_subset_expr -> SsCompl e ]
-    | "50"
-      [ e1 = section_subset_expr; "-"; e2 = section_subset_expr->SsSubstr(e1,e2)
-      | e1 = section_subset_expr; "+"; e2 = section_subset_expr->SsUnion(e1,e2)]
-    | "0"
-      [ i = identref -> SsSet [i]
-      | "("; only_identrefs; l = LIST0 identref; ")"-> SsSet l
-      | "("; e = section_subset_expr; ")"-> e ] ]
-  ;
   obsolete_locality:
     [ [ IDENT "Local" -> true | -> false ] ]
   ;
@@ -145,6 +118,7 @@ GEXTEND Gram
       | IDENT "Immediate"; lc = LIST1 reference_or_constr -> HintsImmediate lc
       | IDENT "Transparent"; lc = LIST1 global -> HintsTransparency (lc, true)
       | IDENT "Opaque"; lc = LIST1 global -> HintsTransparency (lc, false)
+      | IDENT "Mode"; l = global; m = mode -> HintsMode (l, m)
       | IDENT "Unfold"; lqid = LIST1 global -> HintsUnfold lqid
       | IDENT "Constructors"; lc = LIST1 global -> HintsConstructors lc
       | IDENT "Extern"; n = natural; c = OPT constr_pattern ; "=>";
@@ -154,5 +128,8 @@ GEXTEND Gram
   constr_body:
     [ [ ":="; c = lconstr -> c
       | ":"; t = lconstr; ":="; c = lconstr -> CCast(!@loc,c,CastConv t) ] ]
+  ;
+  mode:
+    [ [ l = LIST1 ["+" -> true | "-" -> false] -> l ] ]
   ;
 END

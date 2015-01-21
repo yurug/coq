@@ -1,6 +1,6 @@
 (************************************************************************)
 (*  v      *   The Coq Proof Assistant  /  The Coq Development Team     *)
-(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2012     *)
+(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2015     *)
 (*   \VV/  **************************************************************)
 (*    //   *      This file is distributed under the terms of the       *)
 (*         *       GNU Lesser General Public License Version 2.1        *)
@@ -332,9 +332,9 @@ and get their properties *)
 
 (* The following lines increase the compilation time at least twice *)
 (*
-Require Import NPeano.
+Require PeanoNat.
 
-Module Export ZPairsPeanoAxiomsMod := ZPairsAxiomsMod NPeanoAxiomsMod.
+Module Export ZPairsPeanoAxiomsMod := ZPairsAxiomsMod PeanoNat.Nat.
 Module Export ZPairsPropMod := ZPropFunct ZPairsPeanoAxiomsMod.
 
 Eval compute in (3, 5) * (4, 6).

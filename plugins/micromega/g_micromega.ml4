@@ -1,6 +1,6 @@
 (************************************************************************)
 (*  v      *   The Coq Proof Assistant  /  The Coq Development Team     *)
-(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2012     *)
+(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2015     *)
 (*   \VV/  **************************************************************)
 (*    //   *      This file is distributed under the terms of the       *)
 (*         *       GNU Lesser General Public License Version 2.1        *)
@@ -19,6 +19,8 @@
 open Errors
 open Misctypes
 
+DECLARE PLUGIN "micromega_plugin"
+
 let out_arg = function
   | ArgVar _ -> anomaly (Pp.str "Unevaluated or_var variable")
   | ArgArg x -> x
@@ -28,11 +30,11 @@ TACTIC EXTEND PsatzZ
 | [ "psatz_Z" ] -> [ Proofview.V82.tactic (Coq_micromega.psatz_Z (-1)) ]
 END
 
-TACTIC EXTEND ZOmicron
+TACTIC EXTEND Lia
 [ "xlia"  ] -> [  Proofview.V82.tactic (Coq_micromega.xlia) ]
 END
 
-TACTIC EXTEND Nlia
+TACTIC EXTEND Nia
 [ "xnlia"  ] -> [  Proofview.V82.tactic (Coq_micromega.xnlia) ]
 END
 
@@ -50,25 +52,26 @@ TACTIC EXTEND Sos_R
 | [ "sos_R" ] -> [  Proofview.V82.tactic (Coq_micromega.sos_R) ]
 END
 
-
+(*
 TACTIC EXTEND Omicron
 [ "psatzl_Z"  ] -> [  Proofview.V82.tactic (Coq_micromega.psatzl_Z) ]
 END
+*)
 
-TACTIC EXTEND QOmicron
+TACTIC EXTEND LRA_Q
 [ "psatzl_Q"  ] -> [  Proofview.V82.tactic (Coq_micromega.psatzl_Q) ]
 END
 
-TACTIC EXTEND ROmicron
+TACTIC EXTEND LRA_R
 [ "psatzl_R"  ] -> [  Proofview.V82.tactic (Coq_micromega.psatzl_R) ]
 END
 
-TACTIC EXTEND RMicromega
+TACTIC EXTEND PsatzR
 | [ "psatz_R" int_or_var(i) ] -> [  Proofview.V82.tactic (Coq_micromega.psatz_R (out_arg i)) ]
 | [ "psatz_R" ] -> [  Proofview.V82.tactic (Coq_micromega.psatz_R (-1)) ]
 END
 
-TACTIC EXTEND QMicromega
+TACTIC EXTEND PsatzQ
 | [ "psatz_Q" int_or_var(i) ] -> [ Proofview.V82.tactic (Coq_micromega.psatz_Q (out_arg i)) ]
 | [ "psatz_Q" ] -> [ Proofview.V82.tactic (Coq_micromega.psatz_Q (-1)) ]
 END

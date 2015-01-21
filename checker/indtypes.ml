@@ -1,6 +1,6 @@
 (************************************************************************)
 (*  v      *   The Coq Proof Assistant  /  The Coq Development Team     *)
-(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2012     *)
+(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2015     *)
 (*   \VV/  **************************************************************)
 (*    //   *      This file is distributed under the terms of the       *)
 (*         *       GNU Lesser General Public License Version 2.1        *)
@@ -9,7 +9,6 @@
 open Errors
 open Util
 open Names
-open Univ
 open Cic
 open Term
 open Inductive
@@ -139,14 +138,15 @@ let typecheck_arity env params inds =
   let nparamargs = rel_context_nhyps params in
   let nparamdecls = rel_context_length params in
   let check_arity arctxt = function
-      Monomorphic mar ->
+    | RegularArity mar ->
         let ar = mar.mind_user_arity in
         let _ = infer_type env ar in
         conv env (it_mkProd_or_LetIn (Sort mar.mind_sort) arctxt) ar;
         ar
-    | Polymorphic par ->
-        check_polymorphic_arity env params par;
-        it_mkProd_or_LetIn (Sort(Type par.poly_level)) arctxt in
+    | TemplateArity par ->
+      check_polymorphic_arity env params par;
+      it_mkProd_or_LetIn (Sort(Type par.template_level)) arctxt 
+  in
   let env_arities =
     Array.fold_left
       (fun env_ar ind ->
@@ -160,7 +160,7 @@ let typecheck_arity env params inds =
         if ind.mind_nrealargs <> nrealargs then
              failwith "bad number of real inductive arguments";
 	let nrealargs_ctxt = rel_context_length ar_ctxt - nparamdecls in
-        if ind.mind_nrealargs_ctxt <> nrealargs_ctxt then
+        if ind.mind_nrealdecls <> nrealargs_ctxt then
              failwith "bad length of real inductive arguments signature";
 	(* We do not need to generate the universe of full_arity; if
 	   later, after the validation of the inductive definition,
@@ -178,11 +178,11 @@ let typecheck_arity env params inds =
 let check_predicativity env s small level =
   match s, engagement env with
       Type u, _ ->
-        let u' = fresh_local_univ () in
-        let cst =
-          merge_constraints (enforce_leq u u' empty_constraint)
-            (universes env) in
-        if not (check_leq cst level u') then
+        (* let u' = fresh_local_univ () in *)
+        (* let cst = *)
+        (*   merge_constraints (enforce_leq u u' empty_constraint) *)
+        (*     (universes env) in *)
+        if not (Univ.check_leq (universes env) level u) then
           failwith "impredicative Type inductive type"
     | Prop Pos, Some ImpredicativeSet -> ()
     | Prop Pos, _ ->
@@ -191,8 +191,8 @@ let check_predicativity env s small level =
 
 
 let sort_of_ind = function
-    Monomorphic mar -> mar.mind_sort
-  | Polymorphic par -> Type par.poly_level
+  | RegularArity mar -> mar.mind_sort
+  | TemplateArity par -> Type par.template_level
 
 let all_sorts = [InProp;InSet;InType]
 let small_sorts = [InProp;InSet]
@@ -211,7 +211,7 @@ let allowed_sorts issmall isunit s =
 
   (* Unitary/empty Prop: elimination to all sorts are realizable *)
   (* unless the type is large. If it is large, forbids large elimination *)
-  (* which otherwise allows to simulate the inconsistent system Type:Type *)
+  (* which otherwise allows simulating the inconsistent system Type:Type *)
   | InProp when isunit -> if issmall then all_sorts else small_sorts
 
   (* Other propositions: elimination only to Prop *)
@@ -373,12 +373,12 @@ let abstract_mind_lc env ntyps npars lc =
 let ienv_push_var (env, n, ntypes, lra) (x,a,ra) =
  (push_rel (x,None,a) env, n+1, ntypes, (Norec,ra)::lra)
 
-let ienv_push_inductive (env, n, ntypes, ra_env) (mi,lpar) =
+let ienv_push_inductive (env, n, ntypes, ra_env) ((mi,u),lpar) =
   let auxntyp = 1 in
   let specif = lookup_mind_specif env mi in
   let env' =
     push_rel (Anonymous,None,
-              hnf_prod_applist env (type_of_inductive env specif) lpar) env in
+              hnf_prod_applist env (type_of_inductive env (specif,u)) lpar) env in
   let ra_env' =
     (Imbr mi,(Rtree.mk_rec_calls 1).(0)) ::
     List.map (fun (r,t) -> (r,Rtree.lift 1 t)) ra_env in
@@ -431,7 +431,7 @@ let check_positivity_one (env, _,ntypes,_ as ienv) hyps nrecp (_,i as ind) indlc
 	    else failwith_non_pos_list n ntypes (x::largs)
 
   (* accesses to the environment are not factorised, but is it worth it? *)
-  and check_positive_imbr (env,n,ntypes,ra_env as ienv) (mi, largs) =
+  and check_positive_imbr (env,n,ntypes,ra_env as ienv) ((mi,u), largs) =
     let (mib,mip) = lookup_mind_specif env mi in
     let auxnpar = mib.mind_nparams_rec in
     let nonrecpar = mib.mind_nparams - auxnpar in
@@ -449,7 +449,7 @@ let check_positivity_one (env, _,ntypes,_ as ienv) hyps nrecp (_,i as ind) indlc
 	let auxlcvect = abstract_mind_lc env auxntyp auxnpar mip.mind_nf_lc in
 	  (* Extends the environment with a variable corresponding to
 	     the inductive def *)
-	let (env',_,_,_ as ienv') = ienv_push_inductive ienv (mi,lpar) in
+	let (env',_,_,_ as ienv') = ienv_push_inductive ienv ((mi,u),lpar) in
 	  (* Parameters expressed in env' *)
 	let lpar' = List.map (lift auxntyp) lpar in
 	let irecargs =
@@ -530,7 +530,7 @@ let check_positivity env_ar mind params nrecp inds =
 let check_inductive env kn mib =
   Flags.if_verbose ppnl (str "  checking ind: " ++ pr_mind kn); pp_flush ();
   (* check mind_constraints: should be consistent with env *)
-  let env = add_constraints mib.mind_constraints env in
+  let env = add_constraints (Univ.UContext.constraints mib.mind_universes) env in
   (* check mind_record : TODO ? check #constructor = 1 ? *)
   (* check mind_finite : always OK *)
   (* check mind_ntypes *)

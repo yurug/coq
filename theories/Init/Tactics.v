@@ -1,6 +1,6 @@
 (************************************************************************)
 (*  v      *   The Coq Proof Assistant  /  The Coq Development Team     *)
-(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2012     *)
+(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2015     *)
 (*   \VV/  **************************************************************)
 (*    //   *      This file is distributed under the terms of the       *)
 (*         *       GNU Lesser General Public License Version 2.1        *)
@@ -68,7 +68,7 @@ Ltac absurd_hyp H :=
   let T := type of H in
   absurd T.
 
-(* A useful complement to contradict. Here H:A while G allows to conclude ~A *)
+(* A useful complement to contradict. Here H:A while G allows concluding ~A *)
 
 Ltac false_hyp H G :=
   let T := type of H in absurd T; [ apply G | assumption ].

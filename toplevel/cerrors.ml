@@ -1,6 +1,6 @@
 (************************************************************************)
 (*  v      *   The Coq Proof Assistant  /  The Coq Development Team     *)
-(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2012     *)
+(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2015     *)
 (*   \VV/  **************************************************************)
 (*    //   *      This file is distributed under the terms of the       *)
 (*         *       GNU Lesser General Public License Version 2.1        *)
@@ -53,27 +53,17 @@ let _ = Errors.register_handler explain_exn_default
 
 (** Pre-explain a vernac interpretation error *)
 
-let wrap_vernac_error exn strm =
-  let e = EvaluatedError (hov 0 (str "Error:" ++ spc () ++ strm), None) in
-  Exninfo.copy exn e
+let wrap_vernac_error (exn, info) strm =
+  let header = Pp.tag (Pp.Tag.inj Ppstyle.error_tag Ppstyle.tag) (str "Error:") in
+  let e = EvaluatedError (hov 0 (header ++ spc () ++ strm), None) in
+  (e, info)
 
-let process_vernac_interp_error exn = match exn with
-  | Univ.UniverseInconsistency (o,u,v,p) ->
-    let pr_rel r =
-      match r with
-	  Univ.Eq -> str"=" | Univ.Lt -> str"<" | Univ.Le -> str"<=" in
-    let reason = match p with
-	[] -> mt()
-      | _::_ ->
-	str " because" ++ spc() ++ Univ.pr_uni v ++
-	  prlist (fun (r,v) -> spc() ++ pr_rel r ++ str" " ++ Univ.pr_uni v)
-	  p ++
-	  (if Univ.Universe.equal (snd (List.last p)) u then mt() else
-	      (spc() ++ str "= " ++ Univ.pr_uni u)) in
+let process_vernac_interp_error exn = match fst exn with
+  | Univ.UniverseInconsistency i ->
     let msg =
       if !Constrextern.print_universes then
-	spc() ++ str "(cannot enforce" ++ spc() ++ Univ.pr_uni u ++ spc() ++
-          pr_rel o ++ spc() ++ Univ.pr_uni v ++ reason ++ str")"
+	str "." ++ spc() ++ 
+	  Univ.explain_universe_inconsistency Universes.pr_with_global_universes i
       else
 	mt() in
     wrap_vernac_error exn (str "Universe inconsistency" ++ msg ++ str ".")
@@ -91,8 +81,8 @@ let process_vernac_interp_error exn = match exn with
       wrap_vernac_error exn (Himsg.explain_module_internalization_error e)
   | RecursionSchemeError e ->
       wrap_vernac_error exn (Himsg.explain_recursion_scheme_error e)
-  | Cases.PatternMatchingError (env,e) ->
-      wrap_vernac_error exn (Himsg.explain_pattern_matching_error env e)
+  | Cases.PatternMatchingError (env,sigma,e) ->
+      wrap_vernac_error exn (Himsg.explain_pattern_matching_error env sigma e)
   | Tacred.ReductionTacticError e ->
       wrap_vernac_error exn (Himsg.explain_reduction_tactic_error e)
   | Logic.RefinerError e ->
@@ -106,33 +96,34 @@ let process_vernac_interp_error exn = match exn with
       let s = Lazy.force s in
       wrap_vernac_error exn
 	(str "Tactic failure" ++
-         (if Pp.is_empty s then s else str ":" ++ s) ++
+         (if Pp.is_empty s then s else str ": " ++ s) ++
          if Int.equal i 0 then str "." else str " (level " ++ int i ++ str").")
   | AlreadyDeclared msg ->
       wrap_vernac_error exn (msg ++ str ".")
-  | exc ->
-      exc
+  | _ ->
+      exn
 
 let rec strip_wrapping_exceptions = function
-  | Proof_errors.TacticFailure e as src ->
-    let e = Backtrace.app_backtrace ~src ~dst:e in
+  | Logic_monad.TacticFailure e ->
     strip_wrapping_exceptions e
   | exc -> exc
 
-let process_vernac_interp_error exc =
+let process_vernac_interp_error (exc, info) =
   let exc = strip_wrapping_exceptions exc in
-  let e = process_vernac_interp_error exc in
-  let ltac_trace = Exninfo.get exc Proof_type.ltac_trace_info in
-  let loc = Option.default Loc.ghost (Loc.get_loc e) in
+  let e = process_vernac_interp_error (exc, info) in
+  let ltac_trace = Exninfo.get info Proof_type.ltac_trace_info in
+  let loc = Option.default Loc.ghost (Loc.get_loc info) in
   match ltac_trace with
   | None -> e
   | Some trace ->
+    let (e, info) = e in
     match Himsg.extract_ltac_trace trace loc with
-    | None, loc -> Loc.add_loc e loc
-    | Some msg, loc -> Loc.add_loc (EvaluatedError (msg, Some e)) loc
+    | None, loc -> (e, Loc.add_loc info loc)
+    | Some msg, loc ->
+      (EvaluatedError (msg, Some e), Loc.add_loc info loc)
 
 let _ = Tactic_debug.explain_logic_error :=
-  (fun e -> Errors.print (process_vernac_interp_error e))
+  (fun e -> Errors.print (fst (process_vernac_interp_error (e, Exninfo.null))))
 
 let _ = Tactic_debug.explain_logic_error_no_anomaly :=
-  (fun e -> Errors.print_no_report (process_vernac_interp_error e))
+  (fun e -> Errors.print_no_report (fst (process_vernac_interp_error (e, Exninfo.null))))

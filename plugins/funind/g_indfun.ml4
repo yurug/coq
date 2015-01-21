@@ -1,6 +1,6 @@
 (************************************************************************)
 (*  v      *   The Coq Proof Assistant  /  The Coq Development Team     *)
-(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2012     *)
+(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2015     *)
 (*   \VV/  **************************************************************)
 (*    //   *      This file is distributed under the terms of the       *)
 (*         *       GNU Lesser General Public License Version 2.1        *)
@@ -18,6 +18,8 @@ open Indfun
 open Genarg
 open Tacticals
 open Misctypes
+
+DECLARE PLUGIN "recdef_plugin"
 
 let pr_binding prc = function
   | loc, NamedHyp id, c -> hov 1 (Ppconstr.pr_id id ++ str " := " ++ cut () ++ prc c)
@@ -75,12 +77,16 @@ TACTIC EXTEND newfuninv
 END
 
 
-let pr_intro_as_pat prc _ _ pat =
+let pr_intro_as_pat _prc _ _ pat =
   match pat with
     | Some pat ->
-      spc () ++ str "as" ++ spc () ++ Miscprint.pr_intro_pattern pat
+      spc () ++ str "as" ++ spc () ++ (* Miscprint.pr_intro_pattern prc  pat *)
+        str"<simple_intropattern>"
     | None -> mt ()
 
+let out_disjunctive = function
+  | loc, IntroAction (IntroOrAndPattern l) -> (loc,l)
+  | _ -> Errors.error "Disjunctive or conjunctive intro pattern expected."
 
 ARGUMENT EXTEND with_names TYPED AS simple_intropattern_opt PRINTED BY pr_intro_as_pat
 |   [ "as"  simple_intropattern(ipat) ] -> [ Some ipat ]
@@ -98,7 +104,7 @@ TACTIC EXTEND newfunind
 	 | [c] -> c
 	 | c::cl -> applist(c,cl)
        in
-       Extratactics.onSomeWithHoles (fun x -> Proofview.V82.tactic (functional_induction true c x pat)) princl ]
+       Extratactics.onSomeWithHoles (fun x -> Proofview.V82.tactic (functional_induction true c x (Option.map out_disjunctive pat))) princl ]
 END
 (***** debug only ***)
 TACTIC EXTEND snewfunind
@@ -109,7 +115,7 @@ TACTIC EXTEND snewfunind
 	 | [c] -> c
 	 | c::cl -> applist(c,cl)
        in
-       Extratactics.onSomeWithHoles (fun x -> Proofview.V82.tactic (functional_induction false c x pat)) princl ]
+       Extratactics.onSomeWithHoles (fun x -> Proofview.V82.tactic (functional_induction false c x (Option.map out_disjunctive pat))) princl ]
 END
 
 
@@ -180,7 +186,7 @@ END
 
 
 let warning_error names e =
-  let e = Cerrors.process_vernac_interp_error e in
+  let (e, _) = Cerrors.process_vernac_interp_error (e, Exninfo.null) in
   match e with
     | Building_graph e ->
 	Pp.msg_warning
@@ -209,7 +215,7 @@ VERNAC COMMAND EXTEND NewFunctionalScheme
 	      | (_,fun_name,_)::_ ->
 		  begin
 		    begin
-		      make_graph (Nametab.global fun_name)
+		      make_graph (Smartlocate.global_with_alias fun_name)
 		    end
 		    ;
 		    try Functional_principles_types.build_scheme fas
@@ -239,7 +245,7 @@ END
 
 (***** debug only ***)
 VERNAC COMMAND EXTEND GenerateGraph CLASSIFIED AS QUERY
-["Generate" "graph" "for" reference(c)] -> [ make_graph (Nametab.global c) ]
+["Generate" "graph" "for" reference(c)] -> [ make_graph (Smartlocate.global_with_alias c) ]
 END
 
 
@@ -307,8 +313,11 @@ let rec hdMatchSub inu (test: constr -> bool) : fapp_info list =
     max_rel = max_rel; onlyvars = List.for_all isVar args }
     ::subres
 
+let make_eq () =
+(*FIXME*) Universes.constr_of_global (Coqlib.build_coq_eq ())
+
 let mkEq typ c1 c2 =
-  mkApp (Coqlib.build_coq_eq(),[| typ; c1; c2|])
+  mkApp (make_eq(),[| typ; c1; c2|])
 
 
 let poseq_unsafe idunsafe cstr gl =
@@ -316,7 +325,7 @@ let poseq_unsafe idunsafe cstr gl =
   tclTHEN
     (Proofview.V82.of_tactic (Tactics.letin_tac None (Name idunsafe) cstr None Locusops.allHypsAndConcl))
     (tclTHENFIRST
-      (Proofview.V82.of_tactic (Tactics.assert_tac Anonymous (mkEq typ (mkVar idunsafe) cstr)))
+      (Proofview.V82.of_tactic (Tactics.assert_before Anonymous (mkEq typ (mkVar idunsafe) cstr)))
       (Proofview.V82.of_tactic Tactics.reflexivity))
     gl
 
@@ -463,10 +472,10 @@ VERNAC COMMAND EXTEND MergeFunind CLASSIFIED AS SIDEFF
   [ "Mergeschemes" "(" ident(id1) ne_ident_list(cl1) ")"
       "with" "(" ident(id2) ne_ident_list(cl2)  ")" "using" ident(id) ] ->
      [
-       let f1 = Constrintern.interp_constr Evd.empty (Global.env())
-	 (CRef (Libnames.Ident (Loc.ghost,id1))) in
-       let f2 = Constrintern.interp_constr Evd.empty (Global.env())
-	 (CRef (Libnames.Ident (Loc.ghost,id2))) in
+       let f1,ctx = Constrintern.interp_constr (Global.env()) Evd.empty
+	 (CRef (Libnames.Ident (Loc.ghost,id1),None)) in
+       let f2,ctx' = Constrintern.interp_constr (Global.env()) Evd.empty
+	 (CRef (Libnames.Ident (Loc.ghost,id2),None)) in
        let f1type = Typing.type_of (Global.env()) Evd.empty f1 in
        let f2type = Typing.type_of (Global.env()) Evd.empty f2 in
        let ar1 = List.length (fst (decompose_prod f1type)) in

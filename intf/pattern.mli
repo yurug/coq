@@ -1,6 +1,6 @@
 (************************************************************************)
 (*  v      *   The Coq Proof Assistant  /  The Coq Development Team     *)
-(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2012     *)
+(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2015     *)
 (*   \VV/  **************************************************************)
 (*    //   *      This file is distributed under the terms of the       *)
 (*         *       GNU Lesser General Public License Version 2.1        *)
@@ -55,7 +55,7 @@ type extended_patvar_map = constr_under_binders Id.Map.t
 type case_info_pattern =
     { cip_style : case_style;
       cip_ind : inductive option;
-      cip_ind_args : int option; (** number of params and args *)
+      cip_ind_tags : bool list option; (** indicates LetIn/Lambda in arity *)
       cip_extensible : bool (** does this match end with _ => _ ? *) }
 
 type constr_pattern =
@@ -65,6 +65,7 @@ type constr_pattern =
   | PRel of int
   | PApp of constr_pattern * constr_pattern array
   | PSoApp of patvar * constr_pattern list
+  | PProj of projection * constr_pattern
   | PLambda of Name.t * constr_pattern * constr_pattern
   | PProd of Name.t * constr_pattern * constr_pattern
   | PLetIn of Name.t * constr_pattern * constr_pattern
@@ -72,7 +73,7 @@ type constr_pattern =
   | PMeta of patvar option
   | PIf of constr_pattern * constr_pattern * constr_pattern
   | PCase of case_info_pattern * constr_pattern * constr_pattern *
-      (int * int * constr_pattern) list (** index of constructor, nb of args *)
+      (int * bool list * constr_pattern) list (** index of constructor, nb of args *)
   | PFix of fixpoint
   | PCoFix of cofixpoint
 

@@ -1,6 +1,6 @@
 (************************************************************************)
 (*  v      *   The Coq Proof Assistant  /  The Coq Development Team     *)
-(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2012     *)
+(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2015     *)
 (*   \VV/  **************************************************************)
 (*    //   *      This file is distributed under the terms of the       *)
 (*         *       GNU Lesser General Public License Version 2.1        *)
@@ -221,6 +221,7 @@ Proof.
 Qed.
 
 Lemma cosn_no_R0 : forall n:nat, cos_n n <> 0.
+Proof.
   intro; unfold cos_n; unfold Rdiv; apply prod_neq_R0.
   apply pow_nonzero; discrR.
   apply Rinv_neq_0_compat.
@@ -233,6 +234,7 @@ Definition cos_in (x l:R) : Prop :=
 
 (**********)
 Lemma exist_cos : forall x:R, { l:R | cos_in x l }.
+Proof.
   intro; generalize (Alembert_C3 cos_n x cosn_no_R0 Alembert_cos).
   unfold Pser, cos_in; trivial.
 Qed.
@@ -338,7 +340,7 @@ Proof.
   apply INR_eq; repeat rewrite S_INR; rewrite plus_INR; repeat rewrite mult_INR;
     rewrite plus_INR; rewrite mult_INR; repeat rewrite S_INR;
       replace (INR 0) with 0; [ ring | reflexivity ].
-Defined.
+Qed.
 
 Lemma sin_no_R0 : forall n:nat, sin_n n <> 0.
 Proof.

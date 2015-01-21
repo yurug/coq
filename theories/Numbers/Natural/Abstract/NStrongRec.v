@@ -1,6 +1,6 @@
 (************************************************************************)
 (*  v      *   The Coq Proof Assistant  /  The Coq Development Team     *)
-(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2012     *)
+(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2015     *)
 (*   \VV/  **************************************************************)
 (*    //   *      This file is distributed under the terms of the       *)
 (*         *       GNU Lesser General Public License Version 2.1        *)
@@ -13,7 +13,7 @@ and proves its properties *)
 
 Require Export NSub.
 
-Ltac f_equiv' := repeat (f_equiv; try intros ? ? ?; auto).
+Ltac f_equiv' := repeat (repeat f_equiv; try intros ? ? ?; auto).
 
 Module NStrongRecProp (Import N : NAxiomsRecSig').
 Include NSubProp N.
@@ -24,7 +24,7 @@ Variable A : Type.
 Variable Aeq : relation A.
 Variable Aeq_equiv : Equivalence Aeq.
 
-(** [strong_rec] allows to define a recursive function [phi] given by
+(** [strong_rec] allows defining a recursive function [phi] given by
     an equation [phi(n) = F(phi)(n)] where recursive calls to [phi]
     in [F] are made on strictly lower numbers than [n].
 
@@ -82,7 +82,6 @@ Proof.
 intros. unfold strong_rec0.
 f_equiv.
 rewrite recursion_succ; f_equiv'.
-reflexivity.
 Qed.
 
 Lemma strong_rec_0 : forall a,

@@ -1,5 +1,6 @@
 Coq_config
 
+Terminal
 Canary
 Hook
 Hashset
@@ -12,11 +13,12 @@ Option
 Store
 Exninfo
 Backtrace
-IArray
 IStream
 Pp_control
 Flags
-Pp
+Control
+Loc
+Serialize
 Deque
 CObj
 CList
@@ -24,9 +26,13 @@ CString
 CArray
 CStack
 Util
-Loc
 Stateid
-Serialize
+Feedback
+Pp
+Xml_lexer
+Xml_parser
+Xml_printer
+Richpp
 CUnix
 Envars
 Aux_file

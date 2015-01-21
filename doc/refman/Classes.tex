@@ -10,7 +10,7 @@
 \label{typeclasses}
 
 \begin{flushleft}
-  \em The status of Type Classes is (extremely) experimental.
+  \em The status of Type Classes is experimental.
 \end{flushleft}
 
 This chapter presents a quick reference of the commands related to type
@@ -127,7 +127,7 @@ particular support for type classes:
   class arguments, making derived functions as easy to use as class
   methods. In the example above, \texttt{A} and \texttt{eqa} should be
   set maximally implicit.
-\item They support implicit quantification on partialy applied type
+\item They support implicit quantification on partially applied type
   classes (\S \ref{implicit-generalization}).
   Any argument not given as part of a type class binder will be
   automatically generalized.
@@ -403,7 +403,7 @@ This is equivalent to {\tt Hint Transparent,Opaque} {\ident} {\tt: typeclass\_in
 \comindex{Typeclasses eauto}
 \label{TypeclassesEauto}
 
-This commands allows to customize the type class resolution tactic,
+This command allows customization of the type class resolution tactic,
 based on a variant of eauto. The flags semantics are:
 \begin{itemize}
 \item {\tt debug} In debug mode, the trace of successfully applied
@@ -411,6 +411,17 @@ based on a variant of eauto. The flags semantics are:
 \item {\tt dfs, bfs} This sets the search strategy to depth-first search
   (the default) or breadth-first search.
 \item {\emph{depth}} This sets the depth of the search (the default is 100).
+\end{itemize}
+
+\subsection{\tt Set Refine Instance Mode}
+\comindex{Set Refine Instance Mode}\comindex{Unset Refine Instance Mode}
+
+The option {\tt Refine Instance Mode} allows to switch the behavior of instance
+declarations made through the {\tt Instance} command.
+\begin{itemize}
+\item When it is on (the default), instances that have unsolved holes in their
+proof-term silently open the proof mode with the remaining obligations to prove.
+\item When it is off, they fail with an error instead.
 \end{itemize}
 
 %%% Local Variables: 

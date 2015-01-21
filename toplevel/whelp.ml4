@@ -1,6 +1,6 @@
 (************************************************************************)
 (*  v      *   The Coq Proof Assistant  /  The Coq Development Team     *)
-(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2012     *)
+(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2015     *)
 (*   \VV/  **************************************************************)
 (*    //   *      This file is distributed under the terms of the       *)
 (*         *       GNU Lesser General Public License Version 2.1        *)
@@ -126,9 +126,9 @@ let uri_params f = function
 let get_discharged_hyp_names sp = List.map basename (get_discharged_hyps sp)
 
 let section_parameters = function
-  | GRef (_,(ConstructRef ((induri,_),_) | IndRef (induri,_))) ->
+  | GRef (_,(ConstructRef ((induri,_),_) | IndRef (induri,_)),_) ->
       get_discharged_hyp_names (path_of_global (IndRef(induri,0)))
-  | GRef (_,(ConstRef cst as ref)) ->
+  | GRef (_,(ConstRef cst as ref),_) ->
       get_discharged_hyp_names (path_of_global ref)
   | _ -> []
 
@@ -141,10 +141,9 @@ let merge vl al =
 let rec uri_of_constr c =
   match c with
   | GVar (_,id) -> url_id id
-  | GRef (_,ref) ->  uri_of_global ref
+  | GRef (_,ref,_) ->  uri_of_global ref
   | GHole _ | GEvar _ -> url_string "?"
   | GSort (_,s) -> url_string (whelp_of_glob_sort s)
-  | _ -> url_paren (fun () -> match c with
   | GApp (_,f,args) ->
       let inst,rest = merge (section_parameters f) args in
       uri_of_constr f; url_char ' '; uri_params uri_of_constr inst;
@@ -164,10 +163,10 @@ let rec uri_of_constr c =
       uri_of_constr c; url_string ":"; uri_of_constr t
   | GRec _ | GIf _ | GLetTuple _ | GCases _ ->
       error "Whelp does not support pattern-matching and (co-)fixpoint."
-  | GVar _ | GRef _ | GHole _ | GEvar _ | GSort _ | GCast (_,_, CastCoerce) ->
+  | GCast (_,_, CastCoerce) ->
       anomaly (Pp.str "Written w/o parenthesis")
   | GPatVar _ ->
-      anomaly (Pp.str "Found constructors not supported in constr")) ()
+      anomaly (Pp.str "Found constructors not supported in constr")
 
 let make_string f x = Buffer.reset b; f x; Buffer.contents b
 
@@ -176,14 +175,14 @@ let send_whelp req s =
   let command = Util.subst_command_placeholder browser_cmd_fmt url in
   let _ = CUnix.run_command ~hook:print_string command in ()
 
-let whelp_constr req c =
-  let c = detype false [whelm_special] [] c in
+let whelp_constr env sigma req c =
+  let c = detype false [whelm_special] env sigma c in
   send_whelp req (make_string uri_of_constr c)
 
 let whelp_constr_expr req c =
   let (sigma,env)= Lemmas.get_current_context () in
-  let _,c = interp_open_constr sigma env c in
-  whelp_constr req c
+  let _,c = interp_open_constr env sigma c in
+  whelp_constr env sigma req c
 
 let whelp_locate s =
   send_whelp "locate" s
@@ -194,7 +193,7 @@ let whelp_elim ind =
 let on_goal f =
   let gls = Proof.V82.subgoals (get_pftreestate ()) in
   let gls = { gls with Evd.it = List.hd gls.Evd.it }  in
-  f (Termops.it_mkNamedProd_or_LetIn (pf_concl gls) (pf_hyps gls))
+  f (pf_env gls) (project gls) (Termops.it_mkNamedProd_or_LetIn (pf_concl gls) (pf_hyps gls))
 
 type whelp_request =
   | Locate of string
@@ -204,7 +203,7 @@ type whelp_request =
 let whelp = function
   | Locate s -> whelp_locate s
   | Elim ind -> whelp_elim ind
-  | Constr (s,c) -> whelp_constr s c
+  | Constr (s,c) -> whelp_constr (Global.env()) (Evd.empty) s c
 
 VERNAC ARGUMENT EXTEND whelp_constr_request
 | [ "Match" ] -> [ "match" ]
@@ -220,6 +219,6 @@ END
 
 VERNAC COMMAND EXTEND WhelpHint CLASSIFIED AS QUERY
 | [ "Whelp" "Hint" constr(c) ] -> [ whelp_constr_expr "hint" c ]
-| [ "Whelp" "Hint" ] => [ Vernacexpr.VtProofStep, Vernacexpr.VtLater ] ->
-  [ on_goal (whelp_constr "hint") ]
+| [ "Whelp" "Hint" ] => [ Vernacexpr.VtProofStep false, Vernacexpr.VtLater ] ->
+  [ on_goal (fun env sigma -> whelp_constr env sigma "hint") ]
 END

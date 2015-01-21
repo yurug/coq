@@ -1,6 +1,6 @@
 (************************************************************************)
 (*  v      *   The Coq Proof Assistant  /  The Coq Development Team     *)
-(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2012     *)
+(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2015     *)
 (*   \VV/  **************************************************************)
 (*    //   *      This file is distributed under the terms of the       *)
 (*         *       GNU Lesser General Public License Version 2.1        *)
@@ -118,14 +118,31 @@ val debug_pr_delta : delta_resolver -> Pp.std_ppcmds
 val subst_mp :
   substitution -> module_path -> module_path
 
-val subst_ind :
+val subst_mind :
   substitution -> mutual_inductive -> mutual_inductive
+
+val subst_ind :
+  substitution -> inductive -> inductive
+
+val subst_pind : substitution -> pinductive -> pinductive
 
 val subst_kn :
   substitution -> kernel_name -> kernel_name
 
 val subst_con :
+  substitution -> pconstant -> constant * constr
+
+val subst_pcon :
+  substitution -> pconstant -> pconstant
+
+val subst_pcon_term :
+  substitution -> pconstant -> pconstant * constr
+
+val subst_con_kn :
   substitution -> constant -> constant * constr
+
+val subst_constant : 
+  substitution -> constant -> constant
 
 (** Here the semantics is completely unclear.
    What does "Hint Unfold t" means when "t" is a parameter?

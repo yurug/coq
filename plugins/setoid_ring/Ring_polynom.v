@@ -1,17 +1,19 @@
 (************************************************************************)
 (*  v      *   The Coq Proof Assistant  /  The Coq Development Team     *)
-(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2012     *)
+(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2015     *)
 (*   \VV/  **************************************************************)
 (*    //   *      This file is distributed under the terms of the       *)
 (*         *       GNU Lesser General Public License Version 2.1        *)
 (************************************************************************)
 
-Set Implicit Arguments.
-Require Import Setoid Morphisms BinList BinPos BinNat BinInt.
-Require Export Ring_theory.
 
+Set Implicit Arguments.
+Require Import Setoid Morphisms. 
+Require Import BinList BinPos BinNat BinInt.
+Require Export Ring_theory.
 Local Open Scope positive_scope.
 Import RingSyntax.
+(* Set Universe Polymorphism. *)
 
 Section MakeRingPol.
 
@@ -678,7 +680,7 @@ Section MakeRingPol.
   - add_permut.
   - destruct p; simpl;
     rewrite ?jump_pred_double; add_permut.
-  - destr_pos_sub; intros ->;Esimpl.
+  - destr_pos_sub; intros ->; Esimpl.
     + rewrite IHP';rsimpl. add_permut.
     + rewrite IHP', pow_pos_add;simpl;Esimpl. add_permut.
     + rewrite IHP1, pow_pos_add;rsimpl. add_permut.
@@ -796,9 +798,9 @@ Section MakeRingPol.
      P@l == Q@l + [c] * R@l.
  Proof.
  revert l.
- induction P as [c0 | j P IH | P1 IH1 i P2 IH2]; intros l; Esimpl.
- - assert (H := div_th.(div_eucl_th) c0 c).
-   destruct cdiv as (q,r). rewrite H; Esimpl. add_permut.
+ induction P as [c0 | j P IH | P1 IH1 i P2 IH2]; intros l; Esimpl. 
+ - assert (H := div_th.(div_eucl_th) c0 c). 
+   destruct cdiv as (q,r). rewrite H; Esimpl. add_permut. 
  - destr_factor. Esimpl.
  - destr_factor. Esimpl. add_permut.
  Qed.
@@ -807,11 +809,12 @@ Section MakeRingPol.
    let (c,M) := cM in
    let (Q,R) := MFactor P c M in
      P@l == Q@l + [c] * M@@l * R@l.
- Proof.
+ Proof. 
  destruct cM as (c,M). revert M l.
- induction P; destruct M; intros l; simpl; auto;
+ induction P; destruct M; intros l; simpl; auto; 
  try (case ceqb_spec; intro He);
-  try (case Pos.compare_spec; intros He); rewrite ?He;
+  try (case Pos.compare_spec; intros He);
+  rewrite ?He;
    destr_factor; simpl; Esimpl.
  - assert (H := div_th.(div_eucl_th) c0 c).
    destruct cdiv as (q,r). rewrite H; Esimpl. add_permut.
@@ -869,9 +872,9 @@ Section MakeRingPol.
  Lemma PSubstL1_ok n LM1 P1 l :
    MPcond LM1 l -> P1@l == (PSubstL1 P1 LM1 n)@l.
  Proof.
- revert P1; induction LM1 as [|(M2,P2) LM2 IH]; simpl; intros.
- - reflexivity.
- - rewrite <- IH by intuition. now apply PNSubst1_ok.
+ revert P1; induction LM1 as [|(M2,P2) LM2 IH]; simpl; intros. 
+ - reflexivity. 
+ - rewrite <- IH by intuition; now apply PNSubst1_ok.
  Qed.
 
  Lemma PSubstL_ok n LM1 P1 P2 l :
@@ -1030,24 +1033,26 @@ Section POWER.
   now destruct pe.
   Qed.
 
+  Arguments norm_aux !pe : simpl nomatch.
+
   Lemma norm_aux_spec l pe :
     PEeval l pe == (norm_aux pe)@l.
   Proof.
    intros.
-   induction pe.
-   - now rewrite (morph0 CRmorph).
+   induction pe; cbn.
+   - now rewrite (morph0 CRmorph). 
    - now rewrite (morph1 CRmorph).
    - reflexivity.
    - apply mkX_ok.
-   - simpl PEeval. rewrite IHpe1, IHpe2.
+   - rewrite IHpe1, IHpe2.
      assert (H1 := norm_aux_PEopp pe1).
      assert (H2 := norm_aux_PEopp pe2).
      rewrite norm_aux_PEadd.
      do 2 destruct get_PEopp; rewrite ?H1, ?H2; Esimpl; add_permut.
-   - simpl. rewrite IHpe1, IHpe2. Esimpl.
-   - simpl. rewrite IHpe1, IHpe2. now rewrite Pmul_ok.
-   - simpl. rewrite IHpe. Esimpl.
-   - simpl. rewrite Ppow_N_ok by reflexivity.
+   - rewrite IHpe1, IHpe2. Esimpl.
+   - rewrite IHpe1, IHpe2. now rewrite Pmul_ok.
+   - rewrite IHpe. Esimpl.
+   - rewrite Ppow_N_ok by reflexivity.
      rewrite pow_th.(rpow_pow_N). destruct n0; simpl; Esimpl.
      induction p;simpl; now rewrite ?IHp, ?IHpe, ?Pms_ok, ?Pmul_ok.
   Qed.

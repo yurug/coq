@@ -1,6 +1,6 @@
 (************************************************************************)
 (*  v      *   The Coq Proof Assistant  /  The Coq Development Team     *)
-(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2012     *)
+(* <O___,, *   INRIA - CNRS - LIX - LRI - PPS - Copyright 1999-2015     *)
 (*   \VV/  **************************************************************)
 (*    //   *      This file is distributed under the terms of the       *)
 (*         *       GNU Lesser General Public License Version 2.1        *)
@@ -237,9 +237,9 @@ Section sequence.
     apply le_n_Sn.
     rewrite (IHN H6), Rplus_0_l.
     unfold test.
-    destruct Rle_lt_dec.
+    destruct Rle_lt_dec as [Hle|Hlt].
     apply eq_refl.
-    now elim Rlt_not_le with (1 := r).
+    now elim Rlt_not_le with (1 := Hlt).
 
     destruct (le_or_lt N n) as [Hn|Hn].
     rewrite le_plus_minus with (1 := Hn).
@@ -403,4 +403,27 @@ Proof.
   apply Rabs_pos_lt.
   apply Rinv_neq_0_compat.
   assumption.
+Qed.
+
+(* Convergence is preserved after shifting the indices. *)
+Lemma CV_shift : 
+  forall f k l, Un_cv (fun n => f (n + k)%nat) l -> Un_cv f l.
+intros f' k l cvfk eps ep; destruct (cvfk eps ep) as [N Pn].
+exists (N + k)%nat; intros n nN; assert (tmp: (n = (n - k) + k)%nat).
+ rewrite Nat.sub_add;[ | apply le_trans with (N + k)%nat]; auto with arith.
+rewrite tmp; apply Pn; apply Nat.le_add_le_sub_r; assumption.
+Qed.
+
+Lemma CV_shift' : 
+  forall f k l, Un_cv f l -> Un_cv (fun n => f (n + k)%nat) l.
+intros f' k l cvf eps ep; destruct (cvf eps ep) as [N Pn].
+exists N; intros n nN; apply Pn; auto with arith.
+Qed.
+
+(* Growing property is preserved after shifting the indices (one way only) *)
+
+Lemma Un_growing_shift : 
+   forall k un, Un_growing un -> Un_growing (fun n => un (n + k)%nat).
+Proof.
+intros k un P n; apply P.
 Qed.

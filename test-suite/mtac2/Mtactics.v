@@ -79,5 +79,6 @@ Definition assumption g :=
 Example mtactics_usage : nat * bool -> option nat * option bool -> option bool.
 Proof.
   intros.
-  run_eff (Mgoals >> get >> simplify >> assumption).
-Qed.
+  Fail run_eff (Mgoals >> get >> simplify >> assumption).
+Fail Qed.
+Abort.

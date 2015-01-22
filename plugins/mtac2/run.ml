@@ -63,25 +63,27 @@ type lazy_map = Constr.constr LazyList.t CMap.t
 *)
 
 (** Module to create constructors given their coq name *)
-module Constr = struct
+module MyConstr = struct
   let mkConstr name = lazy (
-    Globnames.constr_of_global
+    Universes.constr_of_global
       (Nametab.global_of_path (Libnames.path_of_string name))
   )
 
   let isConstr = fun r c -> TOps.eq_constr (Lazy.force r) c
+
+  let eq_ind i1 i2 = Names.eq_ind (fst i1) (fst i2)
 end
 
 (** Module to create coq lists *)
 module CoqList = struct
-  let mkNil  = Constr.mkConstr "Coq.Init.Datatypes.nil"
-  let mkCons = Constr.mkConstr "Coq.Init.Datatypes.cons"
+  let mkNil  = MyConstr.mkConstr "Coq.Init.Datatypes.nil"
+  let mkCons = MyConstr.mkConstr "Coq.Init.Datatypes.cons"
 
   let makeNil ty = Term.mkApp (Lazy.force mkNil, [| ty |])
   let makeCons t x xs = Term.mkApp (Lazy.force mkCons, [| t ; x ; xs |])
 
-  let isNil  = Constr.isConstr mkNil
-  let isCons = Constr.isConstr mkCons
+  let isNil  = MyConstr.isConstr mkNil
+  let isCons = MyConstr.isConstr mkCons
 
   let rec to_list (env, sigma as ctx) cterm =
     let (constr, args) = ROps.whd_betadeltaiota_stack env sigma cterm in
@@ -98,24 +100,24 @@ end
 
 (** Module to create equality type *)
 module CoqEq = struct
-  let mkEq = Constr.mkConstr "Coq.Init.Logic.eq"
-  let mkEqRefl = Constr.mkConstr "Coq.Init.Logic.eq_refl"
+  let mkEq = MyConstr.mkConstr "Coq.Init.Logic.eq"
+  let mkEqRefl = MyConstr.mkConstr "Coq.Init.Logic.eq_refl"
 
   let mkAppEq a x y = Term.mkApp(Lazy.force mkEq, [|a;x;y|])
   let mkAppEqRefl a x = Term.mkApp(Lazy.force mkEqRefl, [|a;x|])
 end
 
 module CoqUnit = struct
-  let ty = Constr.mkConstr "Coq.Init.Datatypes.unit"
-  let mkTT = Constr.mkConstr "Coq.Init.Datatypes.tt"
+  let ty = MyConstr.mkConstr "Coq.Init.Datatypes.unit"
+  let mkTT = MyConstr.mkConstr "Coq.Init.Datatypes.tt"
 end
 
 module CoqBool = struct
 
-  let mkTrue = Constr.mkConstr "Coq.Init.Datatypes.true"
-  let mkFalse = Constr.mkConstr "Coq.Init.Datatypes.false"
+  let mkTrue = MyConstr.mkConstr "Coq.Init.Datatypes.true"
+  let mkFalse = MyConstr.mkConstr "Coq.Init.Datatypes.false"
 
-  let isTrue = Constr.isConstr mkTrue
+  let isTrue = MyConstr.isConstr mkTrue
 
 end
 
@@ -124,8 +126,8 @@ end
 module MtacNames = struct
   let mtacore_name = "Coq.mtac2.Mtac2"
   let mtac_module_name = mtacore_name
-  let mkLazyConstr e = Constr.mkConstr (mtac_module_name ^ "." ^ e)
-  let mkConstr e = Lazy.force (Constr.mkConstr (mtac_module_name ^ "." ^ e))
+  let mkLazyConstr e = MyConstr.mkConstr (mtac_module_name ^ "." ^ e)
+  let mkConstr e = Lazy.force (MyConstr.mkConstr (mtac_module_name ^ "." ^ e))
   let mkT_lazy = lazy (mkConstr "Mtac2")
 
   let mkLocalTele = mkLazyConstr "local_telescope"
@@ -134,9 +136,9 @@ module MtacNames = struct
   let mkGoal = mkLazyConstr "Mgoal"
   let mkBase = mkLazyConstr "Mbase"
   let mkTele = mkLazyConstr "Mtele"
-  let isBase = Constr.isConstr mkBase
-  let isTele = Constr.isConstr mkTele
-  let isGoal = Constr.isConstr mkGoal
+  let isBase = MyConstr.isConstr mkBase
+  let isTele = MyConstr.isConstr mkTele
+  let isGoal = MyConstr.isConstr mkGoal
 end
 
 (** There are two types of exception in Mtac2: those raised by the application
@@ -220,7 +222,7 @@ let open_pattern (env, sigma) p =
     else if MtacNames.isTele patt then
       let c = nth 2 in
       let f = nth 4 in
-      let (sigma', evar) = Evarutil.new_evar sigma env c in
+      let (sigma', evar) = Evarutil.new_evar env sigma c in
       op_patt sigma' (Term.mkApp (f, [|evar|])) (evar :: evars)
     else
       `None
@@ -260,11 +262,11 @@ let rec print_env lst =
   Pp.pperr_flush ()
 
 module HypPattern = struct
-  let constr' c name =
+  let constr' c name : int option =
     if Term.isConstruct c then
-      let (m, ix) = Term.destConstruct c in
-      if Names.eq_ind m (Term.destInd name) then
-        Some ix
+      let (m, _) = Term.destConstruct c in
+      if MyConstr.eq_ind m (Term.destInd name) then
+        Some (snd m)
       else
         None
     else
@@ -273,11 +275,11 @@ module HypPattern = struct
   let destruct_sigT_or_unit ty =
     let fail () = Exceptions.block Exceptions.error_stuck in
     let local_tele = MtacNames.mkLocalTele in
-    let sigma_ind = Coqlib.((build_sigma_type ()).typ) in
+    let sigma_ind = Universes.constr_of_global Coqlib.((build_sigma_type ()).typ) in
     if not (Term.isApp ty) then (
       (* it cannot be a sigma here *)
       if Term.isInd ty
-        && Names.eq_ind (Term.destInd ty) (Term.destInd (Lazy.force CoqUnit.ty))
+        && MyConstr.eq_ind (Term.destInd ty) (Term.destInd (Lazy.force CoqUnit.ty))
       then
         `Unit
       else (* it's not even unit *)
@@ -286,9 +288,9 @@ module HypPattern = struct
       let (ty_name, params) = Term.destApp ty in
       if not (Term.isInd ty_name) then fail () else
       let my_ind = Term.destInd ty_name in
-      if Names.eq_ind my_ind (Term.destInd sigma_ind) then
+      if MyConstr.eq_ind my_ind (Term.destInd sigma_ind) then
         `SigT (params.(0), params.(1))
-      else if Names.eq_ind my_ind (Term.destInd (Lazy.force local_tele)) then
+      else if MyConstr.eq_ind my_ind (Term.destInd (Lazy.force local_tele)) then
         `LocalTele (params.(0), params.(1))
       else
         fail ()
@@ -330,7 +332,7 @@ module HypPattern = struct
               (* assert (Term.eq_constr ty xty) ; *)
               (* FIXME: the check above fails saying "Type != Type", I'm
                * assuming the universes are different. Don't know why. *)
-              let (sigma', evar) = Evarutil.new_evar sigma env ty in
+              let (sigma', evar) = Evarutil.new_evar env sigma ty in
               let typ =
                 (* questionable. *)
                 ROps.whd_betadeltaiota env sigma' (Term.mkApp (lam, [| evar |]))
@@ -340,7 +342,7 @@ module HypPattern = struct
             | `SigT (ty, lam) ->
               let (x, xty, body) = Term.destLambda lam in
               assert (Term.eq_constr ty xty) ;
-              let (sigma', evar) = Evarutil.new_evar sigma env ty in
+              let (sigma', evar) = Evarutil.new_evar env sigma ty in
               let typ =
                 (* questionable. *)
                 ROps.whd_betadeltaiota env sigma' (Term.mkApp (lam, [| evar |]))
@@ -417,7 +419,7 @@ let find_hypotheses lazy_map env sigma evars hyps patterns =
         let build teles (sigma, lst) =
           let sigT, existT =
             let x = Coqlib.build_sigma_type () in
-            x.Coqlib.typ, x.Coqlib.intro
+            Universes.constr_of_global x.Coqlib.typ, Universes.constr_of_global (x.Coqlib.intro)
           in
           let local_telescope = Lazy.force_val MtacNames.mkLocalTele in
           let lTele = Lazy.force MtacNames.mklTele in
@@ -588,8 +590,8 @@ let recover_goal sigma goal_term =
 
 
 let dest_Case (env, sigma) t_type t =
-  let nil = Constr.mkConstr "Coq.Init.Datatypes.nil" in
-  let cons = Constr.mkConstr "Coq.Init.Datatypes.cons" in
+  let nil = MyConstr.mkConstr "Coq.Init.Datatypes.nil" in
+  let cons = MyConstr.mkConstr "Coq.Init.Datatypes.cons" in
   let mkCase = MtacNames.mkConstr "mkCase" in
   let dyn = MtacNames.mkConstr "dyn" in
   let mkDyn = MtacNames.mkConstr "Dyn" in
@@ -611,12 +613,12 @@ let dest_Case (env, sigma) t_type t =
       )
       )
   with
-   | Not_found -> (sigma, Lazy.force (Constr.mkConstr "Coq.Init.Datatypes.false"))
-   | Term.DestKO -> (sigma, Lazy.force (Constr.mkConstr "Coq.Init.Datatypes.true"))
+   | Not_found -> (sigma, Lazy.force (MyConstr.mkConstr "Coq.Init.Datatypes.false"))
+   | Term.DestKO -> (sigma, Lazy.force (MyConstr.mkConstr "Coq.Init.Datatypes.true"))
    | _ -> (sigma, t)
 
 let make_Case (env, sigma) case =
-  let map = Constr.mkConstr "List.map" in
+  let map = MyConstr.mkConstr "List.map" in
   let elem = MtacNames.mkConstr "elem" in
   let mkDyn = MtacNames.mkConstr "Dyn" in
   let case_ind = MtacNames.mkConstr "case_ind" in
@@ -640,7 +642,7 @@ let make_Case (env, sigma) case =
   let t_type, l = Term.decompose_app (ROps.whd_betadeltaiota env sigma repr_ind) in
   if Term.isInd t_type then
     match Term.kind_of_term t_type with
-    | Term.Ind (mind, ind_i) -> 
+    | Term.Ind ((mind, ind_i), _) -> 
       let mbody = Environ.lookup_mind mind env in
       let ind = Array.get mbody.mind_packets ind_i in
       let case_info = Inductiveops.make_case_info env (mind, ind_i)
@@ -657,7 +659,7 @@ let get_Constrs (env, sigma) t =
   let t_type, l = Term.decompose_app (ROps.whd_betadeltaiota env sigma t) in
   if Term.isInd t_type then
     match Term.kind_of_term t_type with
-    | Term.Ind (mind, ind_i) -> 
+    | Term.Ind ((mind, ind_i), _) -> 
       let mbody = Environ.lookup_mind mind env in
       let ind = Array.get (mbody.mind_packets) ind_i in
       let dyn = MtacNames.mkConstr "dyn" in
@@ -687,8 +689,8 @@ let rec run' lazy_map (env, sigma as ctxt) t =
   let nth = List.nth args in
   let constr c =
     if Term.isConstruct c then
-      let (m, ix) = Term.destConstruct c in
-      if Names.eq_ind m (Term.destInd (Lazy.force MtacNames.mkT_lazy)) then
+      let ((m, ix), _) = Term.destConstruct c in
+      if Names.eq_ind m (fst (Term.destInd (Lazy.force MtacNames.mkT_lazy))) then
         ix
       else
         Exceptions.block Exceptions.error_stuck
@@ -735,7 +737,7 @@ let rec run' lazy_map (env, sigma as ctxt) t =
     run' lazy_map (env, sigma') body
 
   | 9 -> (* print *)
-    Pp.pperrnl (Printer.pr_constr_env env (nth 1));
+    Pp.pperrnl (Printer.pr_constr_env env sigma (nth 1));
     Pp.flush_all () ;
     return sigma lazy_map (Lazy.force CoqUnit.mkTT)
 
@@ -756,7 +758,7 @@ let rec run' lazy_map (env, sigma as ctxt) t =
 
   | 13 -> (* evar *)
     let t = nth 0 in
-    let (sigma', ev) = Evarutil.new_evar sigma env t in
+    let (sigma', ev) = Evarutil.new_evar env sigma t in
     return sigma' lazy_map ev
 
   | 14 -> (* is_evar *)
@@ -829,7 +831,7 @@ let rec run' lazy_map (env, sigma as ctxt) t =
             let args = Array.of_list args in
             let evar_trm = Term.mkEvar (evar, args) in
             let g = Term.mkApp (MtacNames.mkConstr "opaque", [|evar_trm|]) in
-            CoqList.makeCons ty g coq_list, Goal.build evar :: comb
+            CoqList.makeCons ty g coq_list, evar :: comb
           ) goal_set (CoqList.makeNil ty, [])
         in
         Proofview.tclTHEN (Proofview.register_goals comb) (return sigma' lazy_map goals)
@@ -859,7 +861,7 @@ let rec run' lazy_map (env, sigma as ctxt) t =
     let lazy_ty = Term.mkApp (MtacNames.mkConstr "LazyList", [|ty|]) in
     let ret_ty =
       Term.mkApp (
-        Lazy.force (Constr.mkConstr "Coq.Init.Datatypes.prod"),
+        Lazy.force (MyConstr.mkConstr "Coq.Init.Datatypes.prod"),
         [| ty ; lazy_ty |]
       )
     in
@@ -870,18 +872,18 @@ let rec run' lazy_map (env, sigma as ctxt) t =
       | None -> 
         return sigma lazy_map (
           Term.mkApp (
-            (Lazy.force (Constr.mkConstr "Coq.Init.Datatypes.None")), [| ret_ty |]
+            (Lazy.force (MyConstr.mkConstr "Coq.Init.Datatypes.None")), [| ret_ty |]
           )
         )
       | Some (elt, lazy_list') ->
-        let sigma, key = Evarutil.new_evar sigma env lazy_ty in
+        let sigma, key = Evarutil.new_evar env sigma lazy_ty in
         let map = CMap.add key lazy_list' lazy_map in
         let elt = 
           Term.mkApp (
-            Lazy.force (Constr.mkConstr "Coq.Init.Datatypes.Some"), [|
+            Lazy.force (MyConstr.mkConstr "Coq.Init.Datatypes.Some"), [|
               ret_ty ;
               Term.mkApp (
-                Lazy.force (Constr.mkConstr "Coq.Init.Datatypes.pair"),
+                Lazy.force (MyConstr.mkConstr "Coq.Init.Datatypes.pair"),
                 [| ty ; lazy_ty ; elt ; key|]
               )
             |]

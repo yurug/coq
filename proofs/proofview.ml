@@ -808,7 +808,7 @@ let tclTIME s t =
 
 
 let register_goals c =
-  Proof.modify (fun step -> { step with comb = c @ step.comb })
+  Proof.modify (fun (step, e) -> ({ step with comb = c @ step.comb }, e))
 
 (** {7 Unsafe primitives} *)
 

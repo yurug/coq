@@ -118,10 +118,13 @@ Require Import Mtactics.
 Program Definition tauto_goal :=
   mfix1 f (l : list goal) : M unit :=
     iter (fun g =>
+      Mprint g;;
+      Mshow g;;
       gmatch g with
-      | [ X H ] { H ::: X } X => f @@ Mrefine g H
-      | { } True => f @@ Mrefine g I
+      | [ X H ] { H ::: X } X => Mprint X;; f @@ Mrefine g H
+      | { } True => Mprint True;; f @@ Mrefine g I
       | [P Q : Prop] { } P /\ Q =>
+        Mprint (P /\ Q);;
         X <- evar P; Y <- evar Q;
         f @@ Mrefine g (conj X Y)
 (*
@@ -135,6 +138,7 @@ Program Definition tauto_goal :=
         end
 *)
       | [P Q : Prop] { } P -> Q =>
+        Mprint (P -> Q);;
         r <- intro g;
         f [r]
 (*
@@ -157,4 +161,12 @@ Program Definition tauto_goal :=
 
 
 Example tauto1 (P Q R : Prop) : P -> Q -> P /\ Q.
-  run_eff (Mgoals >> tauto_goal).
+(* it's looping forever :( *)
+(*  run_eff (Mgoals >> tauto_goal). *)
+(* but each bit works *)
+  run_eff (Mgoals >> get >> intro).
+  run_eff (Mgoals >> get >> intro).
+  run_eff (Mgoals >> get >> fun g => (X <- evar P; Y <- evar Q;
+        Mrefine g (conj X Y))).
+  run_eff (Mgoals >> iter assumption).
+Qed.

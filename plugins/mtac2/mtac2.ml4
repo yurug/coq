@@ -14,6 +14,8 @@ open Run
 
 open Proofview.Notations
 
+DECLARE PLUGIN "mtac2_plugin"
+
 exception ExecFailed of constr
 
 let run_tac t i =
@@ -31,7 +33,7 @@ let run_tac t i =
         in
         CMap.fold rm_evar lazy_map sigma'
       in
-      (Proofview.V82.tclEVARS sigma')
+      (Proofview.Unsafe.tclEVARS sigma')
       <*> (Tactics.letin_tac None (Name i) v None Locusops.nowhere)
     | Err e -> 
       raise (ExecFailed e)
@@ -82,7 +84,7 @@ let run_effectful_tac t =
         in
         CMap.fold rm_evar lazy_map sigma'
       in
-      (Proofview.V82.tclEVARS sigma')
+      (Proofview.Unsafe.tclEVARS sigma')
     | Err e -> 
       raise (ExecFailed e)
   end
@@ -90,6 +92,9 @@ let run_effectful_tac t =
 
 TACTIC EXTEND run
   | [ "run" constr(c) "as" ident(i) ] -> [ run_tac c i ]
-  | [ "run_eff" constr(c) ] -> [ run_effectful_tac c ]
 (*  | [ "run_refine" open_constr(c) ] -> [ run_refine c ] *)
+END
+
+TACTIC EXTEND run_eff
+  | [ "run_eff" constr(c) ] -> [ run_effectful_tac c ]
 END

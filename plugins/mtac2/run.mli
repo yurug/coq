@@ -12,7 +12,7 @@ type data = Val of (evar_map * lazy_map * constr) | Err of constr
 
 val run : (env * evar_map) -> constr -> data Proofview.tactic
 
-
+val run' : lazy_map -> Environ.env * Evd.evar_map -> Term.constr -> data Proofview.tactic
 (*
 (* debug *)
 val run' : (env * evar_map) -> constr -> data Proofview.tactic

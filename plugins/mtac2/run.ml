@@ -866,8 +866,9 @@ let rec run' lazy_map (env, sigma as ctxt) t =
       )
     in
     let ll = nth 1 in
-    begin try
-      let lazy_list = CMap.find ll lazy_map in
+    begin match try Some (CMap.find ll lazy_map) with Not_found -> None with
+    | None -> Exceptions.block "Unknown lazy list"
+    | Some lazy_list ->
       match LazyList.destruct lazy_list with
       | None -> 
         return sigma lazy_map (
@@ -890,8 +891,6 @@ let rec run' lazy_map (env, sigma as ctxt) t =
           )
         in
         return sigma map elt
-    with Not_found ->
-      Exceptions.block "Unknown lazy list"
     end
 
   | 19 -> (* show *)

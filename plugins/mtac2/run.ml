@@ -3,59 +3,12 @@ open Declarations
 module TOps = Termops
 module ROps = Reductionops
 
-
-module LazyList = struct
-  type 'a t = 'a u lazy_t
-  and 'a u =
-    | Nil
-    | Cons of 'a * 'a t
-
-  let new_ident =
-    let counter = ref (-1) in
-    fun () -> incr counter ; !counter
-
-  let (!!) = Lazy.force
-  
-  let nil = Lazy.from_val Nil
-  let cons x xs = Lazy.from_val (Cons (x, xs))
-
-  let destruct t =
-    match !! t with
-    | Nil -> None
-    | Cons (x, xs) -> Some (x, xs)
-
-  let rec map f lst =
-    lazy (
-      match !! lst with
-      | Nil -> Nil
-      | Cons (x, xs) -> Cons (f x, map f xs)
-    )
-
-  let rec append xs ys =
-    lazy (
-      match !! xs with
-      | Nil -> !! ys
-      | Cons (x, xs) -> Cons (x, append xs ys)
-    )
-
-  let rec concat t =
-    lazy (
-      match !! t with
-      | Nil -> Nil
-      | Cons (xs, xss) -> !! (append xs (concat xss))
-    )
-
-  let return x = cons x nil
-
-  let ( >>= ) x f = concat (map f x)
-end
-
 module CMap = Map.Make (struct
   type t = Constr.constr
   let compare x y = Constr.compare x y
 end)
 
-type lazy_map = Constr.constr LazyList.t CMap.t
+type lazy_map = Constr.constr Lazy_list.t CMap.t
 
 (** Notation conventions used in this file:
     - env stands for a local context.
@@ -362,7 +315,7 @@ module HypPattern = struct
 end
 
 let find_hypotheses lazy_map env sigma evars hyps patterns =
-  let open LazyList in
+  let open Lazy_list in
   let rec all_matches sigma (term, typ as patt) =
     function
     | [] -> nil
@@ -871,7 +824,7 @@ let rec run' lazy_map (env, sigma as ctxt) t =
     begin match try Some (CMap.find ll lazy_map) with Not_found -> None with
     | None -> Exceptions.block "Unknown lazy list"
     | Some lazy_list ->
-      match LazyList.destruct lazy_list with
+      match Lazy_list.destruct lazy_list with
       | None -> 
         return sigma lazy_map (
           Term.mkApp (

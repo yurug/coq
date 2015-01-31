@@ -27,9 +27,11 @@ Inductive local_telescope (A:Type) (P: A -> Type) : Type :=
   lTele : forall x:A, P x -> local_telescope A P.
 
 (* Assumption: the first parameter of enum will actually be (nested) dependent
- * pairs; e.g. {x : nat & {H : x = 3 & unit}}
- * Of course we will provide a notation for it, so the user doesn't have to
- * write that. *)
+ * pairs, potentially contained inside local telescopes; e.g.
+ *       local_telescope Type (fun T => {x : T & {H : T = nat & unit}})
+ *
+ * Sadly we can't really enforce that, the best we can hope to do is produce
+ * nice notations so the user never knows what he is actually writing. *)
 Inductive hyp_pattern : Type :=
 | Simple : hypothesis -> hyp_pattern
 | Enum   : forall A:Type, LazyList A -> hyp_pattern.

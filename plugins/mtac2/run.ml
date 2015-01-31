@@ -253,10 +253,34 @@ module HypPattern = struct
     | None -> Exceptions.block Exceptions.error_stuck
     | Some ix -> ix
 
+  (* See the matching Coq types in Mtac2.v *)
   type named = { elt : Term.constr ; typ : Term.constr }
+  type local_telescope = {
+    name : Names.name ;
+    evar : Term.constr ; (* The evar we introduced *)
+    typ  : Term.constr ;
+  }
+
+  (* See below for an explaination. *)
+  type builder =
+    Evd.evar_map ->
+      Evd.evar_map * local_telescope list * named list * Term.constr list
+      (* Remark of a guy looking back to the code 6 months later: the last
+         element of the returned pair is used to construct the type of elements
+         of the lazy list. This seems redundant. *)
+
+  (* The OCaml twin of the Coq [hyp_pattern] type. (see Mtac2.v) *)
   type t =
     | Named of named
-    | Enum of (Evd.evar_map -> Evd.evar_map * (Names.name * Term.constr * Term.constr) list * named list * Term.constr list) * Term.constr
+      (* [Enum] represent star patterns, when you have a pattern of the form
+             [(H1, H2, ...)* as l]
+         [l] will be the second parameter of the matching [Enum] value.
+         The reason why the first parameter is not simply a [named list] is
+         because we can't simply introduce evars in the ambiant environment
+         (i.e. sigma) since we want to match multiple configurations.
+         So instead we return a function which given a sigma will introduce the
+         necessary evars and return a list of telescopes and a list of named. *)
+    | Enum of builder * Term.constr
 
   let convert_named (env, sigma) named =
     let (_constr, args) = ROps.whd_betadeltaiota_stack env sigma named in
@@ -264,6 +288,8 @@ module HypPattern = struct
     | typ :: elt :: [] -> Named { elt ; typ }
     | _ -> Exceptions.block Exceptions.error_stuck
 
+  (** Given a Coq term of type [hyp_pattern] turns it in a term of type [t].
+      See above. *)
   let convert (env, sigma as ctx) patt =
     let (c, args) = ROps.whd_betadeltaiota_stack env sigma patt in
     match constr c with
@@ -280,18 +306,19 @@ module HypPattern = struct
           let rec aux sigma typ =
             match destruct_sigT_or_unit typ with
             | `Unit -> sigma, [], [], []
-            | `LocalTele (ty, lam) ->
-              let (x, xty, body) = Term.destLambda lam in
+            | `LocalTele (typ, lam) ->
+              let (name, xty, body) = Term.destLambda lam in
               (* assert (Term.eq_constr ty xty) ; *)
               (* FIXME: the check above fails saying "Type != Type", I'm
-               * assuming the universes are different. Don't know why. *)
-              let (sigma', evar) = Evarutil.new_evar env sigma ty in
+               * assuming the universes are different but I don't understand
+               * why. *)
+              let (sigma', evar) = Evarutil.new_evar env sigma typ in
               let typ =
                 (* questionable. *)
                 ROps.whd_betadeltaiota env sigma' (Term.mkApp (lam, [| evar |]))
               in
               let sigma, teles, lst, families = aux sigma' typ in
-              sigma, (x, evar, ty) :: teles, lst, lam :: families
+              sigma, {name; evar; typ} :: teles, lst, lam :: families
             | `SigT (ty, lam) ->
               let (x, xty, body) = Term.destLambda lam in
               assert (Term.eq_constr ty xty) ;
@@ -394,15 +421,15 @@ let find_hypotheses lazy_map env sigma evars hyps patterns =
           in
           let (lTele, local_teles, _) =
             List.fold_left
-              (fun (acc, acc_ty, families) (name, evar, ty) ->
+              (fun (acc, acc_ty, families) {name; evar; typ} ->
                 match families with
                 | [] -> assert false
                 | family :: families ->
                   let t = Evd.existential_value sigma (Term.destEvar evar) in
                   let family = Termops.replace_term evar t family in
                   let acc = Termops.replace_term evar t acc in
-                  Term.mkApp (lTele, [| ty ; family ; t ; acc |]),
-                  Term.mkApp (local_telescope, [| ty ; family |]),
+                  Term.mkApp (lTele, [| typ ; family ; t ; acc |]),
+                  Term.mkApp (local_telescope, [| typ ; family |]),
                   families
               ) (existT, sigT, families) (List.rev teles)
           in

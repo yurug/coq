@@ -651,6 +651,7 @@ let make_Case (env, sigma) case =
       Array.of_list (List.rev repr_branches_red)) in
       let match_type = Retyping.get_type_of env sigma match_term in
       (sigma, Term.applist(mkDyn, [match_type;  match_term]))
+    | _ -> assert false
   else
     Exceptions.block "case_type is not an inductive type"
 
@@ -677,6 +678,7 @@ let get_Constrs (env, sigma) t =
           (Array.mapi (fun i t -> i+1) ind.mind_consnames)
       in  
       (sigma, l)
+    | _ -> assert false
   else
     Exceptions.block "The argument of Mconstrs is not an inductive type"
 

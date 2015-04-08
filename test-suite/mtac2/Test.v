@@ -45,8 +45,4 @@ intros.
 apply (eval (search _ _)).
 Qed.
 
-Require Import Mtactics.
-
-Example ex s (x y z : nat) : In x (s++[z;y;x]) := $( run_eff (search _ _) )$.
-Proof.
-   run_eff (Mgoals >> get >> fun g => Mrefine g (search _ _)).
+Example ex s (x y z : nat) : In x (s++[z;y;x]) := $( refine (eval (search _ _)) )$.

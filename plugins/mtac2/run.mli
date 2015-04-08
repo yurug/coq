@@ -1,12 +1,11 @@
 open Term
 open Evd
 open Environ
-
-module LazyList : sig type 'a t end
+open Lazy_list
 
 module CMap : Map.S with type key = Term.constr
 
-type lazy_map = constr LazyList.t CMap.t
+type lazy_map = constr Lazy_list.t CMap.t
 
 type data = Val of (evar_map * lazy_map * constr) | Err of constr
 

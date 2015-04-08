@@ -5,9 +5,9 @@ Import Mtac2Notations.
 Definition foldLL {A B : Type} (f : A -> B -> M B) :=
   mfix2 y (lst : LazyList A) (acc : B) : M B :=
     step <- Mnext lst ;
-    mmatch step with
+    match step with
     | None => ret acc
-    | [ x xs ] Some (x, xs) =>
+    | Some (x, xs) =>
       f x acc >>
       y xs
     end.
@@ -55,12 +55,14 @@ Definition simplify (g : goal) :=
   gmatch g with
   | [ l (Res: Type) ] { < local_telescope Type (fun A:Type => local_telescope Type (fun B:Type => { H : (A * B) & unit })) >* as l } Res =>
     foldLL (fun sigma g =>
+      print sigma;;
       mmatch sigma with
       | [ A B H ] lTele Type (fun A => local_telescope Type (fun B => { H : (A * B) & unit })) A
                 (lTele Type (fun B => { H : (A * B) & unit }) B 
                   (existT _ H tt)) =>
         g' <- assert_by g (fst H) >> get ;
         assert_by g' (snd H) >> get
+      | _ => ret g 
       end
     ) l g
   | _ => ret g (* nothing to do *)

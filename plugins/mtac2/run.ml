@@ -254,7 +254,7 @@ module HypPattern = struct
     | Some ix -> ix
 
   (* See the matching Coq types in Mtac2.v *)
-  type named = { elt : Term.constr ; typ : Term.constr }
+  type named = { elt : Term.constr ; ntyp : Term.constr }
   type local_telescope = {
     name : Names.name ;
     evar : Term.constr ; (* The evar we introduced *)
@@ -285,7 +285,7 @@ module HypPattern = struct
   let convert_named (env, sigma) named =
     let (_constr, args) = ROps.whd_betadeltaiota_stack env sigma named in
     match args with
-    | typ :: elt :: [] -> Named { elt ; typ }
+    | ntyp :: elt :: [] -> Named { elt ; ntyp }
     | _ -> Exceptions.block Exceptions.error_stuck
 
   (** Given a Coq term of type [hyp_pattern] turns it in a term of type [t].
@@ -328,7 +328,7 @@ module HypPattern = struct
                 ROps.whd_betadeltaiota env sigma' (Term.mkApp (lam, [| evar |]))
               in
               let sigma, teles, lst, families = aux sigma' typ in
-              sigma, teles, { typ = ty ; elt = evar } :: lst, lam :: families
+              sigma, teles, { ntyp = ty ; elt = evar } :: lst, lam :: families
           in
           try aux sigma sig_typ
           with Invalid_argument "destruct_sigT_or_unit" ->
@@ -350,7 +350,7 @@ let find_hypotheses lazy_map env sigma evars hyps patterns =
       let rsigma = ref sigma in
       let other_configs = (* Ugly *)
         map (fun (s, matched, hyps) -> (s, matched, hyp :: hyps))
-          (lazy (Lazy.force (all_matches sigma patt tail)))
+          (all_matches sigma patt tail)
       in
       if
         UnificationStrategy.unify rsigma env evars typ ty
@@ -380,8 +380,8 @@ let find_hypotheses lazy_map env sigma evars hyps patterns =
     function
     | [] ->
       Some (sigma, lazy_map)
-    | Named { typ ; elt } :: hyp_patts ->
-      begin match first_match sigma (elt, typ) hyps with
+    | Named { ntyp ; elt } :: hyp_patts ->
+      begin match first_match sigma (elt, ntyp) hyps with
       | None -> Some (sigma, lazy_map)
       | Some (sigma, hyps) -> helper lazy_map sigma hyps hyp_patts
       end
@@ -390,8 +390,8 @@ let find_hypotheses lazy_map env sigma evars hyps patterns =
       let families = List.rev families in
       let rec aux acc sigma hyps = function
         | [] -> return (sigma, acc)
-        | { typ ; elt } :: hyp_patts ->
-          all_matches sigma (elt, typ) hyps
+        | { ntyp ; elt } :: hyp_patts ->
+          all_matches sigma (elt, ntyp) hyps
           >>= fun (sigma, matched, hyps) ->
           aux ((matched, elt)::acc) sigma hyps hyp_patts
       in

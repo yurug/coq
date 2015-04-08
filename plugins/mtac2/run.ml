@@ -3,59 +3,12 @@ open Declarations
 module TOps = Termops
 module ROps = Reductionops
 
-
-module LazyList = struct
-  type 'a t = 'a u lazy_t
-  and 'a u =
-    | Nil
-    | Cons of 'a * 'a t
-
-  let new_ident =
-    let counter = ref (-1) in
-    fun () -> incr counter ; !counter
-
-  let (!!) = Lazy.force
-  
-  let nil = Lazy.from_val Nil
-  let cons x xs = Lazy.from_val (Cons (x, xs))
-
-  let destruct t =
-    match !! t with
-    | Nil -> None
-    | Cons (x, xs) -> Some (x, xs)
-
-  let rec map f lst =
-    lazy (
-      match !! lst with
-      | Nil -> Nil
-      | Cons (x, xs) -> Cons (f x, map f xs)
-    )
-
-  let rec append xs ys =
-    lazy (
-      match !! xs with
-      | Nil -> !! ys
-      | Cons (x, xs) -> Cons (x, append xs ys)
-    )
-
-  let rec concat t =
-    lazy (
-      match !! t with
-      | Nil -> Nil
-      | Cons (xs, xss) -> !! (append xs (concat xss))
-    )
-
-  let return x = cons x nil
-
-  let ( >>= ) x f = concat (map f x)
-end
-
 module CMap = Map.Make (struct
   type t = Constr.constr
   let compare x y = Constr.compare x y
 end)
 
-type lazy_map = Constr.constr LazyList.t CMap.t
+type lazy_map = Constr.constr Lazy_list.t CMap.t
 
 (** Notation conventions used in this file:
     - env stands for a local context.
@@ -300,10 +253,34 @@ module HypPattern = struct
     | None -> Exceptions.block Exceptions.error_stuck
     | Some ix -> ix
 
+  (* See the matching Coq types in Mtac2.v *)
   type named = { elt : Term.constr ; typ : Term.constr }
+  type local_telescope = {
+    name : Names.name ;
+    evar : Term.constr ; (* The evar we introduced *)
+    typ  : Term.constr ;
+  }
+
+  (* See below for an explaination. *)
+  type builder =
+    Evd.evar_map ->
+      Evd.evar_map * local_telescope list * named list * Term.constr list
+      (* Remark of a guy looking back to the code 6 months later: the last
+         element of the returned pair is used to construct the type of elements
+         of the lazy list. This seems redundant. *)
+
+  (* The OCaml twin of the Coq [hyp_pattern] type. (see Mtac2.v) *)
   type t =
     | Named of named
-    | Enum of (Evd.evar_map -> Evd.evar_map * (Names.name * Term.constr * Term.constr) list * named list * Term.constr list) * Term.constr
+      (* [Enum] represent star patterns, when you have a pattern of the form
+             [(H1, H2, ...)* as l]
+         [l] will be the second parameter of the matching [Enum] value.
+         The reason why the first parameter is not simply a [named list] is
+         because we can't simply introduce evars in the ambiant environment
+         (i.e. sigma) since we want to match multiple configurations.
+         So instead we return a function which given a sigma will introduce the
+         necessary evars and return a list of telescopes and a list of named. *)
+    | Enum of builder * Term.constr
 
   let convert_named (env, sigma) named =
     let (_constr, args) = ROps.whd_betadeltaiota_stack env sigma named in
@@ -311,6 +288,8 @@ module HypPattern = struct
     | typ :: elt :: [] -> Named { elt ; typ }
     | _ -> Exceptions.block Exceptions.error_stuck
 
+  (** Given a Coq term of type [hyp_pattern] turns it in a term of type [t].
+      See above. *)
   let convert (env, sigma as ctx) patt =
     let (c, args) = ROps.whd_betadeltaiota_stack env sigma patt in
     match constr c with
@@ -327,18 +306,19 @@ module HypPattern = struct
           let rec aux sigma typ =
             match destruct_sigT_or_unit typ with
             | `Unit -> sigma, [], [], []
-            | `LocalTele (ty, lam) ->
-              let (x, xty, body) = Term.destLambda lam in
+            | `LocalTele (typ, lam) ->
+              let (name, xty, body) = Term.destLambda lam in
               (* assert (Term.eq_constr ty xty) ; *)
               (* FIXME: the check above fails saying "Type != Type", I'm
-               * assuming the universes are different. Don't know why. *)
-              let (sigma', evar) = Evarutil.new_evar env sigma ty in
+               * assuming the universes are different but I don't understand
+               * why. *)
+              let (sigma', evar) = Evarutil.new_evar env sigma typ in
               let typ =
                 (* questionable. *)
                 ROps.whd_betadeltaiota env sigma' (Term.mkApp (lam, [| evar |]))
               in
               let sigma, teles, lst, families = aux sigma' typ in
-              sigma, (x, evar, ty) :: teles, lst, lam :: families
+              sigma, {name; evar; typ} :: teles, lst, lam :: families
             | `SigT (ty, lam) ->
               let (x, xty, body) = Term.destLambda lam in
               assert (Term.eq_constr ty xty) ;
@@ -362,7 +342,7 @@ module HypPattern = struct
 end
 
 let find_hypotheses lazy_map env sigma evars hyps patterns =
-  let open LazyList in
+  let open Lazy_list in
   let rec all_matches sigma (term, typ as patt) =
     function
     | [] -> nil
@@ -441,15 +421,15 @@ let find_hypotheses lazy_map env sigma evars hyps patterns =
           in
           let (lTele, local_teles, _) =
             List.fold_left
-              (fun (acc, acc_ty, families) (name, evar, ty) ->
+              (fun (acc, acc_ty, families) {name; evar; typ} ->
                 match families with
                 | [] -> assert false
                 | family :: families ->
                   let t = Evd.existential_value sigma (Term.destEvar evar) in
                   let family = Termops.replace_term evar t family in
                   let acc = Termops.replace_term evar t acc in
-                  Term.mkApp (lTele, [| ty ; family ; t ; acc |]),
-                  Term.mkApp (local_telescope, [| ty ; family |]),
+                  Term.mkApp (lTele, [| typ ; family ; t ; acc |]),
+                  Term.mkApp (local_telescope, [| typ ; family |]),
                   families
               ) (existT, sigT, families) (List.rev teles)
           in
@@ -651,6 +631,7 @@ let make_Case (env, sigma) case =
       Array.of_list (List.rev repr_branches_red)) in
       let match_type = Retyping.get_type_of env sigma match_term in
       (sigma, Term.applist(mkDyn, [match_type;  match_term]))
+    | _ -> assert false
   else
     Exceptions.block "case_type is not an inductive type"
 
@@ -677,6 +658,7 @@ let get_Constrs (env, sigma) t =
           (Array.mapi (fun i t -> i+1) ind.mind_consnames)
       in  
       (sigma, l)
+    | _ -> assert false
   else
     Exceptions.block "The argument of Mconstrs is not an inductive type"
 
@@ -866,9 +848,10 @@ let rec run' lazy_map (env, sigma as ctxt) t =
       )
     in
     let ll = nth 1 in
-    begin try
-      let lazy_list = CMap.find ll lazy_map in
-      match LazyList.destruct lazy_list with
+    begin match try Some (CMap.find ll lazy_map) with Not_found -> None with
+    | None -> Exceptions.block "Unknown lazy list"
+    | Some lazy_list ->
+      match Lazy_list.destruct lazy_list with
       | None -> 
         return sigma lazy_map (
           Term.mkApp (
@@ -890,8 +873,6 @@ let rec run' lazy_map (env, sigma as ctxt) t =
           )
         in
         return sigma map elt
-    with Not_found ->
-      Exceptions.block "Unknown lazy list"
     end
 
   | 19 -> (* show *)

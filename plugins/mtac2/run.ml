@@ -576,6 +576,7 @@ let dest_Case (env, sigma) t_type t =
   let dyn = MtacNames.mkConstr "dyn" in
   let mkDyn = MtacNames.mkConstr "Dyn" in
   try
+    let t = ROps.whd_betadeltaiota env sigma t in
     let (info, return_type, discriminant, branches) = Term.destCase t in
     let branch_dyns = Array.fold_left (
       fun l t -> 
@@ -593,9 +594,12 @@ let dest_Case (env, sigma) t_type t =
       )
       )
   with
-   | Not_found -> (sigma, Lazy.force (MyConstr.mkConstr "Coq.Init.Datatypes.false"))
-   | Term.DestKO -> (sigma, Lazy.force (MyConstr.mkConstr "Coq.Init.Datatypes.true"))
-   | _ -> (sigma, t)
+   | Not_found -> 
+        Exceptions.block "Something specific went wrong. TODO: find out what!"
+   | Term.DestKO -> 
+        Exceptions.block "This is not a case construct."
+   | _ -> 
+        Exceptions.block "Something not so specific went wrong."
 
 let make_Case (env, sigma) case =
   let map = MyConstr.mkConstr "List.map" in

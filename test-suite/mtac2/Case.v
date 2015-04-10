@@ -47,5 +47,44 @@ Proof.
   (* Yay *)
 Abort.
 
+Import Mtac2Notations.
+Import ListNotations.
 
+Definition LMap {A B} (f : A -> M B) :=
+  mfix1 rec (l : list A) : M (list B) := 
+  match l with
+  | [] => ret []
+  | (x :: xs) => l <- rec xs;
+                b <- f x;
+                ret (b :: l)
+  end.
+  
+Definition CantCoerce : Exception. exact exception. Qed.
+
+Definition coerce {A B : Type} (x : A) : M B :=
+  mmatch A return M B with
+  | B => [H] ret (eq_rect_r _ (fun x0 : B => x0) H x)
+  | _ => raise CantCoerce
+  end.
+
+Definition destruct {A : Type} (n : A) {P : Prop} : M P :=
+  l <- Mconstrs A;
+  l <- LMap (fun d : dyn=> 
+             let (t, c) := d in
+             e <- Mevar t;
+             ret {| elem := e |}) l;
+  let c := {| case_ind := A;
+              case_val := n;
+              case_type := P;
+              case_return := {| elem := fun _ : A => P |};
+              case_branches := l
+           |} in
+  d <- Mmakecase c;
+  d <- coerce (elem d);
+  ret d.
+
+
+Goal forall n : nat, True.
+  intro n.
+  run (destruct n (P:=True)) as H.
 

@@ -652,9 +652,10 @@ let get_Constrs (env, sigma) t =
       let l = Array.fold_left 
           (fun l i ->
               let constr = Names.ith_constructor_of_inductive (mind, ind_i) i in
-              let coq_constr = Term.applist (mkDyn, [CoqList.makeNil dyn]) in
+              let coq_constr = Term.applist (mkDyn, [CoqList.makeNil dyn]) in (* what is the sense of this line? it's being shadowed in the next one *)
               let coq_constr = Term.mkConstruct constr in
-              let dyn_constr = Term.applist (mkDyn, [coq_constr]) in
+	      let ty = Retyping.get_type_of env sigma coq_constr in 
+              let dyn_constr = Term.applist (mkDyn, [ty; coq_constr]) in
               CoqList.makeCons dyn dyn_constr l 
           )
               (CoqList.makeNil dyn )  

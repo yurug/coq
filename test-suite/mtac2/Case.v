@@ -67,16 +67,27 @@ Definition coerce {A B : Type} (x : A) : M B :=
   | _ => raise CantCoerce
   end.
 
-Definition destruct {A : Type} (n : A) {P : Prop} : M P :=
+Program Definition copy_ctx {A} (B : A -> Type) :=
+  mfix1 rec (d : dyn) : M Type :=
+  mmatch d with
+  | [C (D : C -> Type) (E : forall y:C, D y)] {| elem := fun x : C=>E x |} => 
+    nu y : C,
+      r <- rec (Dyn _ (E y));
+      Mpabs y r
+  | [c : A] {| elem := c |} => 
+    ret (B c) 
+  end.
+
+Definition destruct {A : Type} (n : A) {P : A -> Prop} : M (P n) :=
   l <- Mconstrs A;
   l <- LMap (fun d : dyn=> 
-             let (t, c) := d in
-             e <- Mevar t;
+             t' <- copy_ctx P d;
+             e <- Mevar t';
              ret {| elem := e |}) l;
   let c := {| case_ind := A;
               case_val := n;
-              case_type := P;
-              case_return := {| elem := fun _ : A => P |};
+              case_type := P n;
+              case_return := {| elem := fun n : A => P n |};
               case_branches := l
            |} in
   d <- Mmakecase c;
@@ -86,5 +97,31 @@ Definition destruct {A : Type} (n : A) {P : Prop} : M P :=
 
 Goal forall n : nat, True.
   intro n.
-  run (destruct n (P:=True)) as H.
+  Set Printing Implicit.
+  apply (eval (destruct n)).
+  Unshelve.
+  simpl.
+  apply I.
+  intro n'.
+  simpl.
+Abort.
 
+Goal forall b1 b2, andb b1 b2 = andb b2 b1.
+intros.
+apply (eval (destruct b1 (P:=fun b=>andb b b2 = andb b2 b))).
+Unshelve.
+simpl.
+apply (eval (destruct b2 (P:=fun b=>b = andb b true))).
+Unshelve.
+simpl.
+apply (eval (destruct b2 (P:=fun b=>false = andb b false))).
+Unshelve.
+simpl.
+reflexivity.
+simpl.
+reflexivity.
+simpl.
+reflexivity.
+simpl.
+reflexivity.
+Qed.

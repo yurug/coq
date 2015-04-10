@@ -70,6 +70,7 @@ Inductive Mtac2 : Type -> Prop :=
 | Mdestcase : forall {A} (a : A), Mtac2 (Case)
 | Mconstrs : forall {A : Type} (a : A), Mtac2 (list dyn)
 | Mmakecase : forall (C : Case), Mtac2 dyn
+| Mpabs : forall {A P} (x : A), P x -> Mtac2 Type
 
 with Mpatt : forall A (B : A -> Type) (t : A), Type := 
 | Mbase : forall {A B t} (x:A) (b : t = x -> Mtac2 (B x)), Mpatt A B t

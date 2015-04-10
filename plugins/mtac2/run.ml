@@ -541,7 +541,7 @@ let mysubstn t n c =
   substrec 0 c
 
 (** Abstract *)
-let abs map (env, sigma) a p x y =
+let abs ?(mkprod=false) map (env, sigma) a p x y =
   let x = ROps.whd_betadeltaiota env sigma x in
   (* check if the type p does not depend of x, and that no variable
      created after x depends on it.  otherwise, we will have to
@@ -551,7 +551,9 @@ let abs map (env, sigma) a p x y =
     if Vars.noccurn rel p then
       if noccurn_env env rel then
         let y' = mysubstn (Term.mkRel 1) rel y in
-        let t = Term.mkLambda (Names.Anonymous, a, y') in
+        let t = 
+	  if mkprod then Term.mkProd (Names.Anonymous, a, y')
+	  else Term.mkLambda (Names.Anonymous, a, y') in
         return sigma map t
       else
         Exceptions.block Exceptions.error_abs_env
@@ -924,6 +926,10 @@ let rec run' lazy_map (env, sigma as ctxt) t =
     let (sigma', case) = make_Case (env, sigma) case in
     return sigma' lazy_map case
 
+  | 23 -> (* Mpabs *)
+    let a, p, x, y = nth 0, nth 1, nth 2, nth 3 in
+    abs ~mkprod:true lazy_map ctxt a p x y
+    
   | _ ->
     Exceptions.block "I have no idea what is this Mtac2 construct that you have here"
 

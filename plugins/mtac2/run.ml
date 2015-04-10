@@ -643,7 +643,7 @@ let make_Case (env, sigma) case =
 
 
 let get_Constrs (env, sigma) t =
-  let t_type, l = Term.decompose_app (ROps.whd_betadeltaiota env sigma t) in
+  let t_type, args = Term.decompose_app (ROps.whd_betadeltaiota env sigma t) in
   if Term.isInd t_type then
     match Term.kind_of_term t_type with
     | Term.Ind ((mind, ind_i), _) -> 
@@ -655,7 +655,7 @@ let get_Constrs (env, sigma) t =
           (fun l i ->
               let constr = Names.ith_constructor_of_inductive (mind, ind_i) i in
               let coq_constr = Term.applist (mkDyn, [CoqList.makeNil dyn]) in (* what is the sense of this line? it's being shadowed in the next one *)
-              let coq_constr = Term.mkConstruct constr in
+              let coq_constr = Term.applist (Term.mkConstruct constr, args) in
 	      let ty = Retyping.get_type_of env sigma coq_constr in 
               let dyn_constr = Term.applist (mkDyn, [ty; coq_constr]) in
               CoqList.makeCons dyn dyn_constr l 

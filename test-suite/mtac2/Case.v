@@ -125,3 +125,23 @@ reflexivity.
 simpl.
 reflexivity.
 Qed.
+
+Definition NotAProductException : Exception. exact exception. Qed.
+Definition destruct0 {P : Prop} : M P :=
+  mmatch P with
+  | [A (Q : A->Prop)] forall x:A, Q x =>
+    nu x:A,
+      r <- destruct x (P:=Q);
+      a <- Mabs x r (P:=Q);
+      coerce a
+  | _ => raise NotAProductException
+  end.
+
+Goal forall l : list nat, l ++ [] = l.
+Drop.
+  apply (eval destruct0).
+  Unshelve.
+  - reflexivity.
+  - simpl.
+    (* hehe, now we need the fixpoint ;-) *)
+Abort.

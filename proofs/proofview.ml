@@ -811,6 +811,9 @@ let register_goals c =
 
 (** {7 Unsafe primitives} *)
 
+let register_goals c =
+  Proof.modify (fun (step, env) -> ({ step with comb = c @ step.comb }, env))
+
 module Unsafe = struct
 
   let tclEVARS evd =

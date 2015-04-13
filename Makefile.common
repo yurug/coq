@@ -195,8 +195,8 @@ DECLMODECMA:=plugins/decl_mode/decl_mode_plugin.cma
 DERIVECMA:=plugins/derive/derive_plugin.cma
 
 PLUGINSCMA:=$(OMEGACMA) $(ROMEGACMA) $(MICROMEGACMA) $(DECLMODECMA) \
-        $(QUOTECMA) $(RINGCMA) \
-        $(FOURIERCMA) $(EXTRACTIONCMA) \
+        $(QUOTECMA) $(RINGCMA) $(MTAC2CMA) \
+        $(FOURIERCMA) $(EXTRACTIONCMA) $(XMLCMA) \
         $(CCCMA)  $(FOCMA) $(RTAUTOCMA) $(BTAUTOCMA) \
         $(FUNINDCMA) $(NSATZCMA) $(NATSYNTAXCMA) $(OTHERSYNTAXCMA) \
         $(DERIVECMA)
@@ -320,8 +320,13 @@ CCVO:=
 DERIVEVO:=$(call cat_vo_itarget, plugins/derive)
 
 PLUGINSVO:= $(MTAC2VO) $(OMEGAVO) $(ROMEGAVO) $(MICROMEGAVO) \
+<<<<<<< HEAD
             $(XMLVO) $(FOURIERVO) $(CCVO) $(FUNINDVO) \
             $(RTAUTOVO) $(BTAUTOVO) $(RINGVO) $(QUOTEVO) \
+=======
+            $(XMLVO) $(FOURIERVO) $(CCVO) $(FUNINDVO) \
+            $(RTAUTOVO) $(BTAUTOVO) $(RINGVO) $(QUOTEVO) \
+>>>>>>> 6da3649e1ad7b0a3ce6f5af8e0b84c4983cf4178
             $(NSATZVO) $(EXTRACTIONVO) $(DERIVEVO)
 
 ALLVO:= $(THEORIESVO) $(PLUGINSVO)

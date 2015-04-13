@@ -20,6 +20,7 @@ syntax/z_syntax_plugin.cma
 quote/quote_plugin.cma
 <<<<<<< HEAD
 <<<<<<< HEAD
+<<<<<<< HEAD
 derive/derive_plugin.cma
 =======
 <<<<<<< HEAD
@@ -32,3 +33,7 @@ mtac2/mtac2_plugin.cma
 >>>>>>> Adding mtac2 to last trunk version. it is a mess
 =======
 >>>>>>> fixing messed up commits to add mtac2 to trunk
+=======
+Derive/derive_plugin.cma
+mtac2/mtac2_plugin.cma
+>>>>>>> 6da3649e1ad7b0a3ce6f5af8e0b84c4983cf4178
